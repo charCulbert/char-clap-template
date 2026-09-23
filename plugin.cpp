@@ -41,7 +41,7 @@ struct MyPlugin
     webview::Gui gui;
     uint32_t guiWidth = 480, guiHeight = 300;
     std::atomic<bool> gestureBegin[P_COUNT], gestureEnd[P_COUNT];
-    std::atomic<bool> uiNeedsValues; // set when the host changes a parameter
+    std::atomic<bool> uiDirty; // set when the host changes a parameter
 };
 
 // The params/state extension tables below refer to these helpers before
@@ -423,7 +423,7 @@ static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *even
             plugin->changed[i].store(true, std::memory_order_release);
 
             // Tell the UI on the main thread (see on_main_thread).
-            if (!plugin->uiNeedsValues.exchange(true, std::memory_order_acq_rel))
+            if (!plugin->uiDirty.exchange(true, std::memory_order_acq_rel))
                 plugin->host->request_callback(plugin->host);
         }
     }
@@ -621,7 +621,7 @@ static const clap_plugin_t pluginClass = {
     .on_main_thread = [](const clap_plugin *_plugin)
     {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-        if (plugin->uiNeedsValues.exchange(false, std::memory_order_acq_rel))
+        if (plugin->uiDirty.exchange(false, std::memory_order_acq_rel))
             PluginSendValues(plugin);
     },
 };
