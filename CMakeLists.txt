@@ -110,7 +110,8 @@ if(NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME MATCHES "WASI|iOS" AND SIMPLECHAR_UI
         FetchContent_MakeAvailable(dawn)
     endif()
     find_package(Threads REQUIRED) # Dawn's config uses Threads::Threads without finding it
-    find_package(Dawn CONFIG REQUIRED PATHS "${dawn_SOURCE_DIR}" NO_DEFAULT_PATH)
+    file(GLOB dawn_config_dir "${dawn_SOURCE_DIR}/lib*/cmake/Dawn") # lib/ or, on Linux, lib64/
+    find_package(Dawn CONFIG REQUIRED PATHS ${dawn_config_dir} NO_DEFAULT_PATH)
     if(APPLE)
         # Dawn ships arm64 and x86_64 separately; plugins here are universal.
         set(universal "${CMAKE_BINARY_DIR}/dawn-universal/libwebgpu_dawn.a")

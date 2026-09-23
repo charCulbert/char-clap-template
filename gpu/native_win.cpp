@@ -49,7 +49,7 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     WNDCLASSEXW windowClass = {sizeof(windowClass)};
     windowClass.lpfnWndProc = windowProc;
     windowClass.hInstance = thisModule();
-    windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    windowClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
     windowClass.lpszClassName = className;
     RegisterClassExW(&windowClass); // fails harmlessly when already registered
 
