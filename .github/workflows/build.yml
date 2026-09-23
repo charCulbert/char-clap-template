@@ -74,8 +74,8 @@ jobs:
           $url = "https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_$platform.zip"
           Invoke-WebRequest $url -OutFile pluginval.zip
           Expand-Archive pluginval.zip -DestinationPath pluginval-dist
-          $plugin = Get-ChildItem build -Directory -Filter simpleCharClap.vst3 -Recurse | Select-Object -First 1
-          if (-not $plugin) { throw 'VST3 bundle not found' }
+          $plugin = Get-ChildItem build -Filter simpleCharClap.vst3 -Recurse | Select-Object -First 1
+          if (-not $plugin) { throw 'VST3 artifact not found' }
           $binary = switch ($platform) {
             'macOS' { './pluginval-dist/pluginval.app/Contents/MacOS/pluginval' }
             'Linux' { './pluginval-dist/pluginval' }
