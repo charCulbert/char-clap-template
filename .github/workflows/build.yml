@@ -31,13 +31,6 @@ jobs:
       - name: Build CLAP
         run: cmake --build build --target simpleCharClap_clap --config Release --parallel 4
 
-      - name: Upload CLAP
-        uses: actions/upload-artifact@v4
-        with:
-          name: simpleCharClap-${{ matrix.os }}
-          path: build/**/simpleCharClap.clap
-          if-no-files-found: error
-
       - name: Check out clap-validator
         uses: actions/checkout@v4
         with:
@@ -54,13 +47,6 @@ jobs:
 
       - name: Build VST3
         run: cmake --build build --target simpleCharClap_vst3 --config Release --parallel 4
-
-      - name: Upload VST3
-        uses: actions/upload-artifact@v4
-        with:
-          name: simpleCharClap-vst3-${{ matrix.os }}
-          path: build/**/simpleCharClap.vst3
-          if-no-files-found: error
 
       - name: Validate VST3 with pluginval (x64 runners)
         if: matrix.os == 'macos-latest' || matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest'
@@ -87,3 +73,18 @@ jobs:
             & $binary --validate $plugin.FullName --strictness-level 5 --skip-gui-tests
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload validated CLAP
+        uses: actions/upload-artifact@v4
+        with:
+          name: simpleCharClap-${{ matrix.os }}
+          path: build/**/simpleCharClap.clap
+          if-no-files-found: error
+
+      - name: Upload validated VST3
+        if: matrix.os == 'macos-latest' || matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: simpleCharClap-vst3-${{ matrix.os }}
+          path: build/**/simpleCharClap.vst3
+          if-no-files-found: error
