@@ -20,9 +20,18 @@ if(APPLE)
     enable_language(OBJC OBJCXX)
 endif()
 
+# Keep clap-wrapper and the VST3 SDK on the same MSVC runtime (/MD).
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# Linux VST3 shared modules link clap-wrapper and SDK static libraries.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 # =============================================================================
 # Dependencies: CLAP SDK and clap-wrapper
