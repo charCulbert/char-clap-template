@@ -52,6 +52,13 @@ bool Context::createDevice()
         [](wgpu::RequestDeviceStatus status, wgpu::Device result, wgpu::StringView, Context *self) {
             if (status == wgpu::RequestDeviceStatus::Success) self->device = std::move(result);
         }, this), UINT64_MAX);
+    if (device)
+    {
+        wgpu::AdapterInfo info;
+        adapter.GetInfo(&info);
+        std::fprintf(stderr, "WebGPU device: %.*s (backend %d)\n", int(info.device.length), info.device.data,
+                     int(info.backendType));
+    }
     return device != nullptr;
 }
 #endif
