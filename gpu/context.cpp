@@ -1,5 +1,11 @@
 #include "context.h"
 #include <cstdio>
+#if defined(_WIN32)
+#define NOMINMAX // keep std::min usable
+#include <windows.h>
+#include <dawn/native/DawnNative.h>
+#include <string>
+#endif
 
 namespace gpu {
 
@@ -10,6 +16,16 @@ bool Context::createDevice()
     wgpu::InstanceDescriptor instanceDescriptor;
     instanceDescriptor.requiredFeatureCount = 1;
     instanceDescriptor.requiredFeatures = features;
+#if defined(_WIN32)
+    // Dawn's D3D12 backend loads d3dcompiler_47.dll from its search paths, which
+    // hold only our plugin's folder by default. Add System32, where Windows has it.
+    char system[MAX_PATH] = {};
+    const std::string systemPath = std::string(system, GetSystemDirectoryA(system, MAX_PATH)) + "\\";
+    std::string_view searchPaths[] = {systemPath};
+    dawn::native::DawnInstanceDescriptor dawnDescriptor;
+    dawnDescriptor.additionalRuntimeSearchPaths = searchPaths;
+    instanceDescriptor.nextInChain = &dawnDescriptor;
+#endif
     instance = wgpu::CreateInstance(&instanceDescriptor);
     if (!instance) return false;
 
