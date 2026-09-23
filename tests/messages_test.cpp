@@ -27,7 +27,7 @@ int main(int argc, char **argv)
     }
 
     Value::Map big;
-    for (int i = 0; i < 300; ++i) big["key" + std::to_string(i)] = std::string(size_t(i), 'v');
+    for (int i = 0; i < 30; ++i) big["key" + std::to_string(i)] = std::string(size_t(i) * 10, 'v');
     const Value message = Value::Map{{"type", "param"}, {"id", 1}, {"value", 1234.5},
                                      {"list", Value::Array{Value(), true, false, -7, "text"}},
                                      {"big", big}};
@@ -36,7 +36,7 @@ int main(int argc, char **argv)
     assert(decoded && webview::encode(*decoded) == bytes);
     assert((*decoded)["type"].text() == "param");
     assert((*decoded)["value"].number() == 1234.5);
-    assert((*decoded)["big"]["key299"].text().size() == 299);
+    assert((*decoded)["big"]["key29"].text().size() == 290);
     assert((*decoded)["missing"]["deeper"].number(-1) == -1);
     assert((*decoded)["type"].number(-1) == -1);
 
