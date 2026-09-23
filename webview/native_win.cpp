@@ -1,3 +1,4 @@
+#define NOMINMAX // keep std::min usable
 #include <windows.h>
 #include "native.h"
 

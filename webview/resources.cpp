@@ -4,6 +4,7 @@
 #include <iterator>
 
 #if defined(_WIN32)
+#define NOMINMAX // keep std::min usable
 #include <windows.h>
 #elif !defined(__wasi__)
 #include <dlfcn.h>
