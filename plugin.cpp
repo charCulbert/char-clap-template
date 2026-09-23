@@ -15,7 +15,15 @@
 #include <cmath>
 #include <atomic>
 #include "chardsp_StateVariableFilter.h"
+// Which presenter shows the UI natively: a WebView page (webUI/), or a
+// gpu::View drawn with Dawn (ui/FilterView.cpp). CMake's SIMPLECHAR_UI picks one.
+#if SIMPLECHAR_GPU_UI
+#include "gpu/gui.h"
+using PluginGui = gpu::Gui;
+#else
 #include "webview/gui.h"
+using PluginGui = webview::Gui;
+#endif
 #include "webview/resources.h"
 
 static_assert(std::atomic<float>::is_always_lock_free);
@@ -38,7 +46,7 @@ struct MyPlugin
 
     // Web UI. The UI edits parameters from the main thread through
     // mainParameters/mainChanged, plus these gesture flags.
-    webview::Gui gui;
+    PluginGui gui;
     uint32_t guiWidth = 480, guiHeight = 300;
     std::atomic<bool> gestureBegin[P_COUNT], gestureEnd[P_COUNT];
     std::atomic<bool> uiDirty; // set when the host changes a parameter

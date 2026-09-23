@@ -33,11 +33,42 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
 
+include(FetchContent)
+
+# How the plugin draws its interface:
+#   web  an HTML page (webUI/): a WebView natively, the host's page in WCLAP
+#   gpu  a gpu::View (ui/FilterView.cpp) drawn with WebGPU: Dawn straight into
+#        the host's window natively; the same code compiled to wasm in WCLAP
+set(SIMPLECHAR_UI web CACHE STRING "Plugin interface: web or gpu")
+set_property(CACHE SIMPLECHAR_UI PROPERTY STRINGS web gpu)
+
+set(DAWN_RELEASE "https://github.com/google/dawn/releases/download/v20260922.191850")
+set(DAWN_BUILD "Dawn-73cc233a8075446b7d377f2169323f1d2ebc1c89")
+
+# =============================================================================
+# The gpu interface's WCLAP page: the View built with Emscripten. The WCLAP
+# build configures this file a second time with SIMPLECHAR_GPU_PAGE (below).
+# =============================================================================
+
+if(SIMPLECHAR_GPU_PAGE)
+    FetchContent_Declare(emdawnwebgpu
+        URL "${DAWN_RELEASE}/emdawnwebgpu_pkg-v20260922.191850.zip"
+        URL_HASH SHA256=381a56505a68db3a8f34ec43eefa87214a45b3b94a438624297fd6186c8db257)
+    FetchContent_MakeAvailable(emdawnwebgpu)
+    set(webgpu_port "--use-port=${emdawnwebgpu_SOURCE_DIR}/emdawnwebgpu.port.py")
+    add_executable(gui gpu/web/main.cpp gpu/context.cpp ui/FilterView.cpp webview/messages.cpp)
+    target_compile_options(gui PRIVATE ${webgpu_port})
+    target_link_options(gui PRIVATE ${webgpu_port} -sALLOW_MEMORY_GROWTH
+        -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_gpuReceive)
+    set_target_properties(gui PROPERTIES SUFFIX ".js" RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/page")
+    add_custom_command(TARGET gui POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
+        "${CMAKE_CURRENT_SOURCE_DIR}/gpu/web/index.html" "${CMAKE_BINARY_DIR}/page/index.html")
+    return()
+endif()
+
 # =============================================================================
 # Dependencies: CLAP SDK and clap-wrapper
 # =============================================================================
-
-include(FetchContent)
 
 # Fetch the CLAP SDK
 FetchContent_Declare(
@@ -59,7 +90,38 @@ FetchContent_MakeAvailable(clap-wrapper)
 
 # CHOC's WebView shows the web UI in hosts that don't provide a WebView
 # themselves. Desktop only: WCLAP hosts always show the page.
-if(NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME MATCHES "WASI|iOS")
+if(NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME MATCHES "WASI|iOS" AND SIMPLECHAR_UI STREQUAL "gpu")
+    set(SIMPLECHAR_NATIVE_GPU ON)
+    # Dawn, Google's WebGPU, as its prebuilt release (one static library).
+    if(APPLE)
+        FetchContent_Declare(dawn URL "${DAWN_RELEASE}/${DAWN_BUILD}-macos-latest-Release.tar.gz"
+            URL_HASH SHA256=8466aa51e771cdc29c40ef0d1648c7011edb41a8c03892175f4b0ae0ff6b70e2)
+        FetchContent_Declare(dawn_intel URL "${DAWN_RELEASE}/${DAWN_BUILD}-macos-15-intel-Release.tar.gz"
+            URL_HASH SHA256=56c4c40ed37054278d073959d13994c7f43b0ca436186d62210e84322cae6682)
+        FetchContent_MakeAvailable(dawn dawn_intel)
+    elseif(WIN32)
+        FetchContent_Declare(dawn URL "${DAWN_RELEASE}/${DAWN_BUILD}-windows-latest-Release.tar.gz"
+            URL_HASH SHA256=38d4b019e0748821f00df38f16d47094087c1ee3a642737af4c929d45a1a72d9)
+        FetchContent_MakeAvailable(dawn)
+    else()
+        FetchContent_Declare(dawn URL "${DAWN_RELEASE}/${DAWN_BUILD}-ubuntu-latest-Release.tar.gz"
+            URL_HASH SHA256=f40bfaa23c149d2728fe094ac9dad7c4f6b7340c29d752301ae6be51d6080125)
+        FetchContent_MakeAvailable(dawn)
+    endif()
+    find_package(Threads REQUIRED) # Dawn's config uses Threads::Threads without finding it
+    find_package(Dawn CONFIG REQUIRED PATHS "${dawn_SOURCE_DIR}" NO_DEFAULT_PATH)
+    if(APPLE)
+        # Dawn ships arm64 and x86_64 separately; plugins here are universal.
+        set(universal "${CMAKE_BINARY_DIR}/dawn-universal/libwebgpu_dawn.a")
+        if(NOT EXISTS "${universal}")
+            file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/dawn-universal")
+            execute_process(COMMAND lipo -create -output "${universal}"
+                "${dawn_SOURCE_DIR}/lib/libwebgpu_dawn.a" "${dawn_intel_SOURCE_DIR}/lib/libwebgpu_dawn.a"
+                COMMAND_ERROR_IS_FATAL ANY)
+        endif()
+        set_target_properties(dawn::webgpu_dawn PROPERTIES IMPORTED_LOCATION_RELEASE "${universal}")
+    endif()
+elseif(NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME MATCHES "WASI|iOS")
     set(SIMPLECHAR_NATIVE_WEBVIEW ON)
     FetchContent_Declare(
         choc
@@ -78,10 +140,29 @@ set(CLAP_BUNDLE_ID "com.charlieculbert.simplecharclap")
 
 # All formats share this plugin implementation. webview/ is the reusable web
 # UI plumbing; it knows nothing about this plugin.
-add_library(simpleCharClap_impl STATIC plugin.cpp
-    webview/gui.cpp webview/messages.cpp webview/resources.cpp)
+add_library(simpleCharClap_impl STATIC plugin.cpp webview/messages.cpp webview/resources.cpp)
 target_include_directories(simpleCharClap_impl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(simpleCharClap_impl PUBLIC clap)
+if(SIMPLECHAR_NATIVE_GPU)
+    # gpu/ is the reusable Dawn presenter; ui/ is this plugin's interface.
+    target_compile_definitions(simpleCharClap_impl PRIVATE SIMPLECHAR_GPU_UI=1)
+    target_sources(simpleCharClap_impl PRIVATE gpu/gui.cpp gpu/context.cpp ui/FilterView.cpp)
+    target_link_libraries(simpleCharClap_impl PUBLIC dawn::webgpu_dawn)
+    if(APPLE)
+        target_sources(simpleCharClap_impl PRIVATE gpu/native_mac.mm)
+        set_source_files_properties(gpu/native_mac.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+        target_link_libraries(simpleCharClap_impl PUBLIC "-framework AppKit" "-framework QuartzCore")
+    elseif(WIN32)
+        target_sources(simpleCharClap_impl PRIVATE gpu/native_win.cpp)
+    else()
+        find_package(X11 REQUIRED)
+        target_sources(simpleCharClap_impl PRIVATE gpu/native_linux.cpp)
+        target_link_libraries(simpleCharClap_impl PUBLIC X11::X11)
+    endif()
+else()
+    # web interface; the WebView presenter is also the WCLAP host-page path.
+    target_sources(simpleCharClap_impl PRIVATE webview/gui.cpp)
+endif()
 if(SIMPLECHAR_NATIVE_WEBVIEW)
     target_compile_definitions(simpleCharClap_impl PRIVATE WEBVIEW_NATIVE=1)
     target_link_libraries(simpleCharClap_impl PRIVATE choc::choc)
@@ -228,6 +309,21 @@ endif()
 # additions and deletions in webUI/ need no relink.
 set(SIMPLECHAR_WEB_UI "${CMAKE_CURRENT_SOURCE_DIR}/webUI")
 
+if(TARGET simpleCharClap_wclap AND SIMPLECHAR_UI STREQUAL "gpu")
+    # The page is the gpu::View compiled to wasm; this file builds it again with Emscripten.
+    include(ExternalProject)
+    find_program(EMCMAKE emcmake REQUIRED)
+    ExternalProject_Add(simpleCharClap_gpu_page
+        SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+        BINARY_DIR "${CMAKE_BINARY_DIR}/gpu-page"
+        CONFIGURE_COMMAND "${EMCMAKE}" "${CMAKE_COMMAND}" -S <SOURCE_DIR> -B <BINARY_DIR>
+            -DSIMPLECHAR_GPU_PAGE=ON -DCMAKE_BUILD_TYPE=Release
+        BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR>
+        INSTALL_COMMAND ""
+        BUILD_ALWAYS ON)
+    set(SIMPLECHAR_WEB_UI "${CMAKE_BINARY_DIR}/gpu-page/page")
+endif()
+
 if(TARGET simpleCharClap_wclap)
     # Browsers download the module, so leave DWARF debug info out of Release builds.
     target_link_options(simpleCharClap_wclap PRIVATE $<$<CONFIG:Release,MinSizeRel>:-Wl,--strip-debug>)
@@ -244,6 +340,14 @@ if(TARGET simpleCharClap_wclap)
                 ${CMAKE_COMMAND} -E tar czf "../${CLAP_NAME}.wclap.tar.gz" --format=gnutar module.wasm webUI
         DEPENDS simpleCharClap_wclap
         VERBATIM)
+    if(TARGET simpleCharClap_gpu_page)
+        add_dependencies(simpleCharClap_wclap_bundle simpleCharClap_gpu_page)
+    endif()
+endif()
+
+# (A native gpu build draws with Dawn and needs no UI files.)
+if(SIMPLECHAR_UI STREQUAL "gpu")
+    return()
 endif()
 
 foreach(target simpleCharClap_clap simpleCharClap_vst3 simpleCharClap_auv2 simpleCharClap_auv3
