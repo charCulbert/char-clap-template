@@ -32,4 +32,9 @@ public:
 // Implemented by the plugin (ui/FilterView.cpp).
 std::unique_ptr<View> createView();
 
+// Reads a file shipped with the interface (ui/assets/), e.g. "/fonts/Inter.ttf".
+// Natively it comes from the bundle's resources; in WCLAP it is built into the
+// wasm. Returns empty when missing. Implemented by each presenter.
+std::string loadAsset(const char *path);
+
 }

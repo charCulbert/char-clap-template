@@ -43,6 +43,14 @@ set(SIMPLECHAR_UI web CACHE STRING "Plugin interface: web or gpu")
 set_property(CACHE SIMPLECHAR_UI PROPERTY STRINGS web gpu)
 
 set(DAWN_RELEASE "https://github.com/google/dawn/releases/download/v20260922.191850")
+
+# stb_truetype rasterizes the gpu interface's font (gpu/draw2d.cpp).
+if(SIMPLECHAR_UI STREQUAL "gpu" OR SIMPLECHAR_GPU_PAGE)
+    FetchContent_Declare(stb
+        URL https://github.com/nothings/stb/archive/2c980bb59875b0d32144a71867fbdebb2f77cd20.tar.gz
+        URL_HASH SHA256=9a955b1b49a4410088a2e0ee2a9c057c3c907d0c1d75454144cb980aca0ba515)
+    FetchContent_MakeAvailable(stb)
+endif()
 set(DAWN_BUILD "Dawn-73cc233a8075446b7d377f2169323f1d2ebc1c89")
 
 # =============================================================================
@@ -56,9 +64,12 @@ if(SIMPLECHAR_GPU_PAGE)
         URL_HASH SHA256=381a56505a68db3a8f34ec43eefa87214a45b3b94a438624297fd6186c8db257)
     FetchContent_MakeAvailable(emdawnwebgpu)
     set(webgpu_port "--use-port=${emdawnwebgpu_SOURCE_DIR}/emdawnwebgpu.port.py")
-    add_executable(gui gpu/web/main.cpp gpu/context.cpp ui/FilterView.cpp webview/messages.cpp)
+    add_executable(gui gpu/web/main.cpp gpu/context.cpp gpu/draw2d.cpp ui/FilterView.cpp webview/messages.cpp)
+    target_include_directories(gui PRIVATE "${stb_SOURCE_DIR}")
     target_compile_options(gui PRIVATE ${webgpu_port})
+    # ui/assets/ (the font) goes inside gui.wasm, readable at /assets.
     target_link_options(gui PRIVATE ${webgpu_port} -sALLOW_MEMORY_GROWTH
+        "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/ui/assets@/assets"
         -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_gpuReceive)
     set_target_properties(gui PROPERTIES SUFFIX ".js" RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/page")
     # Copied on every build, so editing the page needs no recompile.
@@ -148,7 +159,8 @@ target_link_libraries(simpleCharClap_impl PUBLIC clap)
 if(SIMPLECHAR_NATIVE_GPU)
     # gpu/ is the reusable Dawn presenter; ui/ is this plugin's interface.
     target_compile_definitions(simpleCharClap_impl PRIVATE SIMPLECHAR_GPU_UI=1)
-    target_sources(simpleCharClap_impl PRIVATE gpu/gui.cpp gpu/context.cpp ui/FilterView.cpp)
+    target_sources(simpleCharClap_impl PRIVATE gpu/gui.cpp gpu/context.cpp gpu/draw2d.cpp ui/FilterView.cpp)
+    target_include_directories(simpleCharClap_impl PRIVATE "${stb_SOURCE_DIR}")
     target_link_libraries(simpleCharClap_impl PUBLIC dawn::webgpu_dawn)
     if(APPLE)
         target_sources(simpleCharClap_impl PRIVATE gpu/native_mac.mm)
@@ -347,9 +359,9 @@ if(TARGET simpleCharClap_wclap)
     endif()
 endif()
 
-# (A native gpu build draws with Dawn and needs no UI files.)
+# A native gpu build ships ui/assets/ (its font) in the same place instead.
 if(SIMPLECHAR_UI STREQUAL "gpu")
-    return()
+    set(SIMPLECHAR_WEB_UI "${CMAKE_CURRENT_SOURCE_DIR}/ui/assets")
 endif()
 
 foreach(target simpleCharClap_clap simpleCharClap_vst3 simpleCharClap_auv2 simpleCharClap_auv3

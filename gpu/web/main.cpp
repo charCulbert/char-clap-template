@@ -4,6 +4,8 @@
 #include "../context.h"
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#include <fstream>
+#include <iterator>
 
 namespace {
 
@@ -56,6 +58,13 @@ void start()
     emscripten_request_animation_frame_loop(frame, nullptr);
 }
 
+}
+
+// ui/assets/ is embedded in gui.wasm under /assets (see CMakeLists.txt).
+std::string gpu::loadAsset(const char *path)
+{
+    std::ifstream file(std::string("/assets") + path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(file), {});
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE void gpuReceive(const unsigned char *data, int size)

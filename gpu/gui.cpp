@@ -1,9 +1,16 @@
 #include "gui.h"
 #include "context.h"
 #include "native.h"
+#include "../webview/resources.h"
 #include <cstring>
 
 namespace gpu {
+
+std::string loadAsset(const char *path)
+{
+    auto resource = webview::readResource(path);
+    return resource ? std::move(resource->bytes) : std::string();
+}
 
 Gui::Gui() = default;
 Gui::~Gui() { destroy(); }

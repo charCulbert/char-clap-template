@@ -1,9 +1,12 @@
 // simpleCharClap's GPU interface: the filter's frequency response, drawn by one
-// fragment shader. Drag anywhere: left/right sets Cutoff, up/down sets the
-// resonant peak (Q). It speaks the same messages as webUI/app.js.
+// fragment shader, with labels and readouts from gpu::Draw2D on top. Drag
+// anywhere: left/right sets Cutoff, up/down sets the resonant peak (Q). It
+// speaks the same messages as webUI/app.js.
+#include "../gpu/draw2d.h"
 #include "../gpu/view.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace {
 
@@ -13,6 +16,7 @@ struct Uniforms {
     size: vec4f,    // width, height (pixels), scale, time (seconds)
     svf: vec4f,     // cutoff Hz, Q, dragging (0/1), sample rate
     ranges: vec4f,  // lowest Hz, highest Hz, lowest dB, highest dB
+    plot: vec4f,    // plot area: left, top, right, bottom (pixels)
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
@@ -34,12 +38,9 @@ fn responseDb(f: f32) -> f32 {
     return -10.0 * log(m) / log(10.0);
 }
 
-// Plot coordinates: x is log frequency, y is dB. Both go through the same
-// margins the C++ pointer mapping uses (plotRect in FilterView).
-fn plotRect() -> vec4f {
-    let m = 18.0 * u.size.z;
-    return vec4f(m, m, u.size.x - m, u.size.y - m);
-}
+// Plot coordinates: x is log frequency, y is dB, inside the plot area the C++
+// side also uses for text and the pointer.
+fn plotRect() -> vec4f { return u.plot; }
 fn freqAt(x: f32) -> f32 {
     let r = plotRect();
     let t = clamp((x - r.x) / (r.z - r.x), 0.0, 1.0);
@@ -108,7 +109,17 @@ struct Uniforms
     float size[4];
     float filter[4];
     float ranges[4];
+    float plot[4];
 };
+
+// Formats a frequency the way the axis and readouts show it: 950 Hz, 1.20 kHz.
+std::string formatHz(float hz)
+{
+    char text[32];
+    if (hz >= 1000) std::snprintf(text, sizeof(text), "%.2f kHz", hz / 1000);
+    else std::snprintf(text, sizeof(text), "%.0f Hz", hz);
+    return text;
+}
 
 class FilterView : public gpu::View
 {
@@ -147,6 +158,7 @@ public:
         groupDescriptor.entries = &entry;
         bindGroup = device.CreateBindGroup(&groupDescriptor);
 
+        hasText = draw2d.prepare(device, format, gpu::loadAsset("/fonts/Inter.ttf"));
         send(webview::Value::Map{{"type", "ready"}});
     }
 
@@ -154,13 +166,70 @@ public:
     {
         size[0] = width, size[1] = height, scale = newScale;
         frames += 1;
+        const float s = scale;
+        // Header above the plot, axis labels below and to the left of it.
+        plot[0] = 44 * s, plot[1] = 52 * s, plot[2] = width - 16 * s, plot[3] = height - 30 * s;
         const Uniforms data{{width, height, scale, float(frames) / 60.0f},
                             {cutoff, q, dragging ? 1.0f : 0.0f, sampleRate},
-                            {minHz, maxHz, minDb, maxDb}};
+                            {minHz, maxHz, minDb, maxDb},
+                            {plot[0], plot[1], plot[2], plot[3]}};
         device.GetQueue().WriteBuffer(uniforms, 0, &data, sizeof(data));
         pass.SetPipeline(pipeline);
         pass.SetBindGroup(0, bindGroup);
         pass.Draw(3);
+        if (hasText) drawText(pass, width, height);
+    }
+
+    // Everything with words in it, drawn over the curve.
+    void drawText(const wgpu::RenderPassEncoder &pass, float width, float height)
+    {
+        const float s = scale;
+        const gpu::Color text{0.90f, 0.93f, 0.95f}, dim{0.55f, 0.61f, 0.66f}, accent{0.37f, 0.71f, 0.64f};
+        const gpu::Color panel{0.11f, 0.13f, 0.15f, 0.92f}, edge{0.25f, 0.29f, 0.32f};
+        draw2d.begin(width, height);
+
+        // Header: name, then the two values as chips on the right.
+        draw2d.circle(24 * s, 26 * s, 6 * s, accent);
+        draw2d.text(38 * s, 31 * s, 15 * s, "simpleCharClap", text);
+        draw2d.text(40 * s + draw2d.measure(15 * s, "simpleCharClap"), 31 * s, 11 * s, "  SVF LOWPASS", dim);
+        char qText[32];
+        std::snprintf(qText, sizeof(qText), "%.2f", q);
+        float right = width - 16 * s;
+        for (const auto &[label, value] : {std::pair<const char *, std::string>{"Q", qText}, {"CUTOFF", formatHz(cutoff)}})
+        {
+            const float w = draw2d.measure(10 * s, label) + draw2d.measure(13 * s, value) + 26 * s;
+            draw2d.rect(right - w, 12 * s, w, 26 * s, 13 * s, panel, 1 * s, dragging ? accent : edge);
+            draw2d.text(right - w + 10 * s, 29 * s, 10 * s, label, dim);
+            draw2d.text(right - 10 * s, 30 * s, 13 * s, value, text, gpu::Draw2D::Align::right);
+            right -= w + 8 * s;
+        }
+
+        // Axis labels: decades under the plot, every 12 dB to its left.
+        auto xOf = [&](float hz) { return plot[0] + (plot[2] - plot[0]) * std::log(hz / minHz) / std::log(maxHz / minHz); };
+        auto yOf = [&](float db) { return plot[3] - (plot[3] - plot[1]) * (db - minDb) / (maxDb - minDb); };
+        for (float hz : {100.0f, 1000.0f, 10000.0f})
+            draw2d.text(xOf(hz), height - 12 * s, 10 * s, hz >= 1000 ? (hz >= 10000 ? "10k" : "1k") : "100", dim,
+                        gpu::Draw2D::Align::center);
+        for (float db = -36; db <= 24; db += 12)
+        {
+            char label[8];
+            std::snprintf(label, sizeof(label), "%+.0f", db);
+            draw2d.text(plot[0] - 8 * s, yOf(db) + 4 * s, 10 * s, db == 0 ? "0" : label, dim, gpu::Draw2D::Align::right);
+        }
+
+        // While dragging: a tooltip by the handle with both values.
+        if (dragging)
+        {
+            char tip[48];
+            std::snprintf(tip, sizeof(tip), "%s  Q %.2f", formatHz(cutoff).c_str(), q);
+            const float w = draw2d.measure(12 * s, tip) + 20 * s;
+            const float hx = xOf(cutoff), hy = yOf(20 * std::log10(std::max(q, 1e-3f)));
+            const float x = std::clamp(hx - w / 2, plot[0], plot[2] - w);
+            const float y = hy - 44 * s < plot[1] ? hy + 18 * s : hy - 44 * s;
+            draw2d.rect(x, y, w, 26 * s, 6 * s, panel, 1 * s, accent);
+            draw2d.text(x + w / 2, y + 17.5f * s, 12 * s, tip, text, gpu::Draw2D::Align::center);
+        }
+        draw2d.flush(pass);
     }
 
     void pointer(Pointer type, float x, float y) override
@@ -175,9 +244,8 @@ public:
         if (type != Pointer::up)
         {
             // The inverse of the shader's xOf/yOf, clamped to the parameters' ranges.
-            const float margin = 18.0f * scale;
-            const float tx = std::clamp((x - margin) / (size[0] - 2 * margin), 0.0f, 1.0f);
-            const float ty = std::clamp(1.0f - (y - margin) / (size[1] - 2 * margin), 0.0f, 1.0f);
+            const float tx = std::clamp((x - plot[0]) / (plot[2] - plot[0]), 0.0f, 1.0f);
+            const float ty = std::clamp((plot[3] - y) / (plot[3] - plot[1]), 0.0f, 1.0f);
             cutoff = std::clamp(minHz * std::pow(maxHz / minHz, tx), cutoffMin, cutoffMax);
             q = std::clamp(std::pow(10.0f, (minDb + ty * (maxDb - minDb)) / 20.0f), qMin, qMax);
             send(webview::Value::Map{{"type", "change"}, {"id", cutoffId}, {"value", double(cutoff)}});
@@ -223,7 +291,10 @@ private:
     wgpu::Buffer uniforms;
     wgpu::BindGroup bindGroup;
 
+    gpu::Draw2D draw2d;
+    bool hasText = false;
     float size[2] = {1, 1}, scale = 1;
+    float plot[4] = {0, 0, 1, 1}; // left, top, right, bottom (pixels)
     unsigned frames = 0;
     bool dragging = false;
 
