@@ -48,6 +48,7 @@ private:
     std::unique_ptr<Context> context;
     std::unique_ptr<View> view;
     platform::Window *window = nullptr;
+    bool dirty = true; // something changed since the last frame
 };
 
 }

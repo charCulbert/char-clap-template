@@ -10,6 +10,7 @@ namespace {
 gpu::Context context;
 std::unique_ptr<gpu::View> view;
 bool ready = false;
+bool dirty = true; // something changed since the last frame
 
 EM_JS(void, postToPlugin, (const unsigned char *data, int size), {
     window.parent.postMessage(HEAPU8.slice(data, data + size).buffer, '*');
@@ -26,8 +27,10 @@ bool frame(double, void *)
     {
         emscripten_set_canvas_element_size("#canvas", int(width), int(height));
         context.configure(width, height);
+        dirty = true;
     }
-    context.frame(*view, pixelRatio());
+    if (dirty || view->animating()) context.frame(*view, pixelRatio());
+    dirty = false;
     return true; // keep the requestAnimationFrame loop going
 }
 
@@ -38,6 +41,7 @@ bool mouse(int type, const EmscriptenMouseEvent *event, void *)
                        : type == EMSCRIPTEN_EVENT_MOUSEUP   ? gpu::View::Pointer::up
                                                             : gpu::View::Pointer::move;
     view->pointer(pointer, float(event->targetX) * pixelRatio(), float(event->targetY) * pixelRatio());
+    dirty = true;
     return true;
 }
 
@@ -56,7 +60,7 @@ void start()
 
 extern "C" EMSCRIPTEN_KEEPALIVE void gpuReceive(const unsigned char *data, int size)
 {
-    if (auto message = webview::decode(data, size); message && view) view->receive(*message);
+    if (auto message = webview::decode(data, size); message && view) view->receive(*message), dirty = true;
 }
 
 int main()

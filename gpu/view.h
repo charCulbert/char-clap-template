@@ -21,6 +21,9 @@ public:
     virtual void draw(const wgpu::RenderPassEncoder &pass, float width, float height, float scale) = 0;
     virtual void pointer(Pointer type, float x, float y) = 0; // pixels
     virtual void receive(const webview::Value &message) = 0;
+    // Presenters draw only after input, a message or a resize, plus every
+    // frame while this is true (e.g. during an animation).
+    virtual bool animating() const { return false; }
 
     // Set by the presenter: delivers a message to the plugin.
     std::function<void(const webview::Value &)> send;

@@ -191,6 +191,8 @@ public:
         }
     }
 
+    bool animating() const override { return dragging; } // the glow breathes while dragging
+
     void receive(const webview::Value &message) override
     {
         const auto type = message["type"].text();

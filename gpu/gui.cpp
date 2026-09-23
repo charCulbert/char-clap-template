@@ -65,13 +65,14 @@ bool Gui::setParent(const clap_window_t *parent)
         return false;
     window = platform::create(parent, width, height, {
         [this] { frame(); },
-        [this](View::Pointer type, float x, float y) { if (view) view->pointer(type, x, y); },
+        [this](View::Pointer type, float x, float y) { if (view) view->pointer(type, x, y), dirty = true; },
     });
     if (!window) return false;
     context->surface = platform::createSurface(context->instance, window);
     uint32_t w, h;
     platform::pixelSize(window, w, h);
     context->configure(w, h);
+    dirty = true;
     view->prepare(context->device, context->format); // sends "ready"
     return true;
 }
@@ -85,6 +86,7 @@ void Gui::setSize(uint32_t newWidth, uint32_t newHeight)
     uint32_t w, h;
     platform::pixelSize(window, w, h);
     context->configure(w, h);
+    dirty = true;
 }
 
 bool Gui::show()
@@ -108,13 +110,16 @@ void Gui::onTimer(clap_id id)
 
 void Gui::frame()
 {
-    if (window && view) context->frame(*view, platform::scale(window));
+    if (!window || !view || !(dirty || view->animating())) return;
+    dirty = false;
+    context->frame(*view, platform::scale(window));
 }
 
 bool Gui::send(const webview::Value &message)
 {
     if (!view) return false;
     view->receive(message);
+    dirty = true;
     return true;
 }
 
