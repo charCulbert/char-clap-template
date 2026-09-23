@@ -114,8 +114,13 @@ std::optional<Resource> readResource(std::string_view urlPath)
         start = end + 1;
     }
 
+#if !defined(__wasi__)
+    // Opening a directory can succeed and read as empty, so check first.
+    // Not in WASI: the WCLAP hosts' WASI (wclap-host-js) reports file and
+    // directory types swapped, so this check would reject every file.
     std::error_code error;
     if (!std::filesystem::is_regular_file(file, error)) return {};
+#endif
     std::ifstream input(file, std::ios::binary);
     if (!input) return {};
     Resource resource{std::string(std::istreambuf_iterator<char>(input), {}), mimeFor(file)};
