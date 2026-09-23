@@ -61,7 +61,8 @@ if(SIMPLECHAR_GPU_PAGE)
     target_link_options(gui PRIVATE ${webgpu_port} -sALLOW_MEMORY_GROWTH
         -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_gpuReceive)
     set_target_properties(gui PROPERTIES SUFFIX ".js" RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/page")
-    add_custom_command(TARGET gui POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
+    # Copied on every build, so editing the page needs no recompile.
+    add_custom_target(page_html ALL COMMAND ${CMAKE_COMMAND} -E copy
         "${CMAKE_CURRENT_SOURCE_DIR}/gpu/web/index.html" "${CMAKE_BINARY_DIR}/page/index.html")
     return()
 endif()
