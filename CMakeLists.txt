@@ -77,6 +77,28 @@ else()
 endif()
 
 # =============================================================================
+# Tests for the web UI plumbing (cmake -DSIMPLECHAR_BUILD_TESTS=ON, then ctest)
+# =============================================================================
+
+option(SIMPLECHAR_BUILD_TESTS "Build the resource and message tests" OFF)
+if(SIMPLECHAR_BUILD_TESTS)
+    enable_testing()
+    add_executable(resources_test tests/resources_test.cpp webview/resources.cpp)
+    add_test(NAME resources
+        COMMAND resources_test "${CMAKE_CURRENT_BINARY_DIR}/resources-test")
+    add_executable(messages_test tests/messages_test.cpp webview/messages.cpp)
+    add_test(NAME messages COMMAND messages_test)
+    find_program(NODE node REQUIRED)
+    add_test(NAME messages_js
+        COMMAND "${NODE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/messages.test.mjs"
+                "$<TARGET_FILE:messages_test>")
+    # The tests are assert()s, so keep them in every build type.
+    foreach(test resources_test messages_test)
+        target_compile_options(${test} PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
+    endforeach()
+endif()
+
+# =============================================================================
 # iOS: AUv3 extension and containing app
 # =============================================================================
 
