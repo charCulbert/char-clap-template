@@ -254,7 +254,8 @@ foreach(target simpleCharClap_clap simpleCharClap_vst3 simpleCharClap_auv2 simpl
     if(APPLE OR target MATCHES "_vst3|_aax")
         set(destination "$<TARGET_FILE_DIR:${target}>/../Resources/webUI")  # <bundle>/Contents/Resources
     else()
-        set(destination "$<TARGET_FILE:${target}>.resources/webUI")        # next to a loose binary
+        # next to a loose binary (TARGET_FILE here would make the target depend on itself)
+        set(destination "$<TARGET_FILE_DIR:${target}>/$<TARGET_FILE_NAME:${target}>.resources/webUI")
     endif()
     add_custom_target(${target}_webUI
         COMMAND ${CMAKE_COMMAND} -E rm -rf "${destination}"
