@@ -1,0 +1,17 @@
+# Build output (including platform-specific build directories)
+/build*/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/compile_commands.json
+
+# Local machine files
+.DS_Store
+.env
+.env.*
+
+# SDKs and signing material must stay outside the repository
+/aax-sdk*/
+*.p12
+*.mobileprovision
+*.p8
