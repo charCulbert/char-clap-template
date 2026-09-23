@@ -1,6 +1,7 @@
 #include <clap/clap.h>
 #include <string.h>
 #include "./plugin.h"
+#include "webview/resources.h"
 
 static const clap_plugin_factory_t pluginFactory = {
     .get_plugin_count = [] (const clap_plugin_factory* factory) -> uint32_t
@@ -27,7 +28,10 @@ extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry = {
     .clap_version = CLAP_VERSION_INIT,
 
     .init = [] (const char* path) -> bool
-    { return true; },
+    {
+        webview::initResources(path);
+        return true;
+    },
 
     .deinit = []() {},
 

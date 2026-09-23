@@ -1,0 +1,10 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; }
+html, body { margin: 0; height: 100%; background: #16191d; color: #e6e9ec; overflow: hidden; }
+body { display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; gap: 16px; }
+header { display: flex; align-items: center; gap: 10px; }
+h1 { font-size: 18px; font-weight: 600; margin: 0; }
+main { display: grid; gap: 14px; }
+label { display: grid; grid-template-columns: 70px 1fr 80px; align-items: center; gap: 12px; }
+input[type=range] { width: 100%; accent-color: #5fb4a2; }
+output { font-variant-numeric: tabular-nums; text-align: right; color: #aab3bb; }
+.status { color: #8a949c; }

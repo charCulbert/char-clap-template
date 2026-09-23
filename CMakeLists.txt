@@ -57,6 +57,18 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(clap-wrapper)
 
+# CHOC's WebView shows the web UI in hosts that don't provide a WebView
+# themselves. Desktop only: WCLAP hosts always show the page.
+if(NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME MATCHES "WASI|iOS")
+    set(SIMPLECHAR_NATIVE_WEBVIEW ON)
+    FetchContent_Declare(
+        choc
+        GIT_REPOSITORY https://github.com/Tracktion/choc.git
+        GIT_TAG 9606a6615b592605993d92733cdfd6ca6ecbd825
+    )
+    FetchContent_MakeAvailable(choc)
+endif()
+
 # =============================================================================
 # Plugin identity and shared implementation
 # =============================================================================
@@ -64,9 +76,28 @@ FetchContent_MakeAvailable(clap-wrapper)
 set(CLAP_NAME "simpleCharClap")
 set(CLAP_BUNDLE_ID "com.charlieculbert.simplecharclap")
 
-# All formats share this plugin implementation.
-add_library(simpleCharClap_impl STATIC plugin.cpp)
+# All formats share this plugin implementation. webview/ is the reusable web
+# UI plumbing; it knows nothing about this plugin.
+add_library(simpleCharClap_impl STATIC plugin.cpp
+    webview/gui.cpp webview/messages.cpp webview/resources.cpp)
+target_include_directories(simpleCharClap_impl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(simpleCharClap_impl PUBLIC clap)
+if(SIMPLECHAR_NATIVE_WEBVIEW)
+    target_compile_definitions(simpleCharClap_impl PRIVATE WEBVIEW_NATIVE=1)
+    target_link_libraries(simpleCharClap_impl PRIVATE choc::choc)
+    if(APPLE)
+        target_sources(simpleCharClap_impl PRIVATE webview/native_mac.mm)
+        set_source_files_properties(webview/native_mac.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+        target_link_libraries(simpleCharClap_impl PUBLIC "-framework AppKit" "-framework WebKit")
+    elseif(WIN32)
+        target_sources(simpleCharClap_impl PRIVATE webview/native_win.cpp)
+    else()
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(WEBKIT REQUIRED IMPORTED_TARGET gtk+-3.0 webkit2gtk-4.1)
+        target_sources(simpleCharClap_impl PRIVATE webview/native_linux.cpp)
+        target_link_libraries(simpleCharClap_impl PUBLIC PkgConfig::WEBKIT)
+    endif()
+endif()
 set_target_properties(simpleCharClap_impl PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(MSVC)
     target_compile_options(simpleCharClap_impl PRIVATE /W4)
@@ -140,9 +171,7 @@ endif()
 # =============================================================================
 
 if(EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "WASI")
-    # A resource directory tells clap-wrapper to bundle and tar the WCLAP.
     set(SIMPLECHAR_FORMATS WCLAP)
-    set(SIMPLECHAR_RESOURCES "${CMAKE_CURRENT_SOURCE_DIR}/wclap-resources")
 else()
     # Windows/Linux need neither Apple SDKs nor Audio Unit targets.
     set(SIMPLECHAR_FORMATS CLAP VST3)
@@ -177,7 +206,8 @@ make_clapfirst_plugins(
     AUV2_SUBTYPE_CODE "SvF1"
     AUV2_INSTRUMENT_TYPE "aufx"
     PLUGIN_FORMATS ${SIMPLECHAR_FORMATS}
-    RESOURCE_DIRECTORY "${SIMPLECHAR_RESOURCES}"
+    # One folder per VST3 on Windows too, so its web UI can travel inside it.
+    WINDOWS_FOLDER_VST3 TRUE
     # Triplet: target suffix, app name, CLAP descriptor ID (plugin.cpp).
     STANDALONE_CONFIGURATIONS standalone "${CLAP_NAME}" "charlieculbert.simpleCharClap"
     COPY_AFTER_BUILD FALSE
@@ -188,3 +218,45 @@ if(SIMPLECHAR_BUILD_AAX AND APPLE)
     set_target_properties(simpleCharClap_aax PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif()
+
+# =============================================================================
+# Web UI files
+# =============================================================================
+
+# Every format ships the webUI folder as ordinary files, where
+# webview/resources.cpp looks for it. The copy runs on every build, so edits,
+# additions and deletions in webUI/ need no relink.
+set(SIMPLECHAR_WEB_UI "${CMAKE_CURRENT_SOURCE_DIR}/webUI")
+
+if(TARGET simpleCharClap_wclap)
+    # A WCLAP is a .tar.gz of module.wasm plus resources, at the archive root.
+    # (The pinned clap-wrapper's own archive adds an enclosing folder.)
+    set(bundle "$<TARGET_FILE_DIR:simpleCharClap_wclap>/${CLAP_NAME}.wclap")
+    add_custom_target(simpleCharClap_wclap_bundle ALL
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${bundle}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${bundle}"
+        COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:simpleCharClap_wclap>" "${bundle}/module.wasm"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${SIMPLECHAR_WEB_UI}" "${bundle}/webUI"
+        COMMAND ${CMAKE_COMMAND} -E chdir "${bundle}"
+                ${CMAKE_COMMAND} -E tar czf "../${CLAP_NAME}.wclap.tar.gz" --format=gnutar module.wasm webUI
+        DEPENDS simpleCharClap_wclap
+        VERBATIM)
+endif()
+
+foreach(target simpleCharClap_clap simpleCharClap_vst3 simpleCharClap_auv2 simpleCharClap_auv3
+               simpleCharClap_standalone simpleCharClap_aax)
+    if(NOT TARGET ${target})
+        continue()
+    endif()
+    if(APPLE OR target MATCHES "_vst3|_aax")
+        set(destination "$<TARGET_FILE_DIR:${target}>/../Resources/webUI")  # <bundle>/Contents/Resources
+    else()
+        set(destination "$<TARGET_FILE:${target}>.resources/webUI")        # next to a loose binary
+    endif()
+    add_custom_target(${target}_webUI
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${destination}"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${SIMPLECHAR_WEB_UI}" "${destination}"
+        VERBATIM)
+    add_dependencies(${target} ${target}_webUI)
+endforeach()
+

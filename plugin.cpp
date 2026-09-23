@@ -4,6 +4,9 @@
 #include "clap/ext/note-ports.h"
 #include "clap/ext/params.h"
 #include "clap/ext/state.h"
+#include "clap/ext/gui.h"
+#include "clap/ext/timer-support.h"
+#include "clap/ext/draft/webview.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -12,6 +15,8 @@
 #include <cmath>
 #include <atomic>
 #include "chardsp_StateVariableFilter.h"
+#include "webview/gui.h"
+#include "webview/resources.h"
 
 static_assert(std::atomic<float>::is_always_lock_free);
 static_assert(std::atomic<bool>::is_always_lock_free);
@@ -30,6 +35,13 @@ struct MyPlugin
     std::atomic<bool> changed[P_COUNT], mainChanged[P_COUNT];
     const clap_host_params_t *hostParams;
     chardsp::StateVariableFilter<float> filterL, filterR;
+
+    // Web UI. The UI edits parameters from the main thread through
+    // mainParameters/mainChanged, plus these gesture flags.
+    webview::Gui gui;
+    uint32_t guiWidth = 480, guiHeight = 300;
+    std::atomic<bool> gestureBegin[P_COUNT], gestureEnd[P_COUNT];
+    std::atomic<bool> uiNeedsValues; // set when the host changes a parameter
 };
 
 // The params/state extension tables below refer to these helpers before
@@ -37,6 +49,9 @@ struct MyPlugin
 static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *event);
 static void PluginSyncMainToAudio(MyPlugin *plugin, const clap_output_events_t *out);
 static bool PluginSyncAudioToMain(MyPlugin *plugin);
+static double PluginGetValue(MyPlugin *plugin, uint32_t i);
+static bool PluginReceiveMessage(MyPlugin *plugin, const webview::Value &message);
+static void PluginSendValues(MyPlugin *plugin);
 
 static const char *const pluginFeatures[] = {
     CLAP_PLUGIN_FEATURE_AUDIO_EFFECT,
@@ -121,11 +136,7 @@ static const clap_plugin_params_t extensionParams = {
         if (i >= P_COUNT)
             return false;
 
-        // get_value is called on the main thread, but should return the value of the parameter according to the audio thread,
-        // since the value on the audio thread is the one that host communicates with us via CLAP_EVENT_PARAM_VALUE events.
-        // And although we need to check the mainChanged array, we mustn't actually modify the parameters array,
-        // since that can only be done on the audio thread. Don't worry -- it'll pick up the changes eventually.
-        *value = plugin->mainChanged[i] ? plugin->mainParameters[i].load() : plugin->parameters[i].load();
+        *value = PluginGetValue(plugin, i);
         return true;
     },
 
@@ -196,11 +207,207 @@ static const clap_plugin_state_t extensionState = {
             }
             if (plugin->hostParams)
                 plugin->hostParams->rescan(plugin->host, CLAP_PARAM_RESCAN_VALUES);
+            PluginSendValues(plugin);
         }
 
         return success;
     },
 };
+
+// The UI is one web page, in the webUI folder. clap.webview gives it to the
+// host: its start URI, its files, and messages from it. Hosts that show pages
+// themselves use this directly; for the others, webview::Gui (behind clap.gui
+// below) shows the same page through this same table.
+static const clap_plugin_webview_t extensionWebview = {
+    .get_uri = [](const clap_plugin_t *_plugin, char *uri, uint32_t capacity) -> int32_t
+    {
+        static const char start[] = "/index.html";
+        if (capacity)
+            snprintf(uri, capacity, "%s", start);
+        return sizeof(start); // including the terminating zero
+    },
+
+    .get_resource = [](const clap_plugin_t *_plugin, const char *path, char *mime, uint32_t mimeCapacity,
+                       const clap_ostream_t *stream) -> bool
+    {
+        auto resource = webview::readResource(path);
+        if (!resource || resource->mime.size() >= mimeCapacity)
+            return false;
+        strcpy(mime, resource->mime.c_str());
+        const char *bytes = resource->bytes.data();
+        uint64_t remaining = resource->bytes.size();
+        while (remaining)
+        {
+            const int64_t written = stream->write(stream, bytes, remaining);
+            if (written <= 0)
+                return false;
+            bytes += written;
+            remaining -= (uint64_t)written;
+        }
+        return true;
+    },
+
+    .receive = [](const clap_plugin_t *_plugin, const void *buffer, uint32_t size) -> bool
+    {
+        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        auto message = webview::decode(buffer, size);
+        return message && PluginReceiveMessage(plugin, *message);
+    },
+};
+
+// clap.gui: size policy is ours; creating and embedding the view is webview::Gui's.
+#define GUI_MIN_WIDTH (320)
+#define GUI_MIN_HEIGHT (200)
+#define GUI_MAX_WIDTH (1600)
+#define GUI_MAX_HEIGHT (1200)
+
+static const clap_plugin_gui_t extensionGui = {
+    .is_api_supported = [](const clap_plugin_t *_plugin, const char *api, bool isFloating) -> bool
+    { return ((MyPlugin *)_plugin->plugin_data)->gui.isApiSupported(api, isFloating); },
+
+    .get_preferred_api = [](const clap_plugin_t *_plugin, const char **api, bool *isFloating) -> bool
+    { return ((MyPlugin *)_plugin->plugin_data)->gui.getPreferredApi(api, isFloating); },
+
+    .create = [](const clap_plugin_t *_plugin, const char *api, bool isFloating) -> bool
+    {
+        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        if (!plugin->gui.create(api, isFloating))
+            return false;
+        plugin->gui.setSize(plugin->guiWidth, plugin->guiHeight);
+        return true;
+    },
+
+    .destroy = [](const clap_plugin_t *_plugin)
+    { ((MyPlugin *)_plugin->plugin_data)->gui.destroy(); },
+
+    .set_scale = [](const clap_plugin_t *_plugin, double scale) -> bool
+    { return false; }, // WebViews scale their content themselves
+
+    .get_size = [](const clap_plugin_t *_plugin, uint32_t *width, uint32_t *height) -> bool
+    {
+        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        *width = plugin->guiWidth;
+        *height = plugin->guiHeight;
+        return true;
+    },
+
+    .can_resize = [](const clap_plugin_t *_plugin) -> bool
+    { return true; },
+
+    .get_resize_hints = [](const clap_plugin_t *_plugin, clap_gui_resize_hints_t *hints) -> bool
+    {
+        hints->can_resize_horizontally = true;
+        hints->can_resize_vertically = true;
+        hints->preserve_aspect_ratio = false;
+        return true;
+    },
+
+    .adjust_size = [](const clap_plugin_t *_plugin, uint32_t *width, uint32_t *height) -> bool
+    {
+        *width = *width < GUI_MIN_WIDTH ? GUI_MIN_WIDTH : *width > GUI_MAX_WIDTH ? GUI_MAX_WIDTH : *width;
+        *height = *height < GUI_MIN_HEIGHT ? GUI_MIN_HEIGHT : *height > GUI_MAX_HEIGHT ? GUI_MAX_HEIGHT : *height;
+        return true;
+    },
+
+    .set_size = [](const clap_plugin_t *_plugin, uint32_t width, uint32_t height) -> bool
+    {
+        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        if (width < GUI_MIN_WIDTH || width > GUI_MAX_WIDTH || height < GUI_MIN_HEIGHT || height > GUI_MAX_HEIGHT)
+            return false;
+        plugin->guiWidth = width;
+        plugin->guiHeight = height;
+        plugin->gui.setSize(width, height);
+        return true;
+    },
+
+    .set_parent = [](const clap_plugin_t *_plugin, const clap_window_t *window) -> bool
+    { return ((MyPlugin *)_plugin->plugin_data)->gui.setParent(window); },
+
+    .set_transient = [](const clap_plugin_t *_plugin, const clap_window_t *window) -> bool
+    { return false; },
+
+    .suggest_title = [](const clap_plugin_t *_plugin, const char *title) {},
+
+    .show = [](const clap_plugin_t *_plugin) -> bool
+    { return ((MyPlugin *)_plugin->plugin_data)->gui.show(); },
+
+    .hide = [](const clap_plugin_t *_plugin) -> bool
+    { return ((MyPlugin *)_plugin->plugin_data)->gui.hide(); },
+};
+
+// Linux's native WebView needs a main-thread timer; see webview::Gui::onTimer.
+static const clap_plugin_timer_support_t extensionTimerSupport = {
+    .on_timer = [](const clap_plugin_t *_plugin, clap_id timerId)
+    { ((MyPlugin *)_plugin->plugin_data)->gui.onTimer(timerId); },
+};
+
+// Messages between the UI and the plugin (main thread only):
+//   UI -> plugin  {type: "ready"}
+//                 {type: "begin" | "end", id}     a drag starts or ends
+//                 {type: "change", id, value}
+//   plugin -> UI  {type: "params", params: [{id, name, min, max, default}]}
+//                 {type: "values", values: [value per parameter id]}
+static bool PluginReceiveMessage(MyPlugin *plugin, const webview::Value &message)
+{
+    const auto type = message["type"].text();
+    if (type == "ready")
+    {
+        webview::Value::Array params;
+        for (uint32_t i = 0; i < P_COUNT; i++)
+        {
+            clap_param_info_t information = {};
+            extensionParams.get_info(&plugin->plugin, i, &information);
+            params.push_back(webview::Value::Map{
+                {"id", (double)information.id}, {"name", information.name},
+                {"min", information.min_value}, {"max", information.max_value},
+                {"default", information.default_value}});
+        }
+        plugin->gui.send(webview::Value::Map{{"type", "params"}, {"params", params}});
+        PluginSendValues(plugin);
+        return true;
+    }
+
+    const double id = message["id"].number(-1);
+    if (!(id >= 0 && id < P_COUNT))
+        return false;
+    const uint32_t i = (uint32_t)id;
+
+    if (type == "change")
+    {
+        clap_param_info_t information = {};
+        extensionParams.get_info(&plugin->plugin, i, &information);
+        const double value = message["value"].number(information.default_value);
+        plugin->mainParameters[i].store((float)fmin(fmax(value, information.min_value), information.max_value),
+                                        std::memory_order_relaxed);
+        plugin->mainChanged[i].store(true, std::memory_order_release);
+    }
+    else if (type == "begin")
+        plugin->gestureBegin[i].store(true, std::memory_order_release);
+    else if (type == "end")
+        plugin->gestureEnd[i].store(true, std::memory_order_release);
+    else
+        return false;
+
+    // The host then calls process() or flush(), which send these to the host.
+    if (plugin->hostParams)
+        plugin->hostParams->request_flush(plugin->host);
+    return true;
+}
+
+static void PluginSendValues(MyPlugin *plugin)
+{
+    webview::Value::Array values;
+    for (uint32_t i = 0; i < P_COUNT; i++)
+        values.push_back(PluginGetValue(plugin, i));
+    plugin->gui.send(webview::Value::Map{{"type", "values"}, {"values", values}});
+}
+
+// The current value on the main thread: the audio thread's value, unless the
+// main thread has changed it since. get_value and the UI both use this.
+static double PluginGetValue(MyPlugin *plugin, uint32_t i)
+{
+    return plugin->mainChanged[i] ? plugin->mainParameters[i].load() : plugin->parameters[i].load();
+}
 
 static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *event)
 {
@@ -214,14 +421,34 @@ static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *even
             uint32_t i = (uint32_t)valueEvent->param_id;
             plugin->parameters[i].store(valueEvent->value, std::memory_order_relaxed);
             plugin->changed[i].store(true, std::memory_order_release);
+
+            // Tell the UI on the main thread (see on_main_thread).
+            if (!plugin->uiNeedsValues.exchange(true, std::memory_order_acq_rel))
+                plugin->host->request_callback(plugin->host);
         }
     }
+}
+
+static void PluginSendGesture(const clap_output_events_t *out, uint32_t i, uint16_t type)
+{
+    clap_event_param_gesture_t event = {};
+    event.header.size = sizeof(event);
+    event.header.time = 0;
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = type;
+    event.header.flags = 0;
+    event.param_id = i;
+    out->try_push(out, &event.header);
 }
 
 static void PluginSyncMainToAudio(MyPlugin *plugin, const clap_output_events_t *out)
 {
     for (uint32_t i = 0; i < P_COUNT; i++)
     {
+        // A UI drag: begin, then values, then end, in that order.
+        if (plugin->gestureBegin[i].exchange(false, std::memory_order_acquire))
+            PluginSendGesture(out, i, CLAP_EVENT_PARAM_GESTURE_BEGIN);
+
         if (plugin->mainChanged[i].exchange(false, std::memory_order_acquire))
         {
             const float value = (plugin->mainParameters[i].load(std::memory_order_relaxed));
@@ -241,6 +468,9 @@ static void PluginSyncMainToAudio(MyPlugin *plugin, const clap_output_events_t *
             event.value = value;
             out->try_push(out, &event.header);
         }
+
+        if (plugin->gestureEnd[i].exchange(false, std::memory_order_acquire))
+            PluginSendGesture(out, i, CLAP_EVENT_PARAM_GESTURE_END);
     }
 }
 
@@ -283,6 +513,7 @@ static const clap_plugin_t pluginClass = {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
 
         plugin->hostParams = (const clap_host_params_t *)plugin->host->get_extension(plugin->host, CLAP_EXT_PARAMS);
+        plugin->gui.init(_plugin, plugin->host);
 
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
@@ -298,6 +529,7 @@ static const clap_plugin_t pluginClass = {
     .destroy = [](const clap_plugin *_plugin)
     {
         MyPlugin *plugin = (MyPlugin *) _plugin->plugin_data;
+        plugin->gui.destroy();
         delete plugin; },
     .activate = [](const clap_plugin *_plugin, double sampleRate, uint32_t minimumFramesCount, uint32_t maximumFramesCount) -> bool
     {
@@ -377,10 +609,21 @@ static const clap_plugin_t pluginClass = {
         if (0 == strcmp(id, CLAP_EXT_PARAMS)) return &extensionParams; // New!
         if (0 == strcmp(id, CLAP_EXT_STATE))
             return &extensionState; // New!
+        if (0 == strcmp(id, CLAP_EXT_WEBVIEW))
+            return &extensionWebview;
+        if (0 == strcmp(id, CLAP_EXT_GUI))
+            return &extensionGui;
+        if (0 == strcmp(id, CLAP_EXT_TIMER_SUPPORT))
+            return &extensionTimerSupport;
         return nullptr;
     },
 
-    .on_main_thread = [](const clap_plugin *_plugin) {},
+    .on_main_thread = [](const clap_plugin *_plugin)
+    {
+        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        if (plugin->uiNeedsValues.exchange(false, std::memory_order_acq_rel))
+            PluginSendValues(plugin);
+    },
 };
 
 // Functions available to the entry via plugin.h
