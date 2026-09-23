@@ -21,12 +21,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Linux audio headers
+      - name: Install Linux audio and WebView headers
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev xvfb xauth
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev xvfb xauth
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSIMPLECHAR_BUILD_TESTS=ON
+
+      - name: Unit tests
+        run: |
+          cmake --build build --target resources_test messages_test --config Release --parallel 4
+          ctest --test-dir build -C Release --output-on-failure
 
       - name: Build CLAP
         run: cmake --build build --target simpleCharClap_clap --config Release --parallel 4
@@ -48,6 +53,7 @@ jobs:
       - name: Build VST3
         run: cmake --build build --target simpleCharClap_vst3 --config Release --parallel 4
 
+      # Includes pluginval's editor tests, which open the web UI in its window.
       - name: Validate VST3 with pluginval (x64 runners)
         if: matrix.os == 'macos-latest' || matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest'
         shell: pwsh
@@ -60,7 +66,7 @@ jobs:
           $url = "https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_$platform.zip"
           Invoke-WebRequest $url -OutFile pluginval.zip
           Expand-Archive pluginval.zip -DestinationPath pluginval-dist
-          $plugin = Get-ChildItem build -Filter simpleCharClap.vst3 -Recurse | Select-Object -First 1
+          $plugin = Get-ChildItem build -Filter simpleCharClap.vst3 -Recurse -Directory | Select-Object -First 1
           if (-not $plugin) { throw 'VST3 artifact not found' }
           $binary = switch ($platform) {
             'macOS' { './pluginval-dist/pluginval.app/Contents/MacOS/pluginval' }
@@ -68,9 +74,9 @@ jobs:
             'Windows' { './pluginval-dist/pluginval.exe' }
           }
           if ($platform -eq 'Linux') {
-            & xvfb-run -a $binary --validate $plugin.FullName --strictness-level 5 --skip-gui-tests
+            & xvfb-run -a $binary --validate $plugin.FullName --strictness-level 5
           } else {
-            & $binary --validate $plugin.FullName --strictness-level 5 --skip-gui-tests
+            & $binary --validate $plugin.FullName --strictness-level 5
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -78,7 +84,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: simpleCharClap-${{ matrix.os }}
-          path: build/**/simpleCharClap.clap
+          # Windows/Linux CLAPs are single files with their UI in simpleCharClap.clap.resources/.
+          path: |
+            build/**/simpleCharClap.clap
+            build/**/simpleCharClap.clap.resources
           if-no-files-found: error
 
       - name: Upload validated VST3
@@ -87,4 +96,33 @@ jobs:
         with:
           name: simpleCharClap-vst3-${{ matrix.os }}
           path: build/**/simpleCharClap.vst3
+          if-no-files-found: error
+
+  wclap:
+    name: WCLAP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install wasi-sdk
+        run: |
+          curl -sSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-33/wasi-sdk-33.0-x86_64-linux.tar.gz | tar xz
+          echo "WASI_SDK=$PWD/wasi-sdk-33.0-x86_64-linux" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          cmake -S . -B build-wclap -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$WASI_SDK/share/cmake/wasi-sdk.cmake"
+          cmake --build build-wclap --target simpleCharClap_wclap_bundle --parallel 4
+
+      - name: Check the archive layout
+        run: |
+          tar tzf build-wclap/simpleCharClap.wclap.tar.gz | tee contents.txt
+          grep -qx 'module.wasm' contents.txt
+          grep -qx 'webUI/index.html' contents.txt
+
+      - name: Upload WCLAP
+        uses: actions/upload-artifact@v4
+        with:
+          name: simpleCharClap-wclap
+          path: build-wclap/simpleCharClap.wclap.tar.gz
           if-no-files-found: error

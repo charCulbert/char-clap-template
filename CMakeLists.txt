@@ -229,6 +229,9 @@ endif()
 set(SIMPLECHAR_WEB_UI "${CMAKE_CURRENT_SOURCE_DIR}/webUI")
 
 if(TARGET simpleCharClap_wclap)
+    # Browsers download the module, so leave DWARF debug info out of Release builds.
+    target_link_options(simpleCharClap_wclap PRIVATE $<$<CONFIG:Release,MinSizeRel>:-Wl,--strip-debug>)
+
     # A WCLAP is a .tar.gz of module.wasm plus resources, at the archive root.
     # (The pinned clap-wrapper's own archive adds an enclosing folder.)
     set(bundle "$<TARGET_FILE_DIR:simpleCharClap_wclap>/${CLAP_NAME}.wclap")
