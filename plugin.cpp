@@ -194,6 +194,8 @@ static const clap_plugin_state_t extensionState = {
                 plugin->mainParameters[i].store(loaded[i], std::memory_order_relaxed);
                 plugin->mainChanged[i].store(true, std::memory_order_release);
             }
+            if (plugin->hostParams)
+                plugin->hostParams->rescan(plugin->host, CLAP_PARAM_RESCAN_VALUES);
         }
 
         return success;
