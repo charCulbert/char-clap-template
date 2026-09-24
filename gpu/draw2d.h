@@ -25,7 +25,8 @@ public:
     void rect(float x, float y, float w, float h, float radius, Color fill,
               float border = 0, Color borderColor = {0, 0, 0, 0});
     void circle(float cx, float cy, float radius, Color fill, float border = 0, Color borderColor = {0, 0, 0, 0});
-    // A straight stroke with round ends; polylines join with round corners.
+    // Strokes with round ends and joins. All lines draw in one pass beneath the
+    // other shapes; only their points go to the GPU (16 bytes each).
     void line(float x0, float y0, float x1, float y1, float width, Color color);
     void polyline(const float *xy, size_t points, float width, Color color);
     // A ring sector: angles in radians, 0 pointing up, increasing clockwise.
@@ -53,11 +54,23 @@ private:
     static constexpr float bakeSize = 48; // pixels the atlas is rendered at
     static constexpr int atlasSize = 1024;
 
+    struct LineStyle
+    {
+        float color[4];
+        float halfWidth, pad[3];
+    };
+    struct LinePoint
+    {
+        float x, y, style, start; // start = 1 on each polyline's first point
+    };
+
     wgpu::Device device;
-    wgpu::RenderPipeline pipeline;
-    wgpu::Buffer uniforms, instances;
-    wgpu::BindGroup bindGroup;
-    size_t capacity = 0;
+    wgpu::RenderPipeline pipeline, linePipeline;
+    wgpu::Buffer uniforms, instances, lineStyles, linePoints;
+    wgpu::BindGroup bindGroup, lineBindGroup;
+    size_t capacity = 0, styleCapacity = 0, pointCapacity = 0;
+    std::vector<LineStyle> styles;
+    std::vector<LinePoint> points;
     float size[2] = {1, 1};
     Glyph glyphs[96] = {}; // ' ' .. '~'
     std::vector<Instance> batch;
