@@ -29,7 +29,7 @@ public:
     std::function<void(const webview::Value &)> send;
 };
 
-// Implemented by the plugin (ui/FilterView.cpp).
+// Implemented by the plugin's interface code (SIMPLECHAR_GPU_VIEW in CMake).
 std::unique_ptr<View> createView();
 
 // Reads a file shipped with the interface (ui/assets/), e.g. "/fonts/Inter.ttf".

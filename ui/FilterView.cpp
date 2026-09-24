@@ -161,43 +161,84 @@ public:
         auto *q = params.find("Q");
         if (!cutoff || !q) return; // until the plugin has sent its parameters
         ui.begin(width, height, scale);
-        const float s = scale;
+        const Clay_Color text = gpu::clayColor(ui.theme.text), dim = gpu::clayColor(ui.theme.dim);
 
-        // Layout, in pixels: header, curve on the left, knobs on the right.
-        const float plot[4] = {40 * s, 48 * s, width - 112 * s, height - 26 * s};
-
-        // Dragging on the curve moves the peak: x is Cutoff, y the peak's height (dB = 20 log10 Q).
-        auto area = ui.area(this, plot[0], plot[1], plot[2] - plot[0], plot[3] - plot[1]);
-        if (area.pressed) params.begin(*cutoff), params.begin(*q);
-        if (area.held)
+        // The layout, in points: a header, then the plot beside a column of knobs.
+        layout.begin(ui.draw, width, height, scale);
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(14),
+                         .childGap = 10, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
         {
-            const float tx = std::clamp((area.x - plot[0]) / (plot[2] - plot[0]), 0.0f, 1.0f);
-            const float ty = std::clamp((plot[3] - area.y) / (plot[3] - plot[1]), 0.0f, 1.0f);
-            params.change(*cutoff, minHz * std::pow(maxHz / minHz, tx));
-            params.change(*q, std::pow(10.0f, (minDb + ty * (maxDb - minDb)) / 20.0f));
+            CLAY({.layout = {.childGap = 10, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
+            {
+                CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(10), CLAY_SIZING_FIXED(10)}},
+                      .backgroundColor = gpu::clayColor(ui.theme.accent), .cornerRadius = CLAY_CORNER_RADIUS(5)}) {}
+                CLAY_TEXT(CLAY_STRING("simpleCharClap"), CLAY_TEXT_CONFIG({.textColor = text, .fontSize = 15}));
+                CLAY_TEXT(CLAY_STRING("SVF LOWPASS"), CLAY_TEXT_CONFIG({.textColor = dim, .fontSize = 11}));
+            }
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 12}})
+            {
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
+                      .custom = {.customData = layout.custom(plotBox)}}) {}
+                CLAY({.layout = {.sizing = {CLAY_SIZING_FIT(0), CLAY_SIZING_GROW(0)}, .childGap = 12,
+                                 .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+                {
+                    for (gpu::Param *p : {cutoff, q})
+                        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(76), CLAY_SIZING_GROW(0, 104)}},
+                              .custom = {.customData = layout.custom(knobBox, p)}}) {}
+                }
+            }
         }
-        if (area.released) params.end(*cutoff), params.end(*q);
-        dragging = area.held;
 
-        drawCurve(pass, width, height, float(cutoff->value), float(q->value), plot);
-
-        // Header, axis labels, and the two knobs.
-        ui.draw.circle(20 * s, 24 * s, 5 * s, ui.theme.accent);
-        const float title = ui.draw.text(32 * s, 29 * s, 15 * s, "simpleCharClap", ui.theme.text);
-        ui.draw.text(32 * s + title + 10 * s, 29 * s, 11 * s, "SVF LOWPASS", ui.theme.dim);
-        auto xOf = [&](float hz) { return plot[0] + (plot[2] - plot[0]) * std::log(hz / minHz) / std::log(maxHz / minHz); };
-        auto yOf = [&](float db) { return plot[3] - (plot[3] - plot[1]) * (db - minDb) / (maxDb - minDb); };
-        for (auto [hz, text] : {std::pair{100.0f, "100"}, {1000.0f, "1k"}, {10000.0f, "10k"}})
-            ui.draw.text(xOf(hz), height - 9 * s, 11 * s, text, ui.theme.dim, gpu::Draw2D::Align::center);
-        for (auto [db, text] : {std::pair{24.0f, "+24"}, {12.0f, "+12"}, {0.0f, "0"}, {-12.0f, "-12"}, {-24.0f, "-24"}, {-36.0f, "-36"}})
-            ui.draw.text(plot[0] - 8 * s, yOf(db) + 4 * s, 11 * s, text, ui.theme.dim, gpu::Draw2D::Align::right);
-        const float column = width / s - 96;
-        ui.knob(params, cutoff, column + 10, 52, 64, "%.0f Hz", true);
-        ui.knob(params, q, column + 10, 162, 64, "%.2f");
+        // Draw what the layout placed: knobs, and the plot (curve, axes, drag).
+        gpu::Rect plot{};
+        layout.end([&](int kind, void *data, gpu::Rect r) {
+            if (kind == knobBox)
+            {
+                auto *p = static_cast<gpu::Param *>(data);
+                ui.knob(params, p, r, p == cutoff ? "%.0f Hz" : "%.2f", p == cutoff);
+            }
+            if (kind == plotBox) plot = r;
+        });
+        drawPlot(pass, width, height, plot, *cutoff, *q);
         ui.end(pass);
     }
 
 private:
+    enum { plotBox, knobBox };
+
+    // The plot: axis labels on its left and bottom edges, the curve inside,
+    // and dragging on it moves the peak (x: Cutoff, y: dB = 20 log10 Q).
+    void drawPlot(const wgpu::RenderPassEncoder &pass, float width, float height, gpu::Rect box, gpu::Param &cutoff, gpu::Param &q)
+    {
+        const float s = ui.s;
+        const float plot[4] = {box.x + 30 * s, box.y, box.x + box.w, box.y + box.h - 18 * s};
+        auto area = ui.area(this, plot[0], plot[1], plot[2] - plot[0], plot[3] - plot[1]);
+        if (area.pressed) params.begin(cutoff), params.begin(q);
+        if (area.held)
+        {
+            const float tx = std::clamp((area.x - plot[0]) / (plot[2] - plot[0]), 0.0f, 1.0f);
+            const float ty = std::clamp((plot[3] - area.y) / (plot[3] - plot[1]), 0.0f, 1.0f);
+            params.change(cutoff, minHz * std::pow(maxHz / minHz, tx));
+            params.change(q, std::pow(10.0f, (minDb + ty * (maxDb - minDb)) / 20.0f));
+        }
+        if (area.released) params.end(cutoff), params.end(q);
+        dragging = area.held;
+
+        drawCurve(pass, width, height, float(cutoff.value), float(q.value), plot);
+        auto xOf = [&](float hz) { return plot[0] + (plot[2] - plot[0]) * std::log(hz / minHz) / std::log(maxHz / minHz); };
+        auto yOf = [&](float db) { return plot[3] - (plot[3] - plot[1]) * (db - minDb) / (maxDb - minDb); };
+        for (auto [hz, label] : {std::pair{100.0f, "100"}, {1000.0f, "1k"}, {10000.0f, "10k"}})
+            ui.draw.text(xOf(hz), box.y + box.h - 3 * s, 11 * s, label, ui.theme.dim, gpu::Draw2D::Align::center);
+        // Fewer dB labels when the plot is short.
+        const float step = (plot[3] - plot[1]) / s < 150 ? 24.0f : 12.0f;
+        for (float db = maxDb; db > minDb; db -= step)
+        {
+            char label[8];
+            std::snprintf(label, sizeof(label), db > 0 ? "+%.0f" : "%.0f", db);
+            ui.draw.text(plot[0] - 6 * s, yOf(db) + 4 * s, 11 * s, label, ui.theme.dim, gpu::Draw2D::Align::right);
+        }
+    }
+
     // The curve: one full-screen triangle through the shader above.
     void createCurvePipeline(wgpu::TextureFormat format)
     {
@@ -281,6 +322,7 @@ private:
     std::vector<float> columns;
     gpu::Params params;
     gpu::Ui ui;
+    gpu::Layout layout;
     unsigned frames = 0;
     bool dragging = false;
 };

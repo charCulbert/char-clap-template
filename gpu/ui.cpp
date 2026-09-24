@@ -58,10 +58,11 @@ bool Ui::drag(Params &params, Param &p, float x, float y, float w, float h, bool
     return true;
 }
 
-void Ui::knob(Params &params, Param *p, float x, float y, float size, const char *format, bool log)
+void Ui::knob(Params &params, Param *p, Rect box, const char *format, bool log)
 {
     if (!p) return;
-    const float r = size * s / 2, cx = x * s + r, cy = y * s + r;
+    // The dial fills the width, leaving room below for two lines of text.
+    const float r = std::min(box.w, box.h - 34 * s) / 2, cx = box.x + box.w / 2, cy = box.y + r;
     const bool dragging = drag(params, *p, cx - r, cy - r, 2 * r, 2 * r, true, 200 * s, log);
     // 270 degrees of travel, from 7:30 to 4:30.
     const float from = 3.927f, sweep = 4.712f, u = float(toUnit(*p, p->value, log));
@@ -78,10 +79,10 @@ void Ui::knob(Params &params, Param *p, float x, float y, float size, const char
     draw.text(cx, cy + r + 28 * s, 11 * s, p->name, theme.dim, Draw2D::Align::center);
 }
 
-void Ui::slider(Params &params, Param *p, float x, float y, float width, const char *format, bool log)
+void Ui::slider(Params &params, Param *p, Rect box, const char *format, bool log)
 {
     if (!p) return;
-    const float px = x * s, py = y * s, w = width * s, h = 22 * s;
+    const float px = box.x, py = box.y, w = box.w, h = box.h;
     const bool dragging = drag(params, *p, px, py, w, h, false, w, log);
     const float u = float(toUnit(*p, p->value, log)), track = py + 16 * s;
     draw.text(px, py + 8 * s, 11 * s, p->name, theme.dim);
@@ -104,9 +105,5 @@ Ui::Area Ui::area(const void *id, float x, float y, float w, float h)
     return result;
 }
 
-void Ui::label(float x, float y, float size, std::string_view text, Color color)
-{
-    draw.text(x * s, y * s, size * s, text, color);
-}
 
 }

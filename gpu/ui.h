@@ -1,11 +1,12 @@
 #pragma once
 #include "draw2d.h"
+#include "layout.h"
 #include "params.h"
 #include "view.h"
 
-// Immediate-mode controls: call them from View::draw every frame; each draws
-// itself, and a drag on it edits its parameter (with begin/change/end).
-// Forward View::pointer to Ui::pointer. Sizes are in points (scaled here).
+// Immediate-mode controls: call them from View::draw every frame, each with
+// the pixel rectangle Layout gave it; each draws itself, and a drag on it
+// edits its parameter (with begin/change/end). Forward View::pointer here.
 namespace gpu {
 
 struct Theme
@@ -24,11 +25,11 @@ public:
     void begin(float width, float height, float scale); // starts a frame of controls
     void end(const wgpu::RenderPassEncoder &pass);
 
-    // A rotary control; drag up/down to change. log: logarithmic mapping (min > 0).
-    void knob(Params &params, Param *p, float x, float y, float size, const char *format, bool log = false);
-    // A horizontal fader; drag left/right.
-    void slider(Params &params, Param *p, float x, float y, float width, const char *format, bool log = false);
-    void label(float x, float y, float size, std::string_view text, Color color);
+    // A rotary control with its value and name below; drag up/down to change.
+    // log: logarithmic mapping (min > 0).
+    void knob(Params &params, Param *p, Rect r, const char *format, bool log = false);
+    // A horizontal fader with its name and value above; drag left/right.
+    void slider(Params &params, Param *p, Rect r, const char *format, bool log = false);
 
     // A custom draggable region (pixels): reports press, drag and release on it.
     struct Area { bool pressed = false, held = false, released = false; float x = 0, y = 0; };

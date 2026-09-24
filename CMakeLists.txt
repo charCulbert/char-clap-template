@@ -49,8 +49,17 @@ if(SIMPLECHAR_UI STREQUAL "gpu" OR SIMPLECHAR_GPU_PAGE)
     FetchContent_Declare(stb
         URL https://github.com/nothings/stb/archive/2c980bb59875b0d32144a71867fbdebb2f77cd20.tar.gz
         URL_HASH SHA256=9a955b1b49a4410088a2e0ee2a9c057c3c907d0c1d75454144cb980aca0ba515)
+    # Clay lays the gpu interface out like flexbox (gpu/layout.cpp).
+    FetchContent_Declare(clay
+        URL https://github.com/nicbarker/clay/archive/refs/tags/v0.14.tar.gz
+        URL_HASH SHA256=ee8f6477020dd72afe8cf6f8d3ab6855980028289a2b677a1423d17aab983585)
+    FetchContent_Populate(clay) # one header; its CMakeLists builds examples we don't want
     FetchContent_MakeAvailable(stb)
 endif()
+
+# This plugin's gpu interface: the only plugin-specific sources in the gpu build.
+set(SIMPLECHAR_GPU_VIEW ui/FilterView.cpp)
+set(SIMPLECHAR_GPU_SOURCES gpu/context.cpp gpu/draw2d.cpp gpu/layout.cpp gpu/params.cpp gpu/ui.cpp)
 set(DAWN_BUILD "Dawn-73cc233a8075446b7d377f2169323f1d2ebc1c89")
 
 # =============================================================================
@@ -64,8 +73,8 @@ if(SIMPLECHAR_GPU_PAGE)
         URL_HASH SHA256=381a56505a68db3a8f34ec43eefa87214a45b3b94a438624297fd6186c8db257)
     FetchContent_MakeAvailable(emdawnwebgpu)
     set(webgpu_port "--use-port=${emdawnwebgpu_SOURCE_DIR}/emdawnwebgpu.port.py")
-    add_executable(gui gpu/web/main.cpp gpu/context.cpp gpu/draw2d.cpp gpu/params.cpp gpu/ui.cpp ui/FilterView.cpp webview/messages.cpp)
-    target_include_directories(gui PRIVATE "${stb_SOURCE_DIR}")
+    add_executable(gui gpu/web/main.cpp ${SIMPLECHAR_GPU_SOURCES} ${SIMPLECHAR_GPU_VIEW} webview/messages.cpp)
+    target_include_directories(gui PRIVATE "${stb_SOURCE_DIR}" "${clay_SOURCE_DIR}")
     target_compile_options(gui PRIVATE ${webgpu_port})
     # ui/assets/ (the font) goes inside gui.wasm, readable at /assets.
     target_link_options(gui PRIVATE ${webgpu_port} -sALLOW_MEMORY_GROWTH
@@ -162,8 +171,8 @@ target_link_libraries(simpleCharClap_impl PUBLIC clap)
 if(SIMPLECHAR_NATIVE_GPU)
     # gpu/ is the reusable Dawn presenter; ui/ is this plugin's interface.
     target_compile_definitions(simpleCharClap_impl PRIVATE SIMPLECHAR_GPU_UI=1)
-    target_sources(simpleCharClap_impl PRIVATE gpu/gui.cpp gpu/context.cpp gpu/draw2d.cpp gpu/params.cpp gpu/ui.cpp ui/FilterView.cpp)
-    target_include_directories(simpleCharClap_impl PRIVATE "${stb_SOURCE_DIR}")
+    target_sources(simpleCharClap_impl PRIVATE gpu/gui.cpp ${SIMPLECHAR_GPU_SOURCES} ${SIMPLECHAR_GPU_VIEW})
+    target_include_directories(simpleCharClap_impl PRIVATE "${stb_SOURCE_DIR}" "${clay_SOURCE_DIR}")
     target_link_libraries(simpleCharClap_impl PUBLIC dawn::webgpu_dawn)
     if(APPLE)
         target_sources(simpleCharClap_impl PRIVATE gpu/native_mac.mm)
