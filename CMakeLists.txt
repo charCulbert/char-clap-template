@@ -224,6 +224,8 @@ if(SIMPLECHAR_BUILD_TESTS)
     add_executable(resources_test tests/resources_test.cpp webview/resources.cpp)
     add_test(NAME resources
         COMMAND resources_test "${CMAKE_CURRENT_BINARY_DIR}/resources-test")
+    add_executable(spectrum_test tests/spectrum_test.cpp)
+    add_test(NAME spectrum COMMAND spectrum_test)
     add_executable(messages_test tests/messages_test.cpp webview/messages.cpp)
     add_test(NAME messages COMMAND messages_test)
     find_program(NODE node REQUIRED)
@@ -231,7 +233,7 @@ if(SIMPLECHAR_BUILD_TESTS)
         COMMAND "${NODE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/messages.test.mjs"
                 "$<TARGET_FILE:messages_test>")
     # The tests are assert()s, so keep them in every build type.
-    foreach(test resources_test messages_test)
+    foreach(test resources_test messages_test spectrum_test)
         target_compile_options(${test} PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
     endforeach()
 endif()

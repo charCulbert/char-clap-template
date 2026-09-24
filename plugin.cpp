@@ -662,7 +662,7 @@ static const clap_plugin_t pluginClass = {
         {
             webview::Value::Array db;
             std::vector<double> bands;
-            if (plugin->spectrum.analyze(plugin->sampleRate, 20.0f, 20000.0f, bands))
+            if (plugin->spectrum.analyze(plugin->sampleRate, 20.0f, 20000.0f, 60.0f, bands))
             {
                 db.assign(bands.begin(), bands.end());
                 plugin->gui.send(webview::Value::Map{{"type", "spectrum"}, {"db", std::move(db)}});

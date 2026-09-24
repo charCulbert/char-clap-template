@@ -26,12 +26,21 @@ fn curveDb(x: f32) -> f32 {
 }
 // The live spectrum from the plugin: bands in dB, log-spaced over the plot.
 @group(0) @binding(2) var<storage, read> spectrum: array<f32>;
-fn spectrumDb(x: f32) -> f32 {
-    let r = u.plot;
+fn bandAt(x: f32) -> f32 { // fractional band index at a pixel x
     let n = f32(arrayLength(&spectrum));
-    let t = clamp((x - r.x) / (r.z - r.x), 0.0, 1.0) * (n - 1.0);
+    return clamp((x - u.plot.x) / (u.plot.z - u.plot.x), 0.0, 1.0) * (n - 1.0);
+}
+fn spectrumDb(x: f32) -> f32 {
+    // Interpolated between bands, but never below the loudest band this pixel
+    // column covers, so narrow peaks survive when bands outnumber pixels.
+    let n = arrayLength(&spectrum);
+    let t = bandAt(x);
     let i = u32(t);
-    return mix(spectrum[i], spectrum[min(i + 1u, u32(n) - 1u)], fract(t));
+    var db = mix(spectrum[i], spectrum[min(i + 1u, n - 1u)], fract(t));
+    for (var k = u32(ceil(bandAt(x - 0.5))); f32(k) <= bandAt(x + 0.5) && k < n; k++) {
+        db = max(db, spectrum[k]);
+    }
+    return db;
 }
 
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
@@ -81,8 +90,10 @@ fn yOf(db: f32) -> f32 {
 
     // The spectrum, behind the curve: a soft fill below it and a faint edge.
     let ys = yOf(spectrumDb(px.x));
-    color += vec3f(0.30, 0.42, 0.52) * 0.30 * step(ys, px.y) * inside;
-    color += vec3f(0.45, 0.60, 0.72) * 0.5 * (1.0 - smoothstep(0.0, 1.5 * s, abs(px.y - ys))) * inside;
+    let spectrumSlope = (yOf(spectrumDb(px.x + 1.0)) - yOf(spectrumDb(px.x - 1.0))) * 0.5;
+    let spectrumDistance = abs(px.y - ys) / sqrt(1.0 + spectrumSlope * spectrumSlope);
+    color += vec3f(0.30, 0.42, 0.52) * 0.30 * smoothstep(ys - 0.5, ys + 0.5, px.y) * inside;
+    color += vec3f(0.45, 0.60, 0.72) * 0.5 * (1.0 - smoothstep(0.25 * s, 1.25 * s, spectrumDistance)) * inside;
 
     // The curve: distance to it from this pixel, using the local slope.
     let y0 = yOf(curveDb(px.x));
