@@ -60,10 +60,12 @@ void Gui::destroy()
 {
     if (timer != CLAP_INVALID_ID) hostTimers->unregister_timer(host, timer);
     timer = CLAP_INVALID_ID;
-    if (window) platform::destroy(window);
-    window = nullptr;
+    // GPU objects first: the surface refers to our window (and on Linux to its
+    // X display connection), which must outlive it.
     view.reset();
     context.reset();
+    if (window) platform::destroy(window);
+    window = nullptr;
 }
 
 bool Gui::setParent(const clap_window_t *parent)
