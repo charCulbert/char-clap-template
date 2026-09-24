@@ -124,7 +124,7 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
 {
     HWND host = static_cast<HWND>(parent->win32);
     if (!IsWindow(host)) return nullptr;
-    static const wchar_t *className = L"simpleCharClapGpuView";
+    static const wchar_t *className = L"ClapGpuView"; // per module: other plugins' classes don't clash
     WNDCLASSEXW windowClass = {sizeof(windowClass)};
     windowClass.lpfnWndProc = windowProc;
     windowClass.hInstance = thisModule();
