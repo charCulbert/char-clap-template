@@ -74,7 +74,7 @@ fn xOf(f: f32) -> f32 {
 }
 // The level scale: linear in dB, 0 dBFS at the top, the floor at the bottom
 // edge; anything quieter rests on it.
-const floorDb = -90.0;
+const floorDb = -110.0; // as FabFilter Pro-Q's analyzer
 fn levelY(dbfs: f32) -> f32 {
     let r = plotRect();
     return r.y + (r.w - r.y) * clamp(dbfs / floorDb, 0.0, 1.0);
@@ -95,8 +95,8 @@ fn levelY(dbfs: f32) -> f32 {
         grid = max(grid, 1.0 - smoothstep(0.0, s, abs(px.x - xOf(gridHz[i]))));
     }
     // Horizontal lines on the spectrum's level scale (dBFS, labelled on the left).
-    let gridDb = array<f32, 9>(0.0, -10.0, -20.0, -30.0, -40.0, -50.0, -60.0, -70.0, -80.0);
-    for (var i = 0; i < 9; i++) {
+    let gridDb = array<f32, 11>(0.0, -10.0, -20.0, -30.0, -40.0, -50.0, -60.0, -70.0, -80.0, -90.0, -100.0);
+    for (var i = 0; i < 11; i++) {
         grid = max(grid, 1.0 - smoothstep(0.0, s, abs(px.y - levelY(gridDb[i]))));
     }
     color += vec3f(0.06, 0.07, 0.08) * grid * inside;
@@ -259,11 +259,11 @@ private:
             ui.draw.text(x, box.y + box.h - 7 * s, 11 * s, label, ui.theme.dim, gpu::Draw2D::Align::center);
             lastRight = x + half;
         }
-        // Left: the spectrum's level in dBFS, linear, 0 at the top and -90 at
+        // Left: the spectrum's level in dBFS, linear, 0 at the top and -110 at
         // the bottom (the shader's levelY). Labels too close together are skipped.
-        auto levelY = [&](float dbfs) { return plot[1] + (plot[3] - plot[1]) * std::clamp(dbfs / -90.0f, 0.0f, 1.0f); };
+        auto levelY = [&](float dbfs) { return plot[1] + (plot[3] - plot[1]) * std::clamp(dbfs / -110.0f, 0.0f, 1.0f); };
         float lastY = -1e9f;
-        for (float dbfs = 0; dbfs >= -90; dbfs -= 10)
+        for (float dbfs = 0; dbfs >= -110; dbfs -= 10)
         {
             const float y = std::clamp(levelY(dbfs), plot[1] + 9 * s, plot[3] - 2 * s);
             if (y - lastY < 14 * s) continue;
