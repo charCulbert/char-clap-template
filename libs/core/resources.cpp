@@ -12,9 +12,16 @@
 
 namespace core {
 
-static std::filesystem::path root;
+// A function-local static, built on first use: clap-wrapper's AU calls
+// clap_entry.init from a static constructor, which may run before a plain
+// global's constructor would, and that constructor would then empty it.
+static std::filesystem::path &root()
+{
+    static std::filesystem::path folder;
+    return folder;
+}
 
-void setResourceRoot(std::filesystem::path folder) { root = std::move(folder); }
+void setResourceRoot(std::filesystem::path folder) { root() = std::move(folder); }
 
 #if !defined(__wasi__)
 static std::filesystem::path thisBinary()
@@ -42,15 +49,15 @@ void initResources(const char *entryPath)
 #if defined(__wasi__)
     // The host mounts the WCLAP bundle at entryPath. WASI opens paths
     // relative to its preopened root, so drop the leading '/'.
-    root = std::filesystem::path(entryPath ? entryPath : "").relative_path() / "resources";
+    root() = std::filesystem::path(entryPath ? entryPath : "").relative_path() / "resources";
 #else
     (void)entryPath;
     const auto binary = thisBinary();
     const auto folder = binary.parent_path();
     if (folder.parent_path().filename() == "Contents") // <bundle>/Contents/<MacOS|x86_64-win|...>/
-        root = folder.parent_path() / "Resources";
+        root() = folder.parent_path() / "Resources";
     else
-        root = folder / (binary.filename() += ".resources");
+        root() = folder / (binary.filename() += ".resources");
 #endif
 }
 
@@ -84,7 +91,7 @@ static std::string mimeFor(const std::filesystem::path &file)
 std::optional<Resource> readResource(std::string_view urlPath)
 {
     urlPath = urlPath.substr(0, urlPath.find_first_of("?#"));
-    if (root.empty() || urlPath.empty() || urlPath[0] != '/') return {};
+    if (root().empty() || urlPath.empty() || urlPath[0] != '/') return {};
 
     // Percent-decode, then accept only plain relative segments.
     std::string decoded;
@@ -104,7 +111,7 @@ std::optional<Resource> readResource(std::string_view urlPath)
     }
     if (decoded.empty() || decoded.back() == '/') decoded += "index.html";
 
-    std::filesystem::path file = root;
+    std::filesystem::path file = root();
     size_t start = 0;
     while (start <= decoded.size())
     {
