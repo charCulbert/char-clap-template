@@ -55,11 +55,20 @@ if(SIMPLECHAR_UI STREQUAL "gpu" OR SIMPLECHAR_GPU_PAGE)
         URL_HASH SHA256=ee8f6477020dd72afe8cf6f8d3ab6855980028289a2b677a1423d17aab983585)
     FetchContent_Populate(clay) # one header; its CMakeLists builds examples we don't want
     FetchContent_MakeAvailable(stb)
+    # Dear ImGui (MIT) and its WebGPU renderer, for ui/ImGuiView.cpp.
+    FetchContent_Declare(imgui
+        URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.9b.tar.gz
+        URL_HASH SHA256=21d8a0a565e85dce943e375db00812c2f3f0ab21f3f0f7964e364a63422d7f99)
+    FetchContent_Populate(imgui) # no CMakeLists; we compile the files we need
 endif()
 
 # This plugin's gpu interface: the only plugin-specific sources in the gpu build.
-set(SIMPLECHAR_GPU_VIEW ui/FilterView.cpp)
+# ui/ImGuiView.cpp draws it with Dear ImGui instead of gpu/ui.h (FilterView.cpp).
+set(SIMPLECHAR_GPU_VIEW ui/ImGuiView.cpp
+    ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp ${imgui_SOURCE_DIR}/backends/imgui_impl_wgpu.cpp)
 set(SIMPLECHAR_GPU_SOURCES gpu/context.cpp gpu/draw2d.cpp gpu/layout.cpp gpu/params.cpp gpu/ui.cpp)
+set(SIMPLECHAR_GPU_INCLUDES "${stb_SOURCE_DIR}" "${clay_SOURCE_DIR}" "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
 set(DAWN_BUILD "Dawn-73cc233a8075446b7d377f2169323f1d2ebc1c89")
 
 # =============================================================================
@@ -74,7 +83,7 @@ if(SIMPLECHAR_GPU_PAGE)
     FetchContent_MakeAvailable(emdawnwebgpu)
     set(webgpu_port "--use-port=${emdawnwebgpu_SOURCE_DIR}/emdawnwebgpu.port.py")
     add_executable(gui gpu/web/main.cpp ${SIMPLECHAR_GPU_SOURCES} ${SIMPLECHAR_GPU_VIEW} webview/messages.cpp)
-    target_include_directories(gui PRIVATE "${stb_SOURCE_DIR}" "${clay_SOURCE_DIR}")
+    target_include_directories(gui PRIVATE ${SIMPLECHAR_GPU_INCLUDES})
     target_compile_options(gui PRIVATE ${webgpu_port})
     # ui/assets/ (the font) goes inside gui.wasm, readable at /assets.
     target_link_options(gui PRIVATE ${webgpu_port} -sALLOW_MEMORY_GROWTH
@@ -172,7 +181,11 @@ if(SIMPLECHAR_NATIVE_GPU)
     # gpu/ is the reusable Dawn presenter; ui/ is this plugin's interface.
     target_compile_definitions(simpleCharClap_impl PRIVATE SIMPLECHAR_GPU_UI=1)
     target_sources(simpleCharClap_impl PRIVATE gpu/gui.cpp ${SIMPLECHAR_GPU_SOURCES} ${SIMPLECHAR_GPU_VIEW})
-    target_include_directories(simpleCharClap_impl PRIVATE "${stb_SOURCE_DIR}" "${clay_SOURCE_DIR}")
+    target_include_directories(simpleCharClap_impl PRIVATE ${SIMPLECHAR_GPU_INCLUDES})
+    target_compile_definitions(simpleCharClap_impl PRIVATE IMGUI_IMPL_WEBGPU_BACKEND_DAWN)
+    if(APPLE) # its optional surface helper includes Cocoa
+        set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_wgpu.cpp PROPERTIES COMPILE_OPTIONS "-xobjective-c++")
+    endif()
     target_link_libraries(simpleCharClap_impl PUBLIC dawn::webgpu_dawn)
     if(APPLE)
         target_sources(simpleCharClap_impl PRIVATE gpu/native_mac.mm)
