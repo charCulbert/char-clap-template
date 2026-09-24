@@ -31,7 +31,7 @@ jobs:
 
       - name: Unit tests
         run: |
-          cmake --build build --target resources_test messages_test --config Release --parallel 4
+          cmake --build build --target resources_test messages_test spectrum_test --config Release --parallel 4
           ctest --test-dir build -C Release --output-on-failure
 
       - name: Build CLAP
