@@ -50,17 +50,27 @@ fn spectrumDb(x: f32) -> f32 {
 
 const pi = 3.14159265;
 
-// Plot coordinates: x is log frequency, y is dB, inside the plot area the C++
-// side also uses for text and the pointer.
+// Plot coordinates, inside the plot area the C++ side also uses for text and
+// the pointer. y is dB. x is Signalsmith's frequency scale, hz / (1500 + hz):
+// nearly linear in the lows and nearly logarithmic above, like hearing.
 fn plotRect() -> vec4f { return u.plot; }
+fn warp(hz: f32) -> f32 { return hz / (1500.0 + hz); }
 fn freqAt(x: f32) -> f32 {
     let r = plotRect();
     let t = clamp((x - r.x) / (r.z - r.x), 0.0, 1.0);
-    return u.ranges.x * pow(u.ranges.y / u.ranges.x, t);
+    let w = mix(warp(u.ranges.x), warp(u.ranges.y), t);
+    return 1500.0 * w / (1.0 - w);
 }
 fn xOf(f: f32) -> f32 {
     let r = plotRect();
-    return r.x + (r.z - r.x) * log(f / u.ranges.x) / log(u.ranges.y / u.ranges.x);
+    return r.x + (r.z - r.x) * (warp(f) - warp(u.ranges.x)) / (warp(u.ranges.y) - warp(u.ranges.x));
+}
+// The spectrum's own vertical scale, Signalsmith's: 0 dBFS at the top, quiet
+// levels compressed towards the bottom (energy^0.12, then a soft curve).
+fn levelY(dbfs: f32) -> f32 {
+    let r = plotRect();
+    let v = pow(10.0, 0.012 * dbfs); // (10^(dB/10))^0.12
+    return r.w - (r.w - r.y) * 0.6 * v / (0.4 + 0.2 * v);
 }
 fn yOf(db: f32) -> f32 {
     let r = plotRect();
@@ -77,10 +87,11 @@ fn yOf(db: f32) -> f32 {
     // Background: dark vertical gradient.
     var color = mix(vec3f(0.075, 0.085, 0.10), vec3f(0.035, 0.04, 0.05), px.y / u.size.y);
 
-    // Grid: decades (100 Hz, 1 kHz, 10 kHz) and every 12 dB.
+    // Grid: the labelled frequencies and every 12 dB.
     var grid = 0.0;
-    for (var d = 100.0; d < u.ranges.y; d = d * 10.0) {
-        grid = max(grid, 1.0 - smoothstep(0.0, s, abs(px.x - xOf(d))));
+    let gridHz = array<f32, 8>(50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0);
+    for (var i = 0; i < 8; i++) {
+        grid = max(grid, 1.0 - smoothstep(0.0, s, abs(px.x - xOf(gridHz[i]))));
     }
     for (var db = -48.0; db <= 24.0; db = db + 12.0) {
         let line = 1.0 - smoothstep(0.0, s, abs(px.y - yOf(db)));
@@ -89,8 +100,8 @@ fn yOf(db: f32) -> f32 {
     color += vec3f(0.06, 0.07, 0.08) * grid * inside;
 
     // The spectrum, behind the curve: a soft fill below it and a faint edge.
-    let ys = yOf(spectrumDb(px.x));
-    let spectrumSlope = (yOf(spectrumDb(px.x + 1.0)) - yOf(spectrumDb(px.x - 1.0))) * 0.5;
+    let ys = levelY(spectrumDb(px.x));
+    let spectrumSlope = (levelY(spectrumDb(px.x + 1.0)) - levelY(spectrumDb(px.x - 1.0))) * 0.5;
     let spectrumDistance = abs(px.y - ys) / sqrt(1.0 + spectrumSlope * spectrumSlope);
     color += vec3f(0.30, 0.42, 0.52) * 0.30 * smoothstep(ys - 0.5, ys + 0.5, px.y) * inside;
     color += vec3f(0.45, 0.60, 0.72) * 0.5 * (1.0 - smoothstep(0.25 * s, 1.25 * s, spectrumDistance)) * inside;
@@ -132,6 +143,20 @@ struct Uniforms
 };
 
 constexpr float minHz = 20, maxHz = 20000, minDb = -48, maxDb = 24;
+
+// The plot's frequency scale (the shader's warp/xOf/freqAt): Signalsmith's
+// hz / (1500 + hz), as a 0..1 position across the plot and back.
+float hzToUnit(float hz)
+{
+    auto warp = [](float f) { return f / (1500 + f); };
+    return (warp(hz) - warp(minHz)) / (warp(maxHz) - warp(minHz));
+}
+float unitToHz(float t)
+{
+    const float lo = minHz / (1500 + minHz), hi = maxHz / (1500 + maxHz);
+    const float w = lo + t * (hi - lo);
+    return 1500 * w / (1 - w);
+}
 
 // The plugin's TPT state-variable lowpass is a bilinear-transformed analog
 // filter, so this is its exact digital magnitude response in dB.
@@ -229,17 +254,25 @@ private:
         {
             const float tx = std::clamp((area.x - plot[0]) / (plot[2] - plot[0]), 0.0f, 1.0f);
             const float ty = std::clamp((plot[3] - area.y) / (plot[3] - plot[1]), 0.0f, 1.0f);
-            params.change(cutoff, minHz * std::pow(maxHz / minHz, tx));
+            params.change(cutoff, unitToHz(tx));
             params.change(q, std::pow(10.0f, (minDb + ty * (maxDb - minDb)) / 20.0f));
         }
         if (area.released) params.end(cutoff), params.end(q);
         dragging = area.held;
 
         drawCurve(pass, width, height, float(cutoff.value), float(q.value), plot);
-        auto xOf = [&](float hz) { return plot[0] + (plot[2] - plot[0]) * std::log(hz / minHz) / std::log(maxHz / minHz); };
+        auto xOf = [&](float hz) { return plot[0] + (plot[2] - plot[0]) * hzToUnit(hz); };
         auto yOf = [&](float db) { return plot[3] - (plot[3] - plot[1]) * (db - minDb) / (maxDb - minDb); };
-        for (auto [hz, label] : {std::pair{100.0f, "100"}, {1000.0f, "1k"}, {10000.0f, "10k"}})
+        // Frequency labels, skipping any that would overlap the previous one.
+        float lastRight = -1e9f;
+        for (auto [hz, label] : {std::pair{50.0f, "50"}, {100.0f, "100"}, {200.0f, "200"}, {500.0f, "500"},
+                                 {1000.0f, "1k"}, {2000.0f, "2k"}, {5000.0f, "5k"}, {10000.0f, "10k"}})
+        {
+            const float half = ui.draw.measure(11 * s, label) / 2;
+            if (xOf(hz) - half < lastRight + 6 * s) continue;
             ui.draw.text(xOf(hz), box.y + box.h - 3 * s, 11 * s, label, ui.theme.dim, gpu::Draw2D::Align::center);
+            lastRight = xOf(hz) + half;
+        }
         // Fewer dB labels when the plot is short.
         const float step = (plot[3] - plot[1]) / s < 150 ? 24.0f : 12.0f;
         for (float db = maxDb; db > minDb; db -= step)
@@ -314,7 +347,7 @@ private:
         for (size_t x = 0; x < columns.size(); ++x)
         {
             const float t = std::clamp((float(x) - plot[0]) / (plot[2] - plot[0]), 0.0f, 1.0f);
-            columns[x] = responseDb(minHz * std::pow(maxHz / minHz, t), cutoff, q, 48000.0f);
+            columns[x] = responseDb(unitToHz(t), cutoff, q, 48000.0f);
         }
         device.GetQueue().WriteBuffer(curveBuffer, 0, columns.data(), columns.size() * sizeof(float));
         device.GetQueue().WriteBuffer(spectrumBuffer, 0, spectrum.data(), sizeof(float) * spectrum.size());

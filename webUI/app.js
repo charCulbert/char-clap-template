@@ -55,7 +55,8 @@ const context = spectrum.getContext('2d');
 function drawSpectrum(db) {
   const r = devicePixelRatio, w = spectrum.clientWidth * r, h = spectrum.clientHeight * r;
   if (spectrum.width !== w || spectrum.height !== h) spectrum.width = w, spectrum.height = h;
-  const y = d => h * (1 - (Math.max(d, -96) + 96) / 108); // -96 dB .. +12 dB
+  // Signalsmith's level scale: 0 dBFS at the top, quiet levels compressed below.
+  const y = d => { const v = Math.pow(10, 0.012 * d); return h * (1 - 0.6 * v / (0.4 + 0.2 * v)); };
   const line = new Path2D();
   db.forEach((d, i) => line.lineTo(i / (db.length - 1) * w, y(d)));
   const fill = new Path2D(line);

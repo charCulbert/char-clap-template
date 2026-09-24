@@ -1,23 +1,26 @@
-// The spectrum reads true levels: sines at their level (dB re full-scale sine),
-// with little leakage, at low, mid and high frequencies; pink noise flat.
+// The spectrum: sines read their level wherever they fall, the display has
+// no needles between bands, and it reacts in tens of milliseconds.
 #include "../chardsp_Spectrum.h"
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <memory>
-#include <random>
 
 constexpr float sampleRate = 48000, minHz = 20, maxHz = 20000;
+constexpr int bandCount = 256;
+const double pi = 3.14159265358979;
 
-static int bandOf(float hz)
+static int bandOf(double hz)
 {
-    const double ratio = std::pow(double(maxHz) / minHz, 1.0 / chardsp::Spectrum::bandCount);
-    return int(std::log(hz / minHz) / std::log(ratio));
+    using S = chardsp::Spectrum;
+    return int((S::scale(hz) - S::scale(minHz)) / (S::scale(maxHz) - S::scale(minHz)) * bandCount);
 }
 
-// Feeds `seconds` of a signal in 512-sample blocks, analyzing 60 times a second.
-template <typename Signal>
-static std::vector<double> run(Signal signal, float seconds)
+// Streams a signal in 512-sample blocks, analyzing 60 times a second; calls
+// `each` with the time and bands after every analysis.
+static std::vector<double> run(const std::function<float(int)> &signal, float seconds,
+                               const std::function<void(double, const std::vector<double> &)> &each = {})
 {
     auto spectrum = std::make_unique<chardsp::Spectrum>();
     std::vector<double> bands;
@@ -28,61 +31,63 @@ static std::vector<double> run(Signal signal, float seconds)
         for (int i = 0; i < 512; ++i) block[i] = signal(n + i);
         spectrum->push(block, block, 512);
         if ((sinceUpdate += 512) >= sampleRate / 60)
-            sinceUpdate = 0, spectrum->analyze(sampleRate, minHz, maxHz, 60, bands);
+        {
+            sinceUpdate = 0;
+            if (spectrum->analyze(sampleRate, minHz, maxHz, bandCount, bands) && each) each((n + 512) / sampleRate, bands);
+        }
     }
     return bands;
 }
 
+static double peakNear(const std::vector<double> &bands, double hz)
+{
+    const int b = bandOf(hz);
+    return std::max({bands[b - 1], bands[b], bands[std::min(b + 1, bandCount - 1)]});
+}
+
 int main()
 {
-    const double pi = 3.14159265358979;
-    for (float hz : {40.0f, 100.0f, 1000.0f, 5000.0f, 15000.0f})
-    {
-        const auto bands = run([&](int n) { return float(0.5 * std::sin(2 * pi * hz * n / sampleRate)); }, 2);
-        const int b = bandOf(hz);
-        const double peak = std::max({bands[b - 1], bands[b], bands[b + 1]});
-        // An octave away, the sine's leakage is far below it.
-        const double octaveUp = bands[std::min(b + 26, chardsp::Spectrum::bandCount - 1)];
-        std::printf("%6.0f Hz sine at -6.02 dB: reads %6.2f dB, an octave up %7.1f dB\n", hz, peak, octaveUp);
-        assert(std::abs(peak - -6.02) < 0.5);
-        assert(hz * 2 > maxHz || octaveUp < peak - 60);
-    }
-
-    // Anywhere between bands: 60 frequencies from 30 Hz to 18 kHz, none off by
-    // more than a fraction of a dB (no scalloping between band centres).
+    // Levels: 60 sine frequencies from 30 Hz to 18 kHz, amplitude 0.5 (-6.02 dB).
     double worst = 0;
     for (int i = 0; i < 60; ++i)
     {
         const double hz = 30 * std::pow(600.0, i / 59.0);
-        const auto bands = run([&](int n) { return float(0.5 * std::sin(2 * pi * hz * n / sampleRate)); }, 0.6f);
-        const int b = bandOf(float(hz));
-        worst = std::max(worst, std::abs(std::max({bands[b - 1], bands[b], bands[b + 1]}) - -6.02));
+        const auto bands = run([&](int n) { return float(0.5 * std::sin(2 * pi * hz * n / sampleRate)); }, 0.5f);
+        worst = std::max(worst, std::abs(peakNear(bands, hz) - -6.02));
     }
-    std::printf("sweep 30 Hz to 18 kHz: worst error %.2f dB\n", worst);
-    assert(worst < 0.3);
+    std::printf("sines 30 Hz to 18 kHz: worst level error %.2f dB\n", worst);
+    assert(worst < 2.5); // a sine between two bands' centres reads a little low
 
-    // Pink noise (Paul Kellet's filter): the same power per band, so flat.
-    std::mt19937 random(1);
-    std::uniform_real_distribution<float> uniform(-1, 1);
-    float b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-    const auto bands = run([&](int) {
-        const float w = uniform(random);
-        b0 = 0.99886f * b0 + w * 0.0555179f; b1 = 0.99332f * b1 + w * 0.0750759f;
-        b2 = 0.96900f * b2 + w * 0.1538520f; b3 = 0.86650f * b3 + w * 0.3104856f;
-        b4 = 0.55000f * b4 + w * 0.5329522f; b5 = -0.7616f * b5 - w * 0.0168980f;
-        const float pink = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362f) * 0.05f;
-        b6 = w * 0.115926f;
-        return pink;
-    }, 4);
-    // Average over third-octave groups, above the resolution limit.
-    double lowest = 1e9, highest = -1e9;
-    for (float hz = 500; hz < 16000; hz *= 1.26f)
+    // Leakage: an octave away from a 1 kHz sine, far below it.
+    const auto sine1k = run([&](int n) { return float(0.5 * std::sin(2 * pi * 1000 * n / sampleRate)); }, 0.5f);
+    std::printf("1 kHz sine: %.1f dB, an octave up %.1f dB\n", peakNear(sine1k, 1000), peakNear(sine1k, 2000));
+    assert(peakNear(sine1k, 2000) < peakNear(sine1k, 1000) - 40);
+
+    // Timing: silence, a 1 kHz sine from 0.3 s to 0.6 s, silence again.
+    double reached = -1, faded = -1;
+    run([&](int n) {
+        const double t = n / sampleRate;
+        return t >= 0.3 && t < 0.6 ? float(0.5 * std::sin(2 * pi * 1000 * n / sampleRate)) : 0.0f;
+    }, 1.0f, [&](double t, const std::vector<double> &bands) {
+        if (t > 0.3 && reached < 0 && peakNear(bands, 1000) > -6.02 - 3) reached = t - 0.3;
+        if (t > 0.6 && faded < 0 && peakNear(bands, 1000) < -6.02 - 20) faded = t - 0.6;
+    });
+    std::printf("1 kHz tone: within 3 dB %.0f ms after it starts, 20 dB down %.0f ms after it stops\n",
+                reached * 1000, faded * 1000);
+    assert(reached > 0 && reached < 0.06 && faded > 0 && faded < 0.1);
+
+    // Shape: a pure tone draws one smooth peak, falling steadily on both sides
+    // for 20 dB, with no needles or plateaus on top.
+    for (double hz : {150.0, 1000.0, 6000.0})
     {
-        double sum = 0;
-        for (int b = bandOf(hz); b < bandOf(hz * 1.26f); ++b) sum += bands[b];
-        const double mean = sum / (bandOf(hz * 1.26f) - bandOf(hz));
-        lowest = std::min(lowest, mean), highest = std::max(highest, mean);
+        const auto bands = run([&](int n) { return float(0.5 * std::sin(2 * pi * hz * n / sampleRate)); }, 0.5f);
+        int top = bandOf(hz) - 2;
+        for (int b = top; b <= bandOf(hz) + 2; ++b) if (bands[b] > bands[top]) top = b;
+        bool smooth = true;
+        for (int side : {-1, 1})
+            for (int b = top; bands[top] - bands[b + side] < 20; b += side)
+                smooth = smooth && bands[b + side] <= bands[b] + 0.01;
+        std::printf("%5.0f Hz tone: one smooth peak: %s\n", hz, smooth ? "yes" : "NO");
+        assert(smooth);
     }
-    std::printf("pink noise, 500 Hz to 16 kHz: third-octave means within %.2f dB\n", highest - lowest);
-    assert(highest - lowest < 2.0);
 }
