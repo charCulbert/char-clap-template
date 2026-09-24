@@ -11,6 +11,9 @@ WebGPU by our own drawing code.
   the spectrum, and knobs and labels from `libs/draw2d`, laid out with Clay.
 - Smoothing and Colour are settings saved in the plugin's state, not CLAP
   parameters, since they only change the display.
+- `resources/`: the files the plugin ships (its font). Add images, sounds or
+  anything else here and read them with `core::readResource("/path")` (on the
+  main thread), or `gpu::loadAsset` in the view.
 - Natively `libs/gpu` draws the view with Dawn in the host's window. In WCLAP
   the same view is compiled with Emscripten into the page the host shows.
 

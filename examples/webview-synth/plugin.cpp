@@ -267,14 +267,14 @@ static const clap_plugin_state_t extensionState = {
     },
 };
 
-// The page, in the ui folder. clap.webview gives it to the host: its start
+// The page, in resources/page. clap.webview gives it to the host: its start
 // URI, its files, and messages from it. Hosts that show pages themselves use
 // this directly; for the others, webview::Gui (behind clap.gui below) shows
 // the same page through this same table.
 static const clap_plugin_webview_t extensionWebview = {
     .get_uri = [](const clap_plugin_t *_plugin, char *uri, uint32_t capacity) -> int32_t
     {
-        static const char start[] = "/index.html";
+        static const char start[] = "/page/index.html"; // in resources/
         if (capacity)
             snprintf(uri, capacity, "%s", start);
         return sizeof(start); // including the terminating zero

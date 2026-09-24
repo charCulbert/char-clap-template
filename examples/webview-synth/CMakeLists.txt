@@ -37,8 +37,8 @@ add_library(WebViewSynth_impl STATIC plugin.cpp)
 core_add_to(WebViewSynth_impl)
 webview_add_to(WebViewSynth_impl)
 
-# The page ships as ordinary files inside each plugin, as ui/ (see core_ship_ui).
-webview_page(page WebViewSynth ui)
+# resources/ (the page in page/) ships as ordinary files inside each plugin.
+webview_resources(resources WebViewSynth resources)
 
 set(identity
     OUTPUT_NAME "WebView Synth"
@@ -88,7 +88,7 @@ make_clapfirst_plugins(
     AUV2_SUBTYPE_CODE "WvSy"
     AUV2_INSTRUMENT_TYPE "aumu"
     PLUGIN_FORMATS ${formats}
-    WINDOWS_FOLDER_VST3 TRUE # a folder, so ui/ can travel inside it
+    WINDOWS_FOLDER_VST3 TRUE # a folder, so its resources can travel inside it
     STANDALONE_CONFIGURATIONS standalone "WebView Synth" "com.charlieculbert.webviewsynth"
     COPY_AFTER_BUILD FALSE)
 
@@ -97,4 +97,4 @@ if(TARGET WebViewSynth_aax AND APPLE)
     set_target_properties(WebViewSynth_aax PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif()
 
-core_ship_ui(WebViewSynth "${page}" DEPENDS WebViewSynth_page)
+core_ship_resources(WebViewSynth "${resources}" DEPENDS WebViewSynth_resources)

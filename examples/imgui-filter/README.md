@@ -9,6 +9,9 @@ Resonance) whose interface is stock Dear ImGui widgets.
 - `chardsp_StateVariableFilter.h`: the filter.
 - `ui/FilterView.cpp`: the interface, a `gpu::View` drawn with Dear ImGui and
   its WebGPU renderer. Ctrl+click a slider to type a value.
+- `resources/`: the files the plugin ships (its font). Add images, sounds or
+  anything else here and read them with `core::readResource("/path")` (on the
+  main thread), or `gpu::loadAsset` in the view.
 - Natively `libs/gpu` draws the view with Dawn in the host's window. In WCLAP
   the same view is compiled with Emscripten into the page the host shows.
 

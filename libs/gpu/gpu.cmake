@@ -6,10 +6,12 @@
 #   include(libs/gpu/gpu.cmake)
 #   gpu_add_to(<impl target>)                  the presenter (clap.gui side)
 #   gpu_add_page(<target> ASSETS <folder>)     the WCLAP page, in the Emscripten build
-#   gpu_wclap_page(<out var> <plugin name>)    builds that page from a WCLAP build
+#   gpu_wclap_resources(<out var> <name> <folder>)   from a WCLAP build: <folder>
+#                                              plus that page as page/, to ship
 #
 # The View reads its files (fonts) with gpu::loadAsset: natively from the
-# plugin's ui/ folder (core_ship_ui), in the page from files built into it.
+# plugin's resources (core_ship_resources); in the page, from copies built
+# into it (ASSETS), since loadAsset can't wait for a download.
 include_guard(DIRECTORY)
 include(FetchContent)
 
@@ -105,9 +107,10 @@ function(gpu_add_page target)
 endfunction()
 
 # From a WCLAP build: configures this project again with Emscripten (emcmake,
-# with GPU_PAGE set) so it builds its gpu_add_page target, and sets <out var>
-# to the page's folder, produced by target <plugin name>_page.
-function(gpu_wclap_page out name)
+# with GPU_PAGE set) so it builds its gpu_add_page target, then assembles
+# <folder> plus that page, as page/, in the build folder's resources/. Sets
+# <out var> to that folder; target <name>_resources makes it.
+function(gpu_wclap_resources out name folder)
     include(ExternalProject)
     find_program(EMCMAKE emcmake REQUIRED)
     ExternalProject_Add(${name}_page
@@ -118,5 +121,13 @@ function(gpu_wclap_page out name)
         BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR>
         INSTALL_COMMAND ""
         BUILD_ALWAYS ON)
-    set(${out} "${CMAKE_CURRENT_BINARY_DIR}/page-build/page" PARENT_SCOPE)
+    get_filename_component(folder "${folder}" ABSOLUTE)
+    set(staging "${CMAKE_CURRENT_BINARY_DIR}/resources")
+    add_custom_target(${name}_resources
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${staging}"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${folder}" "${staging}"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_BINARY_DIR}/page-build/page" "${staging}/page"
+        DEPENDS ${name}_page
+        VERBATIM)
+    set(${out} "${staging}" PARENT_SCOPE)
 endfunction()

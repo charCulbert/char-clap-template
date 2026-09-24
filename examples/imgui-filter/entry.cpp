@@ -29,7 +29,7 @@ extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry = {
 
     .init = [](const char *path) -> bool
     {
-        core::initResources(path); // finds this plugin's ui/ folder (see core/resources.h)
+        core::initResources(path); // finds the files it ships (see core/resources.h)
         return true;
     },
 

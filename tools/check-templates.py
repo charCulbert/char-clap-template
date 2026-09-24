@@ -18,7 +18,8 @@ EXAMPLES = ["synth", "analyzer", "filter", "gain"]
 
 def run(command, cwd):
     print("  $", " ".join(command))
-    result = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
+    # No stdin: given a terminal, clap-host keeps reading commands from it.
+    result = subprocess.run(command, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True, text=True)
     if result.returncode != 0:
         print(result.stdout[-4000:], result.stderr[-4000:], sep="\n")
     return result.returncode == 0

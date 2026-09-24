@@ -5,8 +5,11 @@ A polyphonic sine synth (Volume, Release) whose interface is a web page.
 - `entry.cpp`: the CLAP entry point, which makes the plugin.
 - `plugin.cpp`: the whole CLAP plugin: note input (CLAP notes or MIDI), voices,
   parameters, state, and the `clap.gui` and `clap.webview` extensions.
-- `ui/`: the page (`index.html`, `app.js`, `style.css`). It talks to the plugin
-  with `lib/messages.js`, which the build adds from `libs/webview/js/`.
+- `resources/`: the files the plugin ships. Its page is in `resources/page/`
+  (`index.html`, `app.js`, `style.css`); it talks to the plugin with
+  `page/lib/messages.js`, which the build adds from `libs/webview/js/`. Add
+  images, sounds or anything else beside it and read them with
+  `core::readResource("/path")` (on the main thread).
 - Hosts that support `clap.webview` (like WCLAP browser hosts) show the page
   themselves; elsewhere `libs/webview` shows it in a WebView (CHOC) inside the
   host's window. On iOS there is no interface yet.

@@ -1,11 +1,11 @@
 # What every plugin here builds on: the CLAP SDK, clap-wrapper (VST3, AU,
 # standalone and WCLAP from the one CLAP plugin), the message codec its
-# interface (and its state) use, and the loader for its packaged UI files.
+# interface (and its state) use, and the loader for the files it ships.
 #
 #   include(libs/core/core.cmake)
-#   core_add_to(<impl target>)             codec and resource loader
-#   core_ship_ui(<plugin name> <folder>)   copies <folder> into every format, as ui/
-#   core_ship_ui(<plugin name> "")         a plugin without files: signs and packages only
+#   core_add_to(<impl target>)                    codec and resource loader
+#   core_ship_resources(<plugin name> <folder>)   copies <folder> into every format
+#   core_ship_resources(<plugin name> "")         no files: signs and packages only
 include_guard(DIRECTORY)
 include(FetchContent)
 
@@ -42,14 +42,15 @@ function(core_add_to target)
     endif()
 endfunction()
 
-# Copies <folder> into each format of the plugin made by make_clapfirst_plugins
-# (TARGET_NAME <name>), where core/resources.cpp looks for it:
-#   macOS and VST3 bundles   <bundle>/Contents/Resources/ui/
-#   loose binaries           <binary>.resources/ui/
-#   WCLAP                    <name>.wclap.tar.gz, with module.wasm and ui/
+# Ships <folder> (the plugin's resources: a web page in page/, fonts, images,
+# sounds...) with each format of the plugin make_clapfirst_plugins made
+# (TARGET_NAME <name>), where core/resources.cpp reads it:
+#   macOS and VST3 bundles   <bundle>/Contents/Resources/
+#   loose binaries           <binary>.resources/ (Windows and Linux CLAPs)
+#   WCLAP                    <name>.wclap.tar.gz: module.wasm and resources/
 # The copy runs on every build, so edits to the folder need no relink. Pass
-# DEPENDS <target> when a build step produces the folder.
-function(core_ship_ui name folder)
+# DEPENDS <target> when a build step assembles the folder.
+function(core_ship_resources name folder)
     cmake_parse_arguments(ARG "" "" "DEPENDS" ${ARGN})
     foreach(format clap vst3 auv2 auv3 standalone aax)
         set(target ${name}_${format})
@@ -57,20 +58,20 @@ function(core_ship_ui name folder)
             continue()
         endif()
         if(APPLE OR format MATCHES "vst3|aax")
-            set(destination "$<TARGET_FILE_DIR:${target}>/../Resources/ui")
+            set(destination "$<TARGET_FILE_DIR:${target}>/../Resources")
         else()
             # next to a loose binary (TARGET_FILE here would make the target depend on itself)
-            set(destination "$<TARGET_FILE_DIR:${target}>/$<TARGET_FILE_NAME:${target}>.resources/ui")
+            set(destination "$<TARGET_FILE_DIR:${target}>/$<TARGET_FILE_NAME:${target}>.resources")
         endif()
         if(folder)
-            add_custom_target(${target}_ui
+            add_custom_target(${target}_resources
                 COMMAND ${CMAKE_COMMAND} -E rm -rf "${destination}"
                 COMMAND ${CMAKE_COMMAND} -E copy_directory "${folder}" "${destination}"
                 VERBATIM)
             if(ARG_DEPENDS)
-                add_dependencies(${target}_ui ${ARG_DEPENDS})
+                add_dependencies(${target}_resources ${ARG_DEPENDS})
             endif()
-            add_dependencies(${target} ${target}_ui)
+            add_dependencies(${target} ${target}_resources)
         endif()
         # The linker signs only the binary; sign the bundle so its resources are
         # sealed too, or `codesign -v` (and stricter hosts) reject it. AUv3 and
@@ -88,16 +89,16 @@ function(core_ship_ui name folder)
         # A WCLAP is a .tar.gz of module.wasm plus its files, at the archive root.
         set(bundle "$<TARGET_FILE_DIR:${name}_wclap>/${name}.wclap")
         set(contents module.wasm)
-        set(copy_ui "")
+        set(copy "")
         if(folder)
-            list(APPEND contents ui)
-            set(copy_ui COMMAND ${CMAKE_COMMAND} -E copy_directory "${folder}" "${bundle}/ui")
+            list(APPEND contents resources)
+            set(copy COMMAND ${CMAKE_COMMAND} -E copy_directory "${folder}" "${bundle}/resources")
         endif()
         add_custom_target(${name}_wclap_bundle ALL
             COMMAND ${CMAKE_COMMAND} -E rm -rf "${bundle}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${bundle}"
             COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:${name}_wclap>" "${bundle}/module.wasm"
-            ${copy_ui}
+            ${copy}
             COMMAND ${CMAKE_COMMAND} -E chdir "${bundle}"
                     ${CMAKE_COMMAND} -E tar czf "../${name}.wclap.tar.gz" --format=gnutar ${contents}
             DEPENDS ${name}_wclap

@@ -151,7 +151,7 @@ static const clap_plugin_state_t extensionState = {
 static const clap_plugin_webview_t extensionWebview = {
     .get_uri = [](const clap_plugin_t *_plugin, char *uri, uint32_t capacity) -> int32_t
     {
-        static const char start[] = "/index.html";
+        static const char start[] = "/page/index.html"; // in resources/
         if (capacity)
             snprintf(uri, capacity, "%s", start);
         return sizeof(start); // including the terminating zero

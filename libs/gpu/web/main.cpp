@@ -116,7 +116,7 @@ void start()
 
 }
 
-// ui/assets/ is embedded in gui.wasm under /assets (see CMakeLists.txt).
+// The ASSETS folder (gpu_add_page) is built into gui.wasm under /assets.
 std::string gpu::loadAsset(const char *path)
 {
     std::ifstream file(std::string("/assets") + path, std::ios::binary);

@@ -47,7 +47,7 @@ NOTICES = {
     "stb": ("stb_truetype", "https://github.com/nothings/stb", "MIT or public domain"),
     "clay": ("Clay", "https://github.com/nicbarker/clay", "zlib"),
     "imgui": ("Dear ImGui", "https://github.com/ocornut/imgui", "MIT"),
-    "inter": ("Inter (font, in ui/assets/fonts with its licence)", "https://rsms.me/inter", "SIL Open Font License 1.1"),
+    "inter": ("Inter (font, in resources/fonts with its licence)", "https://rsms.me/inter", "SIL Open Font License 1.1"),
 }
 
 MIT = """MIT License

@@ -47,10 +47,10 @@ public:
     std::function<void(bool locked)> lockPointer;
 };
 
-// Implemented by the plugin's interface code (SIMPLECHAR_GPU_VIEW in CMake).
+// Implemented by the plugin's interface code (e.g. ui/AnalyzerView.cpp).
 std::unique_ptr<View> createView();
 
-// Reads a file shipped with the interface (ui/assets/), e.g. "/fonts/Inter.ttf".
+// Reads a file the plugin ships (its resources/ folder), e.g. "/fonts/Inter.ttf".
 // Natively it comes from the bundle's resources; in WCLAP it is built into the
 // wasm. Returns empty when missing. Implemented by each presenter.
 std::string loadAsset(const char *path);

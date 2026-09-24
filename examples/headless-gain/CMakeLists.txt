@@ -54,4 +54,4 @@ make_clapfirst_plugins(
     STANDALONE_CONFIGURATIONS standalone "Headless Gain" "com.charlieculbert.headlessgain"
     COPY_AFTER_BUILD FALSE)
 
-core_ship_ui(HeadlessGain "") # no interface files: this signs and packages the plugins
+core_ship_resources(HeadlessGain "") # no files to ship: this signs and packages the plugins

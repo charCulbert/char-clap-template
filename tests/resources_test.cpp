@@ -7,7 +7,7 @@ int main(int argc, char **argv)
 {
     assert(argc == 2); // a fresh, empty directory
     const std::filesystem::path base = argv[1];
-    const auto root = base / "ui";
+    const auto root = base / "resources";
     std::filesystem::create_directories(root / "assets/fonts");
     std::ofstream(root / "index.html") << "<html>";
     std::ofstream(root / "assets/app.mjs") << "export {}";

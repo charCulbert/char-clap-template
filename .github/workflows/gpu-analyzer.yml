@@ -128,7 +128,7 @@ jobs:
         run: |
           tar tzf "build-wclap/$TARGET.wclap.tar.gz" | tee contents.txt
           grep -qx 'module.wasm' contents.txt
-          grep -qx 'ui/index.html' contents.txt
+          grep -qx 'resources/page/index.html' contents.txt
 
       - name: Upload WCLAP
         uses: actions/upload-artifact@v4

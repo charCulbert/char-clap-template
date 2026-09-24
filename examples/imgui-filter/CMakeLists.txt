@@ -54,7 +54,7 @@ endfunction()
 
 # WCLAP builds this file a second time with Emscripten, for the page the host shows.
 if(GPU_PAGE)
-    gpu_add_page(page ASSETS ui/assets)
+    gpu_add_page(page ASSETS resources) # the font, built into the page
     add_view(page)
     return()
 endif()
@@ -88,15 +88,15 @@ make_clapfirst_plugins(
     AUV2_SUBTYPE_CODE "ImFl"
     AUV2_INSTRUMENT_TYPE "aufx"
     PLUGIN_FORMATS ${formats}
-    WINDOWS_FOLDER_VST3 TRUE # a folder, so ui/ can travel inside it
+    WINDOWS_FOLDER_VST3 TRUE # a folder, so its resources can travel inside it
     STANDALONE_CONFIGURATIONS standalone "ImGui Filter" "com.charlieculbert.imguifilter"
     COPY_AFTER_BUILD FALSE)
 
-# The files the interface reads (its font) go inside each plugin, as ui/. The
-# WCLAP instead carries the page: the interface built with Emscripten.
+# resources/ (its font) ships inside each plugin. The WCLAP adds page/: the
+# interface built with Emscripten, which the host shows.
 if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
-    gpu_wclap_page(page ImGuiFilter)
-    core_ship_ui(ImGuiFilter "${page}" DEPENDS ImGuiFilter_page)
+    gpu_wclap_resources(resources ImGuiFilter resources)
+    core_ship_resources(ImGuiFilter "${resources}" DEPENDS ImGuiFilter_resources)
 else()
-    core_ship_ui(ImGuiFilter "${CMAKE_CURRENT_SOURCE_DIR}/ui/assets")
+    core_ship_resources(ImGuiFilter "${CMAKE_CURRENT_SOURCE_DIR}/resources")
 endif()

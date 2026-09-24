@@ -42,15 +42,15 @@ void initResources(const char *entryPath)
 #if defined(__wasi__)
     // The host mounts the WCLAP bundle at entryPath. WASI opens paths
     // relative to its preopened root, so drop the leading '/'.
-    root = std::filesystem::path(entryPath ? entryPath : "").relative_path() / "ui";
+    root = std::filesystem::path(entryPath ? entryPath : "").relative_path() / "resources";
 #else
     (void)entryPath;
     const auto binary = thisBinary();
     const auto folder = binary.parent_path();
     if (folder.parent_path().filename() == "Contents") // <bundle>/Contents/<MacOS|x86_64-win|...>/
-        root = folder.parent_path() / "Resources" / "ui";
+        root = folder.parent_path() / "Resources";
     else
-        root = folder / (binary.filename() += ".resources") / "ui";
+        root = folder / (binary.filename() += ".resources");
 #endif
 }
 

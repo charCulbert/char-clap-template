@@ -4,13 +4,14 @@
 #include <string>
 #include <string_view>
 
-// Serves the interface files packaged with the plugin (a web page, or a GPU
-// interface's fonts). Nothing here knows about any plugin.
+// Reads the files a plugin ships with it: its resources/ folder (a web page in
+// page/, fonts, images, sounds...), which core_ship_resources copies into each
+// format. Nothing here knows about any plugin.
 //
 // Where the folder lives:
-//   macOS bundles, VST3 bundles     <bundle>/Contents/Resources/ui/
-//   loose binaries (Win/Linux .clap) <binary>.resources/ui/
-//   WCLAP                           <bundle>/ui/
+//   macOS bundles, VST3 bundles     <bundle>/Contents/Resources/
+//   loose binaries (Win/Linux .clap) <binary>.resources/
+//   WCLAP                           <bundle>/resources/
 namespace core {
 
 // Call from clap_entry.init. Native builds find the binary that contains this
@@ -24,9 +25,9 @@ struct Resource
     std::string mime;
 };
 
-// urlPath is an absolute URL path such as "/index.html" or
-// "/assets/font%20a.woff2?v=2". Returns nothing for anything outside the UI
-// folder. UI file names must not contain '%', '?' or '#'.
+// urlPath is an absolute URL path such as "/page/index.html" or
+// "/fonts/font%20a.woff2?v=2". Returns nothing for anything outside the
+// folder. File names must not contain '%', '?' or '#'.
 std::optional<Resource> readResource(std::string_view urlPath);
 
 }

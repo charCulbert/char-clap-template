@@ -5,7 +5,7 @@
 #
 #   include(libs/webview/webview.cmake)
 #   webview_add_to(<impl target>)             the presenter (clap.gui side)
-#   webview_page(<out var> <name> <folder>)   the page plus js/ as lib/, for core_ship_ui
+#   webview_resources(<out var> <name> <folder>)   <folder> plus page/lib/messages.js, to ship
 include_guard(DIRECTORY)
 include(FetchContent)
 
@@ -38,16 +38,17 @@ function(webview_add_to target)
     endif()
 endfunction()
 
-# Assembles the page to ship: <folder> plus js/messages.js as lib/messages.js,
-# in the build folder's page/, rebuilt on every build by target <name>_page.
-# Sets <out var> to that folder.
-function(webview_page out name folder)
+# Assembles the plugin's resources to ship: <folder> (its page in page/, and
+# any other files) plus js/messages.js as page/lib/messages.js, in the build
+# folder's resources/, rebuilt on every build by target <name>_resources.
+# Sets <out var> to that folder, for core_ship_resources.
+function(webview_resources out name folder)
     get_filename_component(folder "${folder}" ABSOLUTE)
-    set(page "${CMAKE_CURRENT_BINARY_DIR}/page")
-    add_custom_target(${name}_page
-        COMMAND ${CMAKE_COMMAND} -E rm -rf "${page}"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "${folder}" "${page}"
-        COMMAND ${CMAKE_COMMAND} -E copy "${WEBVIEW_DIR}/js/messages.js" "${page}/lib/messages.js"
+    set(staging "${CMAKE_CURRENT_BINARY_DIR}/resources")
+    add_custom_target(${name}_resources
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${staging}"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${folder}" "${staging}"
+        COMMAND ${CMAKE_COMMAND} -E copy "${WEBVIEW_DIR}/js/messages.js" "${staging}/page/lib/messages.js"
         VERBATIM)
-    set(${out} "${page}" PARENT_SCOPE)
+    set(${out} "${staging}" PARENT_SCOPE)
 endfunction()
