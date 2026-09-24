@@ -1,7 +1,8 @@
-// simpleCharClap's GPU interface: the filter's frequency response, drawn by one
-// fragment shader, with labels and knobs from gpu::Ui on top. Drag the curve
-// (left/right: Cutoff, up/down: the resonant peak, i.e. Q) or the knobs.
-#include "../gpu/ui.h"
+// GPU Analyzer's interface: the live spectrum, drawn by one fragment shader,
+// with labels and two knobs (Smoothing, Colour) from draw2d's gpu::Ui on top,
+// laid out with Clay. The spectrum arrives from the plugin as "spectrum"
+// messages; the knobs edit the plugin's settings (see plugin.cpp).
+#include "draw2d/ui.h"
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -12,20 +13,14 @@ namespace {
 // One full-screen triangle; everything is computed per pixel.
 constexpr const char *shader = R"(
 struct Uniforms {
-    size: vec4f,    // width, height (pixels), scale, time (seconds)
-    svf: vec4f,     // cutoff Hz, Q, dragging (0/1), sample rate
-    ranges: vec4f,  // lowest Hz, highest Hz, lowest dB, highest dB
+    size: vec4f,    // width, height (pixels), scale, unused
+    color: vec4f,   // the spectrum's colour
+    ranges: vec4f,  // lowest Hz, highest Hz, unused, unused
     plot: vec4f,    // plot area: left, top, right, bottom (pixels)
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
-// The response in dB at each pixel column, computed on the CPU once per frame.
-@group(0) @binding(1) var<storage, read> curve: array<f32>;
-fn curveDb(x: f32) -> f32 {
-    let i = clamp(i32(x), 0, i32(arrayLength(&curve)) - 1);
-    return curve[i];
-}
 // The live spectrum from the plugin: bands in dB, log-spaced over the plot.
-@group(0) @binding(2) var<storage, read> spectrum: array<f32>;
+@group(0) @binding(1) var<storage, read> spectrum: array<f32>;
 fn bandAt(x: f32) -> f32 { // fractional band index at a pixel x; band d covers [d, d+1)/n
     let n = f32(arrayLength(&spectrum));
     return clamp(clamp((x - u.plot.x) / (u.plot.z - u.plot.x), 0.0, 1.0) * n - 0.5, 0.0, n - 1.0);
@@ -50,17 +45,11 @@ fn spectrumDb(x: f32) -> f32 {
 
 const pi = 3.14159265;
 
-// Plot coordinates, inside the plot area the C++ side also uses for text and
-// the pointer. y is dB. x is Signalsmith's frequency scale, hz / (1500 + hz):
-// nearly linear in the lows and nearly logarithmic above, like hearing.
+// Plot coordinates, inside the plot area the C++ side also uses for its labels.
+// x is Signalsmith's frequency scale, hz / (1500 + hz): nearly linear in the
+// lows and nearly logarithmic above, like hearing.
 fn plotRect() -> vec4f { return u.plot; }
 fn warp(hz: f32) -> f32 { return hz / (1500.0 + hz); }
-fn freqAt(x: f32) -> f32 {
-    let r = plotRect();
-    let t = clamp((x - r.x) / (r.z - r.x), 0.0, 1.0);
-    let w = mix(warp(u.ranges.x), warp(u.ranges.y), t);
-    return 1500.0 * w / (1.0 - w);
-}
 fn xOf(f: f32) -> f32 {
     let r = plotRect();
     return r.x + (r.z - r.x) * (warp(f) - warp(u.ranges.x)) / (warp(u.ranges.y) - warp(u.ranges.x));
@@ -72,12 +61,6 @@ fn levelY(dbfs: f32) -> f32 {
     let v = pow(10.0, 0.012 * dbfs); // (10^(dB/10))^0.12
     return r.w - (r.w - r.y) * 0.6 * v / (0.4 + 0.2 * v);
 }
-fn yOf(db: f32) -> f32 {
-    let r = plotRect();
-    let t = clamp((db - u.ranges.z) / (u.ranges.w - u.ranges.z), -0.2, 1.2);
-    return r.w - (r.w - r.y) * t;
-}
-
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let px = pos.xy;
     let s = u.size.z;
@@ -100,36 +83,13 @@ fn yOf(db: f32) -> f32 {
     }
     color += vec3f(0.06, 0.07, 0.08) * grid * inside;
 
-    // The spectrum, behind the curve: a soft fill below it and a faint edge.
+    // The spectrum: a fill below it, brighter near the line, and the line itself.
     let ys = levelY(spectrumDb(px.x));
-    let spectrumSlope = (levelY(spectrumDb(px.x + 1.0)) - levelY(spectrumDb(px.x - 1.0))) * 0.5;
-    let spectrumDistance = abs(px.y - ys) / sqrt(1.0 + spectrumSlope * spectrumSlope);
-    color += vec3f(0.30, 0.42, 0.52) * 0.30 * smoothstep(ys - 0.5, ys + 0.5, px.y) * inside;
-    color += vec3f(0.45, 0.60, 0.72) * 0.5 * (1.0 - smoothstep(0.25 * s, 1.25 * s, spectrumDistance)) * inside;
-
-    // The curve: distance to it from this pixel, using the local slope.
-    let y0 = yOf(curveDb(px.x));
-    let slope = (yOf(curveDb(px.x + 1.0)) - yOf(curveDb(px.x - 1.0))) * 0.5;
-    let dist = abs(px.y - y0) / sqrt(1.0 + slope * slope);
-    let accent = vec3f(0.37, 0.71, 0.64);
-
-    // Filled area under the curve, fading downwards.
-    let below = step(y0, px.y) * inside;
-    color += accent * 0.16 * below * (1.0 - (px.y - y0) / (r.w - r.y));
-
-    // Line: sharp core plus a soft glow that breathes a little while dragging.
-    let dragging = u.svf.z;
-    let glowWidth = (6.0 + 3.0 * dragging * (0.5 + 0.5 * sin(u.size.w * 6.0))) * s;
-    color += accent * (1.0 - smoothstep(0.75 * s, 1.75 * s, dist)) * inside;
-    color += accent * 0.35 * exp(-dist * dist / (glowWidth * glowWidth)) * inside;
-
-    // Handle on the curve at the cutoff; its height is the resonant peak.
-    let handle = vec2f(xOf(u.svf.x), yOf(20.0 * log(max(u.svf.y, 1e-3)) / log(10.0)));
-    let hd = length(px - handle);
-    let radius = (7.0 + 2.0 * dragging) * s;
-    color = mix(color, vec3f(0.95), 1.0 - smoothstep(radius - s, radius, hd));
-    color = mix(color, accent, 1.0 - smoothstep(radius - 3.0 * s, radius - 2.0 * s, hd));
-    color += accent * 0.4 * exp(-hd * hd / (radius * radius * 6.0));
+    let slope = (levelY(spectrumDb(px.x + 1.0)) - levelY(spectrumDb(px.x - 1.0))) * 0.5;
+    let distance = abs(px.y - ys) / sqrt(1.0 + slope * slope);
+    let below = smoothstep(ys - 0.5, ys + 0.5, px.y) * inside;
+    color += u.color.rgb * below * (0.08 + 0.22 * exp(-(px.y - ys) / (40.0 * s)));
+    color += u.color.rgb * (1.0 - smoothstep(0.5 * s, 1.5 * s, distance)) * inside;
 
     return vec4f(color, 1.0);
 }
@@ -138,45 +98,38 @@ fn yOf(db: f32) -> f32 {
 struct Uniforms
 {
     float size[4];
-    float filter[4];
+    float color[4];
     float ranges[4];
     float plot[4];
 };
 
-constexpr float minHz = 20, maxHz = 20000, minDb = -48, maxDb = 24;
+constexpr float minHz = 20, maxHz = 20000;
 
-// The plot's frequency scale (the shader's warp/xOf/freqAt): Signalsmith's
-// hz / (1500 + hz), as a 0..1 position across the plot and back.
+// The plot's frequency scale (the shader's warp/xOf): Signalsmith's
+// hz / (1500 + hz), as a 0..1 position across the plot.
 float hzToUnit(float hz)
 {
     auto warp = [](float f) { return f / (1500 + f); };
     return (warp(hz) - warp(minHz)) / (warp(maxHz) - warp(minHz));
 }
-float unitToHz(float t)
+
+// A bright colour of the given hue (degrees): HSV with value 0.9, saturation 0.6.
+gpu::Color hueColor(float hue)
 {
-    const float lo = minHz / (1500 + minHz), hi = maxHz / (1500 + maxHz);
-    const float w = lo + t * (hi - lo);
-    return 1500 * w / (1 - w);
+    auto channel = [&](float n) {
+        const float k = std::fmod(n + hue / 60.0f, 6.0f);
+        return 0.9f - 0.9f * 0.6f * std::clamp(std::min(k, 4.0f - k), 0.0f, 1.0f);
+    };
+    return {channel(5), channel(3), channel(1)};
 }
 
-// The plugin's TPT state-variable lowpass is a bilinear-transformed analog
-// filter, so this is its exact digital magnitude response in dB.
-float responseDb(float hz, float cutoff, float q, float sampleRate)
-{
-    const float pi = 3.14159265f;
-    const float fc = std::clamp(cutoff, 1.0f, sampleRate * 0.48f);
-    const float w = std::tan(pi * std::min(hz, sampleRate * 0.499f) / sampleRate) / std::tan(pi * fc / sampleRate);
-    const float k = 1 / std::max(q, 1e-3f);
-    return -10 * std::log10((1 - w * w) * (1 - w * w) + (w * k) * (w * k));
-}
-
-class FilterView : public gpu::View
+class AnalyzerView : public gpu::View
 {
 public:
     void prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format) override
     {
         device = newDevice;
-        createCurvePipeline(format);
+        createPipeline(format);
         ui.draw.prepare(device, format, gpu::loadAsset("/fonts/Inter.ttf"));
         params.send = send;
         ui.lockPointer = lockPointer;
@@ -186,19 +139,27 @@ public:
     void receive(const core::Value &message) override
     {
         if (params.receive(message) || message["type"].text() != "spectrum") return;
-        if (auto db = std::get_if<core::Value::Array>(&message["db"].data))
-            for (size_t i = 0; i < spectrum.size() && i < db->size(); ++i)
-                spectrum[i] = float((*db)[i].number(-120));
+        auto *db = std::get_if<core::Value::Array>(&message["db"].data);
+        const gpu::Param *smoothing = params.find("Smoothing");
+        if (!db || !smoothing) return;
+        // Levels jump up at once and fall back at a rate Smoothing sets
+        // (messages arrive about 60 times a second).
+        const float fall = 1 - 0.97f * float(smoothing->value) / 100;
+        for (size_t i = 0; i < spectrum.size() && i < db->size(); ++i)
+        {
+            const float level = float((*db)[i].number(-120));
+            spectrum[i] = level > spectrum[i] ? level : spectrum[i] + (level - spectrum[i]) * fall;
+        }
     }
     void pointer(const PointerEvent &event) override { ui.pointer(event); }
     bool key(Key key, unsigned modifiers) override { return ui.key(key, modifiers); }
-    bool animating() const override { return dragging; } // the glow breathes while dragging
 
     void draw(const wgpu::RenderPassEncoder &pass, float width, float height, float scale) override
     {
-        auto *cutoff = params.find("Cutoff");
-        auto *q = params.find("Q");
-        if (!cutoff || !q) return; // until the plugin has sent its parameters
+        auto *smoothing = params.find("Smoothing");
+        auto *colour = params.find("Colour");
+        if (!smoothing || !colour) return; // until the plugin has sent its settings
+        ui.theme.accent = hueColor(float(colour->value)); // the knobs take the spectrum's colour too
         ui.begin(width, height, scale);
 
         // The layout, in points: the plot fills the height on the left; a side
@@ -216,60 +177,33 @@ public:
                                  .childAlignment = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_CENTER},
                                  .layoutDirection = CLAY_TOP_TO_BOTTOM}})
                 {
-                    for (gpu::Param *p : {cutoff, q})
+                    for (gpu::Param *p : {smoothing, colour})
                         CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(80), CLAY_SIZING_GROW(0, 108)}},
                               .custom = {.customData = layout.custom(knobBox, p)}}) {}
                 }
             }
         }
 
-        // Draw what the layout placed: knobs, and the plot (curve, axes, drag).
+        // Draw what the layout placed: knobs, and the plot.
         gpu::Rect plot{};
         layout.end([&](int kind, void *data, gpu::Rect r) {
-            if (kind == knobBox)
-            {
-                auto *p = static_cast<gpu::Param *>(data);
-                ui.knob(params, p, r, p == cutoff ? "%.0f Hz" : "%.2f", p == cutoff);
-            }
+            if (kind == knobBox) ui.knob(params, static_cast<gpu::Param *>(data), r, "%.0f");
             if (kind == plotBox) plot = r;
         });
-        drawPlot(pass, width, height, plot, *cutoff, *q);
+        drawPlot(pass, width, height, plot, ui.theme.accent);
         ui.end(pass);
     }
 
 private:
     enum { plotBox, knobBox };
 
-    // The plot: axis labels on its left and bottom edges, the curve inside.
-    // Dragging on it moves the peak (x: Cutoff, y: dB = 20 log10 Q), the
-    // wheel changes Q, and a double-click resets both.
-    void drawPlot(const wgpu::RenderPassEncoder &pass, float width, float height, gpu::Rect box, gpu::Param &cutoff, gpu::Param &q)
+    // The plot: the spectrum inside, frequencies below, levels on the left.
+    void drawPlot(const wgpu::RenderPassEncoder &pass, float width, float height, gpu::Rect box, gpu::Color color)
     {
         const float s = ui.s;
         const float plot[4] = {box.x + 34 * s, box.y + 10 * s, box.x + box.w - 10 * s, box.y + box.h - 22 * s};
-        auto area = ui.area(this, plot[0], plot[1], plot[2] - plot[0], plot[3] - plot[1]);
-        if (area.pressed) params.begin(cutoff), params.begin(q);
-        if (area.held)
-        {
-            const float tx = std::clamp((area.x - plot[0]) / (plot[2] - plot[0]), 0.0f, 1.0f);
-            const float ty = std::clamp((plot[3] - area.y) / (plot[3] - plot[1]), 0.0f, 1.0f);
-            params.change(cutoff, unitToHz(tx));
-            params.change(q, std::pow(10.0f, (minDb + ty * (maxDb - minDb)) / 20.0f));
-        }
-        if (area.released) params.end(cutoff), params.end(q);
-        if (area.doubleClicked)
-            for (gpu::Param *p : {&cutoff, &q})
-                params.begin(*p), params.change(*p, p->defaultValue), params.end(*p);
-        if (area.wheel != 0)
-        {
-            const float db = 20 * std::log10(float(q.value)) + area.wheel * (area.modifiers & shift ? 0.1f : 1.0f);
-            params.begin(q), params.change(q, std::pow(10.0f, db / 20)), params.end(q);
-        }
-        dragging = area.held;
-
-        drawCurve(pass, width, height, float(cutoff.value), float(q.value), plot);
+        drawSpectrum(pass, width, height, color, plot);
         auto xOf = [&](float hz) { return plot[0] + (plot[2] - plot[0]) * hzToUnit(hz); };
-        auto yOf = [&](float db) { return plot[3] - (plot[3] - plot[1]) * (db - minDb) / (maxDb - minDb); };
         // Frequency labels, skipping any that would overlap the previous one.
         float lastRight = -1e9f;
         for (auto [hz, label] : {std::pair{50.0f, "50"}, {100.0f, "100"}, {200.0f, "200"}, {500.0f, "500"},
@@ -296,17 +230,10 @@ private:
             ui.draw.text(plot[0] - 6 * s, y + 4 * s, 11 * s, label, ui.theme.dim, gpu::Draw2D::Align::right);
             lastY = y;
         }
-        // Right edge: the filter curve's gain, small ticks for +12, 0 and -12 dB.
-        for (float gain : {12.0f, 0.0f, -12.0f})
-        {
-            char label[12];
-            std::snprintf(label, sizeof(label), gain > 0 ? "+%.0f dB" : "%.0f dB", gain);
-            ui.draw.text(plot[2] - 4 * s, yOf(gain) - 4 * s, 10 * s, label, ui.theme.accent, gpu::Draw2D::Align::right);
-        }
     }
 
-    // The curve: one full-screen triangle through the shader above.
-    void createCurvePipeline(wgpu::TextureFormat format)
+    // The spectrum: one full-screen triangle through the shader above.
+    void createPipeline(wgpu::TextureFormat format)
     {
         wgpu::ShaderSourceWGSL source;
         source.code = shader;
@@ -331,47 +258,26 @@ private:
         bufferDescriptor.size = sizeof(float) * spectrum.size();
         bufferDescriptor.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
         spectrumBuffer = device.CreateBuffer(&bufferDescriptor);
-    }
 
-    // One float per pixel column; the bind group follows the buffer's size.
-    void resizeCurve(size_t columns)
-    {
-        if (curveBuffer && curveColumns == columns) return;
-        curveColumns = columns;
-        wgpu::BufferDescriptor bufferDescriptor;
-        bufferDescriptor.size = columns * sizeof(float);
-        bufferDescriptor.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
-        curveBuffer = device.CreateBuffer(&bufferDescriptor);
-        wgpu::BindGroupEntry entries[3];
+        wgpu::BindGroupEntry entries[2];
         entries[0].binding = 0;
         entries[0].buffer = uniforms;
         entries[1].binding = 1;
-        entries[1].buffer = curveBuffer;
-        entries[2].binding = 2;
-        entries[2].buffer = spectrumBuffer;
+        entries[1].buffer = spectrumBuffer;
         wgpu::BindGroupDescriptor groupDescriptor;
         groupDescriptor.layout = pipeline.GetBindGroupLayout(0);
-        groupDescriptor.entryCount = 3;
+        groupDescriptor.entryCount = 2;
         groupDescriptor.entries = entries;
         bindGroup = device.CreateBindGroup(&groupDescriptor);
     }
 
-    void drawCurve(const wgpu::RenderPassEncoder &pass, float width, float height, float cutoff, float q, const float plot[4])
+    void drawSpectrum(const wgpu::RenderPassEncoder &pass, float width, float height, gpu::Color color, const float plot[4])
     {
-        frames += 1;
-        const Uniforms data{{width, height, ui.s, float(frames) / 60.0f},
-                            {cutoff, q, dragging ? 1.0f : 0.0f, 48000.0f}, // the UI assumes 48 kHz for drawing
-                            {minHz, maxHz, minDb, maxDb},
+        const Uniforms data{{width, height, ui.s, 0},
+                            {color.r, color.g, color.b, 1},
+                            {minHz, maxHz, 0, 0},
                             {plot[0], plot[1], plot[2], plot[3]}};
         device.GetQueue().WriteBuffer(uniforms, 0, &data, sizeof(data));
-        resizeCurve(size_t(width) + 1);
-        columns.resize(curveColumns);
-        for (size_t x = 0; x < columns.size(); ++x)
-        {
-            const float t = std::clamp((float(x) - plot[0]) / (plot[2] - plot[0]), 0.0f, 1.0f);
-            columns[x] = responseDb(unitToHz(t), cutoff, q, 48000.0f);
-        }
-        device.GetQueue().WriteBuffer(curveBuffer, 0, columns.data(), columns.size() * sizeof(float));
         device.GetQueue().WriteBuffer(spectrumBuffer, 0, spectrum.data(), sizeof(float) * spectrum.size());
         pass.SetPipeline(pipeline);
         pass.SetBindGroup(0, bindGroup);
@@ -382,17 +288,13 @@ private:
     wgpu::RenderPipeline pipeline;
     wgpu::Buffer uniforms;
     wgpu::BindGroup bindGroup;
-    wgpu::Buffer curveBuffer, spectrumBuffer;
-    std::vector<float> spectrum = std::vector<float>(256, -120.0f); // dB per band, from the plugin
-    size_t curveColumns = 0;
-    std::vector<float> columns;
-    gpu::Params params;
+    wgpu::Buffer spectrumBuffer;
+    std::vector<float> spectrum = std::vector<float>(256, -120.0f); // dB per band, as shown
+    gpu::Params params; // the plugin's settings (not CLAP parameters; see plugin.cpp)
     gpu::Ui ui;
     gpu::Layout layout;
-    unsigned frames = 0;
-    bool dragging = false;
 };
 
 }
 
-std::unique_ptr<gpu::View> gpu::createView() { return std::make_unique<FilterView>(); }
+std::unique_ptr<gpu::View> gpu::createView() { return std::make_unique<AnalyzerView>(); }
