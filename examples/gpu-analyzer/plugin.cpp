@@ -7,7 +7,7 @@
 // reusable parts: the message codec and file loader (core/), and the presenter
 // that shows a gpu::View in the host's window (gpu/).
 //
-// Its two controls, Smoothing and Colour, only change how the spectrum looks,
+// Its three controls, Smoothing, Colour and Tilt, only change how the spectrum looks,
 // so they are settings saved with the plugin's state, not CLAP parameters:
 // hosts don't list or automate them. The interface edits them with the same
 // messages it would use for parameters.
@@ -35,8 +35,9 @@ struct Setting
 static const Setting settings[] = {
     {"Smoothing", 0, 100, 50}, // how slowly levels fall back, in percent
     {"Colour", 0, 360, 190},   // the spectrum's hue, in degrees
+    {"Tilt", 0, 6, 4.5},       // dB per octave around 1 kHz, as FabFilter Pro-Q shows by default
 };
-#define S_COUNT (2)
+#define S_COUNT (3)
 
 struct MyPlugin
 {

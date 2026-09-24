@@ -1,5 +1,5 @@
 // GPU Analyzer's interface: the live spectrum, drawn by one fragment shader,
-// with labels and two knobs (Smoothing, Colour) from draw2d's gpu::Ui on top,
+// with labels and three knobs (Smoothing, Colour, Tilt) from draw2d's gpu::Ui on top,
 // laid out with Clay. The spectrum arrives from the plugin as "spectrum"
 // messages; the knobs edit the plugin's settings (see plugin.cpp).
 #include "draw2d/ui.h"
@@ -67,23 +67,17 @@ const pi = 3.14159265;
 // x is Signalsmith's frequency scale, hz / (1500 + hz): nearly linear in the
 // lows and nearly logarithmic above, like hearing.
 fn plotRect() -> vec4f { return u.plot; }
-fn warp(hz: f32) -> f32 { return hz / (1500.0 + hz); }
+fn warp(hz: f32) -> f32 { return log(hz); } // logarithmic: every octave the same width
 fn xOf(f: f32) -> f32 {
     let r = plotRect();
     return r.x + (r.z - r.x) * (warp(f) - warp(u.ranges.x)) / (warp(u.ranges.y) - warp(u.ranges.x));
 }
-// The spectrum's own vertical scale, Signalsmith's: 0 dBFS at the top, quiet
-// levels compressed towards the bottom (energy^0.12, then a soft curve).
-// The scale's shape before the floor: 1 at 0 dBFS, falling towards 0.
-fn levelCurve(dbfs: f32) -> f32 {
-    let v = pow(10.0, 0.012 * dbfs); // (10^(dB/10))^0.12
-    return 0.6 * v / (0.4 + 0.2 * v);
-}
-const floorDb = -96.0; // the plot's bottom edge; anything quieter sits on it
+// The level scale: linear in dB, 0 dBFS at the top, the floor at the bottom
+// edge; anything quieter rests on it.
+const floorDb = -90.0;
 fn levelY(dbfs: f32) -> f32 {
     let r = plotRect();
-    let t = clamp((levelCurve(dbfs) - levelCurve(floorDb)) / (1.0 - levelCurve(floorDb)), 0.0, 1.0);
-    return r.w - (r.w - r.y) * t;
+    return r.y + (r.w - r.y) * clamp(dbfs / floorDb, 0.0, 1.0);
 }
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let px = pos.xy;
@@ -96,13 +90,13 @@ fn levelY(dbfs: f32) -> f32 {
 
     // Grid: the labelled frequencies and every 12 dB.
     var grid = 0.0;
-    let gridHz = array<f32, 8>(50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0);
-    for (var i = 0; i < 8; i++) {
+    let gridHz = array<f32, 10>(20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 20000.0);
+    for (var i = 0; i < 10; i++) {
         grid = max(grid, 1.0 - smoothstep(0.0, s, abs(px.x - xOf(gridHz[i]))));
     }
     // Horizontal lines on the spectrum's level scale (dBFS, labelled on the left).
-    let gridDb = array<f32, 8>(0.0, -12.0, -24.0, -36.0, -48.0, -60.0, -72.0, -84.0);
-    for (var i = 0; i < 8; i++) {
+    let gridDb = array<f32, 9>(0.0, -10.0, -20.0, -30.0, -40.0, -50.0, -60.0, -70.0, -80.0);
+    for (var i = 0; i < 9; i++) {
         grid = max(grid, 1.0 - smoothstep(0.0, s, abs(px.y - levelY(gridDb[i]))));
     }
     color += vec3f(0.06, 0.07, 0.08) * grid * inside;
@@ -140,13 +134,9 @@ struct Uniforms
 
 constexpr float minHz = 20, maxHz = 20000;
 
-// The plot's frequency scale (the shader's warp/xOf): Signalsmith's
-// hz / (1500 + hz), as a 0..1 position across the plot.
-float hzToUnit(float hz)
-{
-    auto warp = [](float f) { return f / (1500 + f); };
-    return (warp(hz) - warp(minHz)) / (warp(maxHz) - warp(minHz));
-}
+// The plot's frequency scale (the shader's warp/xOf): logarithmic, as a 0..1
+// position across the plot.
+float hzToUnit(float hz) { return std::log(hz / minHz) / std::log(maxHz / minHz); }
 
 // A bright colour of the given hue (degrees): HSV with value 0.9, saturation 0.6.
 gpu::Color hueColor(float hue)
@@ -175,8 +165,8 @@ public:
     {
         if (params.receive(message) || message["type"].text() != "spectrum") return;
         auto *db = std::get_if<core::Value::Array>(&message["db"].data);
-        const gpu::Param *smoothing = params.find("Smoothing");
-        if (!db || !smoothing) return;
+        const gpu::Param *smoothing = params.find("Smoothing"), *tilt = params.find("Tilt");
+        if (!db || !smoothing || !tilt) return;
         // Levels jump up at once and fall back at a rate Smoothing sets
         // (messages arrive about 60 times a second).
         const float fall = 1 - 0.97f * float(smoothing->value) / 100;
@@ -192,6 +182,10 @@ public:
         {
             const float left = spectrum[i > 0 ? i - 1 : i], right = spectrum[std::min(i + 1, spectrum.size() - 1)];
             shown[i] = 10 * std::log10(0.25f * power(left) + 0.5f * power(spectrum[i]) + 0.25f * power(right) + 1e-14f);
+            // Tilt, pivoting at 1 kHz: music tends to fall off about this fast,
+            // so it then looks roughly level across the plot.
+            const float hz = minHz * std::pow(maxHz / minHz, (i + 0.5f) / shown.size());
+            shown[i] += float(tilt->value) * std::log2(hz / 1000);
         }
     }
     void pointer(const PointerEvent &event) override { ui.pointer(event); }
@@ -201,7 +195,8 @@ public:
     {
         auto *smoothing = params.find("Smoothing");
         auto *colour = params.find("Colour");
-        if (!smoothing || !colour) return; // until the plugin has sent its settings
+        auto *tilt = params.find("Tilt");
+        if (!smoothing || !colour || !tilt) return; // until the plugin has sent its settings
         ui.theme.accent = hueColor(float(colour->value)); // the knobs take the spectrum's colour too
         ui.begin(width, height, scale);
 
@@ -220,7 +215,7 @@ public:
                                  .childAlignment = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_CENTER},
                                  .layoutDirection = CLAY_TOP_TO_BOTTOM}})
                 {
-                    for (gpu::Param *p : {smoothing, colour})
+                    for (gpu::Param *p : {smoothing, colour, tilt})
                         CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(80), CLAY_SIZING_GROW(0, 108)}},
                               .custom = {.customData = layout.custom(knobBox, p)}}) {}
                 }
@@ -230,7 +225,11 @@ public:
         // Draw what the layout placed: knobs, and the plot.
         gpu::Rect plot{};
         layout.end([&](int kind, void *data, gpu::Rect r) {
-            if (kind == knobBox) ui.knob(params, static_cast<gpu::Param *>(data), r, "%.0f");
+            if (kind == knobBox)
+            {
+                auto *p = static_cast<gpu::Param *>(data);
+                ui.knob(params, p, r, p == tilt ? "%.1f dB/oct" : "%.0f");
+            }
             if (kind == plotBox) plot = r;
         });
         drawPlot(pass, width, height, plot, ui.theme.accent);
@@ -249,28 +248,22 @@ private:
         auto xOf = [&](float hz) { return plot[0] + (plot[2] - plot[0]) * hzToUnit(hz); };
         // Frequency labels, skipping any that would overlap the previous one.
         float lastRight = -1e9f;
-        for (auto [hz, label] : {std::pair{50.0f, "50"}, {100.0f, "100"}, {200.0f, "200"}, {500.0f, "500"},
-                                 {1000.0f, "1k"}, {2000.0f, "2k"}, {5000.0f, "5k"}, {10000.0f, "10k"}})
+        for (auto [hz, label] : {std::pair{20.0f, "20"}, {50.0f, "50"}, {100.0f, "100"}, {200.0f, "200"}, {500.0f, "500"},
+                                 {1000.0f, "1k"}, {2000.0f, "2k"}, {5000.0f, "5k"}, {10000.0f, "10k"}, {20000.0f, "20k"}})
         {
             const float half = ui.draw.measure(11 * s, label) / 2;
-            if (xOf(hz) - half < lastRight + 6 * s) continue;
-            ui.draw.text(xOf(hz), box.y + box.h - 7 * s, 11 * s, label, ui.theme.dim, gpu::Draw2D::Align::center);
-            lastRight = xOf(hz) + half;
+            const float x = std::clamp(xOf(hz), plot[0] + half, plot[2] - half); // 20 and 20k sit at the edges
+            if (x - half < lastRight + 6 * s) continue;
+            ui.draw.text(x, box.y + box.h - 7 * s, 11 * s, label, ui.theme.dim, gpu::Draw2D::Align::center);
+            lastRight = x + half;
         }
-        // Left: the spectrum's level in dBFS, on Signalsmith's scale (the
-        // shader's levelY). Labels that would crowd the one above are skipped.
-        auto curve = [](float dbfs) {
-            const float v = std::pow(10.0f, 0.012f * dbfs);
-            return 0.6f * v / (0.4f + 0.2f * v);
-        };
-        auto levelY = [&](float dbfs) { // the shader's levelY, with its floor at -96 dBFS
-            const float t = std::clamp((curve(dbfs) - curve(-96)) / (1 - curve(-96)), 0.0f, 1.0f);
-            return plot[3] - (plot[3] - plot[1]) * t;
-        };
+        // Left: the spectrum's level in dBFS, linear, 0 at the top and -90 at
+        // the bottom (the shader's levelY). Labels too close together are skipped.
+        auto levelY = [&](float dbfs) { return plot[1] + (plot[3] - plot[1]) * std::clamp(dbfs / -90.0f, 0.0f, 1.0f); };
         float lastY = -1e9f;
-        for (float dbfs : {0.0f, -12.0f, -24.0f, -36.0f, -48.0f, -60.0f, -72.0f, -84.0f, -96.0f})
+        for (float dbfs = 0; dbfs >= -90; dbfs -= 10)
         {
-            const float y = std::max(levelY(dbfs), plot[1] + 9 * s);
+            const float y = std::clamp(levelY(dbfs), plot[1] + 9 * s, plot[3] - 2 * s);
             if (y - lastY < 14 * s) continue;
             char label[8];
             std::snprintf(label, sizeof(label), "%.0f", dbfs);

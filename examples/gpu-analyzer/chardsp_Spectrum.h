@@ -14,7 +14,7 @@ namespace chardsp
 // (github.com/Signalsmith-Audio/basics, analyser.h, MIT), at three resolutions:
 //
 // - Blackman-Harris-windowed FFTs (Signalsmith's real-input FFT) every few
-//   milliseconds: a long window (8192 samples) for the
+//   milliseconds: a long window (16384 samples) for the
 //   lows, where notes are close together in Hz, a medium one (4096) for the
 //   middle, and a short one (2048) for the highs, so they still react within
 //   tens of milliseconds. Neighbouring resolutions are blended over an
@@ -43,12 +43,13 @@ struct Spectrum
     }
 
     // Other thread: `bandCount` display bands in dB from minHz to maxHz, evenly
-    // spaced on Signalsmith's display scale hz / (1500 + hz) (see scale()).
-    // Returns false until the first long window's worth of samples has arrived.
+    // spaced evenly on a logarithmic frequency scale (see scale()).
+    // Returns false until the short window's worth of samples has arrived; the
+    // longer windows start from silence and fill in over their length.
     bool analyze (float sampleRate, float minHz, float maxHz, int bandCount, std::vector<double>& display)
     {
         const uint32_t end = writeIndex.load (std::memory_order_acquire);
-        if (end < uint32_t (Long::windowSize) || sampleRate <= 0)
+        if (end < uint32_t (Short::windowSize) || sampleRate <= 0)
             return false;
         if (sampleRate != preparedRate)
         {
@@ -65,9 +66,8 @@ struct Spectrum
         uint32_t next = analysed + hop;
         if (analysed == 0 || end - analysed > uint32_t (20 * Long::hop))
         {
-            const uint32_t from = end > uint32_t (Long::windowSize + 20 * Long::hop) ? end - 20 * Long::hop
-                                                                                    : uint32_t (Long::windowSize);
-            next = (from + Long::hop - 1) / Long::hop * Long::hop; // on both hop grids
+            const uint32_t from = end > uint32_t (20 * Long::hop) ? end - 20 * Long::hop : uint32_t (hop);
+            next = (from + Long::hop - 1) / Long::hop * Long::hop; // on every resolution's hop grid
         }
         for (; end - next < 0x80000000u; next += hop) // while next <= end
         {
@@ -94,9 +94,8 @@ struct Spectrum
         return true;
     }
 
-    // The display's frequency scale: close to linear in the lows and to
-    // logarithmic above, roughly like hearing.
-    static double scale (double hz) { return hz / (1500 + hz); }
+    // The display's frequency scale: logarithmic, every octave the same width.
+    static double scale (double hz) { return std::log (hz); }
 
 private:
     static constexpr int ringSize = 65536;
@@ -104,8 +103,7 @@ private:
 
     static double scaleInverse (double minHz, double maxHz, double unit)
     {
-        const double w = scale (minHz) + unit * (scale (maxHz) - scale (minHz));
-        return 1500 * w / (1 - w);
+        return std::exp (scale (minHz) + unit * (scale (maxHz) - scale (minHz)));
     }
 
     // One resolution: a window size, its zero-padded FFT, and how often it runs.
@@ -231,7 +229,7 @@ private:
         std::vector<int> known;
     };
 
-    using Long = Resolution<8192, 16384, 4 * hop>;  // 170 ms window, every 20 ms
+    using Long = Resolution<16384, 32768, 8 * hop>; // 340 ms window, every 40 ms
     using Medium = Resolution<4096, 8192, 2 * hop>; // 85 ms window, every 10 ms
     using Short = Resolution<2048, 4096, hop>;      // 43 ms window, every 5 ms
 
