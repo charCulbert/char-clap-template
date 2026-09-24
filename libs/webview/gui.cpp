@@ -141,7 +141,7 @@ bool Gui::create(const char *api, bool floating)
         view.bind("clapWebviewReceive", [this](const choc::value::ValueView &args) {
             std::string bytes;
             if (!args.isArray() || args.size() != 1 || !args[0].isString() ||
-                args[0].getString().size() > (maxMessageBytes / 3 + 1) * 4 ||
+                args[0].getString().size() > (core::maxMessageBytes / 3 + 1) * 4 ||
                 !choc::base64::decodeToContainer(bytes, args[0].getString()))
                 return choc::value::Value(false);
             return choc::value::Value(pluginWebview->receive(plugin, bytes.data(), uint32_t(bytes.size())));

@@ -1,15 +1,17 @@
-// The plugin's page. It only knows the messages plugin.cpp documents:
-//   from the plugin  {type: "params", params: [...]}, {type: "values", values: [...]}
+// WebView Synth's page: a slider per parameter. It only knows the messages
+// plugin.cpp documents:
+//   from the plugin  {type: "params", params: [{id, name, min, max, default, unit}]},
+//                    {type: "values", values: [...]}
 //   to the plugin    {type: "ready"}, {type: "begin" | "end", id}, {type: "change", id, value}
 import {sendMessage, onMessage} from './lib/messages.js';
 
 const sliders = [];
 
-// Wide ranges above zero (like Cutoff) feel right on a logarithmic slider.
+// Wide ranges above zero (like Release) feel right on a logarithmic slider.
 const isLog = p => p.min > 0 && p.max / p.min >= 100;
 const toSlider = (p, v) => isLog(p) ? Math.log(v / p.min) / Math.log(p.max / p.min) : (v - p.min) / (p.max - p.min);
 const fromSlider = (p, x) => isLog(p) ? p.min * (p.max / p.min) ** x : p.min + x * (p.max - p.min);
-const format = (p, v) => isLog(p) ? `${v.toFixed(0)} Hz` : v.toFixed(2);
+const format = (p, v) => `${v.toFixed(Math.abs(v) < 10 ? 2 : 1)} ${p.unit ?? ''}`;
 
 function build(params) {
   const container = document.getElementById('params');
@@ -49,30 +51,8 @@ function show(id, value) {
   slider.output.textContent = format(slider.p, value);
 }
 
-// The live spectrum: bands in dB from 20 Hz to 20 kHz, drawn as a filled curve.
-const spectrum = document.getElementById('spectrum');
-const context = spectrum.getContext('2d');
-function drawSpectrum(db) {
-  const r = devicePixelRatio, w = spectrum.clientWidth * r, h = spectrum.clientHeight * r;
-  if (spectrum.width !== w || spectrum.height !== h) spectrum.width = w, spectrum.height = h;
-  // Signalsmith's level scale: 0 dBFS at the top, quiet levels compressed below.
-  const y = d => { const v = Math.pow(10, 0.012 * d); return h * (1 - 0.6 * v / (0.4 + 0.2 * v)); };
-  const line = new Path2D();
-  db.forEach((d, i) => line.lineTo((i + 0.5) / db.length * w, y(d))); // band i covers [i, i+1)/n of the width
-  const fill = new Path2D(line);
-  fill.lineTo(w, h);
-  fill.lineTo(0, h);
-  context.clearRect(0, 0, w, h);
-  context.fillStyle = 'rgba(95, 180, 162, 0.25)';
-  context.fill(fill);
-  context.strokeStyle = '#5fb4a2';
-  context.lineWidth = 1.5 * r;
-  context.stroke(line);
-}
-
 onMessage(message => {
   if (message.type === 'params') build(message.params);
   if (message.type === 'values') message.values.forEach((value, id) => show(id, value));
-  if (message.type === 'spectrum') drawSpectrum(message.db);
 });
 sendMessage({type: 'ready'});

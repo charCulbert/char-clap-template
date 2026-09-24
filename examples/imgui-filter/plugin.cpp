@@ -21,6 +21,7 @@
 #include <string.h>
 #include <cmath>
 #include <atomic>
+#include <vector>
 #include "chardsp_StateVariableFilter.h"
 #include "core/messages.h"
 #include "core/resources.h"
@@ -195,6 +196,9 @@ static const clap_plugin_params_t extensionParams = {
         } },
 };
 
+// The state is the parameters as a CBOR map (core/messages.h) from name to
+// value, with a version, so later versions can add parameters and still read
+// this one.
 static const clap_plugin_state_t extensionState = {
     .save = [](const clap_plugin_t *_plugin, const clap_ostream_t *stream) -> bool
     {
@@ -204,35 +208,57 @@ static const clap_plugin_state_t extensionState = {
         // before we save the state of the plugin.
         PluginSyncAudioToMain(plugin);
 
-        float snapshot[P_COUNT];
+        core::Value::Map state{{"version", 1}};
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
-            snapshot[i] = plugin->mainParameters[i].load(std::memory_order_relaxed);
+            clap_param_info_t information = {};
+            extensionParams.get_info(_plugin, i, &information);
+            state[information.name] = (double)plugin->mainParameters[i].load(std::memory_order_relaxed);
         }
-
-        return sizeof(float) * P_COUNT == stream->write(stream, snapshot, sizeof(float) * P_COUNT);
+        const auto bytes = core::encode(state);
+        const unsigned char *data = bytes.data();
+        uint64_t remaining = bytes.size();
+        while (remaining)
+        {
+            const int64_t written = stream->write(stream, data, remaining);
+            if (written <= 0)
+                return false;
+            data += written;
+            remaining -= (uint64_t)written;
+        }
+        return true;
     },
 
     .load = [](const clap_plugin_t *_plugin, const clap_istream_t *stream) -> bool
     {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
 
-        float loaded[P_COUNT];
-        bool success = sizeof(float) * P_COUNT == stream->read(stream, loaded, sizeof(float) * P_COUNT);
-
-        if (success)
+        std::vector<unsigned char> bytes;
+        unsigned char buffer[256];
+        for (int64_t read; (read = stream->read(stream, buffer, sizeof(buffer))) > 0;)
         {
-            for (uint32_t i = 0; i < P_COUNT; i++)
-            {
-                plugin->mainParameters[i].store(loaded[i], std::memory_order_relaxed);
-                plugin->mainChanged[i].store(true, std::memory_order_release);
-            }
-            if (plugin->hostParams)
-                plugin->hostParams->rescan(plugin->host, CLAP_PARAM_RESCAN_VALUES);
-            PluginSendValues(plugin);
+            bytes.insert(bytes.end(), buffer, buffer + read);
+            if (bytes.size() > core::maxMessageBytes)
+                return false;
         }
+        auto state = core::decode(bytes.data(), bytes.size());
+        if (!state || (*state)["version"].number() < 1)
+            return false;
 
-        return success;
+        // A parameter missing from the state keeps its default.
+        for (uint32_t i = 0; i < P_COUNT; i++)
+        {
+            clap_param_info_t information = {};
+            extensionParams.get_info(_plugin, i, &information);
+            const double value = (*state)[information.name].number(information.default_value);
+            plugin->mainParameters[i].store((float)fmin(fmax(value, information.min_value), information.max_value),
+                                            std::memory_order_relaxed);
+            plugin->mainChanged[i].store(true, std::memory_order_release);
+        }
+        if (plugin->hostParams)
+            plugin->hostParams->rescan(plugin->host, CLAP_PARAM_RESCAN_VALUES);
+        PluginSendValues(plugin);
+        return true;
     },
 };
 

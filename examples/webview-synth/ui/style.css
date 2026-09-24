@@ -8,4 +8,3 @@ label { display: grid; grid-template-columns: 70px 1fr 80px; align-items: center
 input[type=range] { width: 100%; accent-color: #5fb4a2; }
 output { font-variant-numeric: tabular-nums; text-align: right; color: #aab3bb; }
 .status { color: #8a949c; }
-#spectrum { flex: 1; min-height: 0; width: 100%; border-radius: 6px; background: #101316; }

@@ -1,6 +1,6 @@
 // Plugin <-> page messages, as clap.webview/3 defines them: ArrayBuffers sent
 // with window.parent.postMessage() and received as 'message' events.
-// Values are JSON-like and travel as CBOR, matching webview/messages.cpp.
+// Values are JSON-like and travel as CBOR, matching libs/core/messages.cpp.
 // Nothing in here is specific to one plugin.
 
 export function sendMessage(value) {
