@@ -29,14 +29,32 @@ struct Varyings {
 @group(0) @binding(1) var atlas: texture_2d<f32>;
 @group(0) @binding(2) var atlasSampler: sampler;
 
+// Kinds: 0 box   rect = x, y, w, h        shape.y = corner radius, shape.z = border
+//        1 glyph rect = x, y, w, h        uv = atlas rectangle
+//        2 line  rect = x0, y0, x1, y1    shape.y = half width
+//        3 arc   rect = x, y, w, h        uv = from, to (radians), shape.y = half width
 @vertex fn vs(@builtin(vertex_index) v: u32, i: Instance) -> Varyings {
     let corner = vec2f(f32(v & 1u), f32(v >> 1u));  // triangle strip: 0,0 1,0 0,1 1,1
-    let pixel = i.rect.xy + corner * i.rect.zw;
+    var pixel = i.rect.xy + corner * i.rect.zw;
+    var half = i.rect.zw * 0.5;
+    var local = (corner - 0.5) * i.rect.zw;
+    if (i.shape.x == 2.0) {
+        // A quad along the segment, one pixel wider than the stroke for antialiasing.
+        let a = i.rect.xy;
+        let b = i.rect.zw;
+        let len = max(length(b - a), 1e-3);
+        let along = (b - a) / len;
+        let across = vec2f(-along.y, along.x);
+        let r = i.shape.y + 1.0;
+        half = vec2f(len * 0.5 + r, r);
+        local = (corner - 0.5) * 2.0 * half;
+        pixel = (a + b) * 0.5 + along * local.x + across * local.y;
+    }
     var out: Varyings;
     out.position = vec4f(pixel / u.size.xy * vec2f(2.0, -2.0) + vec2f(-1.0, 1.0), 0.0, 1.0);
-    out.half = i.rect.zw * 0.5;
-    out.local = (corner - 0.5) * i.rect.zw;
-    out.uv = mix(i.uv.xy, i.uv.zw, corner);
+    out.half = half;
+    out.local = local;
+    out.uv = select(mix(i.uv.xy, i.uv.zw, corner), i.uv.xy, i.shape.x == 3.0); // arcs: constant angles
     out.fill = i.fill;
     out.stroke = i.stroke;
     out.shape = i.shape;
@@ -62,7 +80,19 @@ struct Varyings {
     let color = mix(in.stroke, in.fill, select(1.0, inner, in.shape.z > 0.0));
     let shape = vec4f(color.rgb, color.a * inside);
 
-    return select(shape, glyph, in.shape.x > 0.5);
+    // Line: distance to the segment (local.x runs along it, local.y across).
+    let segment = abs(in.local) - vec2f(in.half.x - in.half.y, 0.0);
+    let dl = length(max(segment, vec2f(0.0))) - in.shape.y;
+    let line = vec4f(in.fill.rgb, in.fill.a * (1.0 - smoothstep(-fwidth(dl), fwidth(dl), dl)));
+
+    // Arc: distance to the ring, cut to the angle range.
+    let angle = fract(atan2(in.local.x, -in.local.y) / 6.2831853) * 6.2831853;
+    let ring = abs(length(in.local) - (in.half.x - in.shape.y - 1.0)) - in.shape.y;
+    let da = select(1e3, ring, angle >= in.uv.x && angle <= in.uv.y);
+    let arc = vec4f(in.fill.rgb, in.fill.a * (1.0 - smoothstep(-fwidth(ring), fwidth(ring), da)));
+
+    let kind = in.shape.x;
+    return select(select(select(shape, glyph, kind == 1.0), line, kind == 2.0), arc, kind == 3.0);
 }
 )";
 
@@ -187,6 +217,24 @@ void Draw2D::rect(float x, float y, float w, float h, float radius, Color fill, 
 void Draw2D::circle(float cx, float cy, float radius, Color fill, float border, Color borderColor)
 {
     rect(cx - radius, cy - radius, 2 * radius, 2 * radius, radius, fill, border, borderColor);
+}
+
+void Draw2D::line(float x0, float y0, float x1, float y1, float width, Color color)
+{
+    batch.push_back({{x0, y0, x1, y1}, {}, {color.r, color.g, color.b, color.a}, {}, {2, width / 2, 0, 0}});
+}
+
+void Draw2D::polyline(const float *xy, size_t points, float width, Color color)
+{
+    for (size_t i = 1; i < points; ++i)
+        line(xy[2 * i - 2], xy[2 * i - 1], xy[2 * i], xy[2 * i + 1], width, color);
+}
+
+void Draw2D::arc(float cx, float cy, float radius, float width, float from, float to, Color color)
+{
+    const float r = radius + width / 2 + 1;
+    batch.push_back({{cx - r, cy - r, 2 * r, 2 * r}, {from, to, 0, 0}, {color.r, color.g, color.b, color.a}, {},
+                     {3, width / 2, 0, 0}});
 }
 
 float Draw2D::measure(float textSize, std::string_view text) const

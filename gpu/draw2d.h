@@ -25,6 +25,11 @@ public:
     void rect(float x, float y, float w, float h, float radius, Color fill,
               float border = 0, Color borderColor = {0, 0, 0, 0});
     void circle(float cx, float cy, float radius, Color fill, float border = 0, Color borderColor = {0, 0, 0, 0});
+    // A straight stroke with round ends; polylines join with round corners.
+    void line(float x0, float y0, float x1, float y1, float width, Color color);
+    void polyline(const float *xy, size_t points, float width, Color color);
+    // A ring sector: angles in radians, 0 pointing up, increasing clockwise.
+    void arc(float cx, float cy, float radius, float width, float from, float to, Color color);
     // y is the text's baseline; returns the text's width.
     float text(float x, float y, float size, std::string_view text, Color color, Align align = Align::left);
     float measure(float size, std::string_view text) const;
@@ -37,7 +42,7 @@ private:
         float uv[4];     // atlas rectangle, for glyphs
         float fill[4];
         float stroke[4]; // border color
-        float shape[4];  // kind (0 shape, 1 glyph), corner radius, border width, glyph distance range
+        float shape[4];  // kind (0 box, 1 glyph, 2 line, 3 arc), then per kind: see draw2d.cpp
     };
     struct Glyph
     {
