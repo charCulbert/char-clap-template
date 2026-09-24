@@ -26,9 +26,9 @@ fn curveDb(x: f32) -> f32 {
 }
 // The live spectrum from the plugin: bands in dB, log-spaced over the plot.
 @group(0) @binding(2) var<storage, read> spectrum: array<f32>;
-fn bandAt(x: f32) -> f32 { // fractional band index at a pixel x
+fn bandAt(x: f32) -> f32 { // fractional band index at a pixel x; band d covers [d, d+1)/n
     let n = f32(arrayLength(&spectrum));
-    return clamp((x - u.plot.x) / (u.plot.z - u.plot.x), 0.0, 1.0) * (n - 1.0);
+    return clamp(clamp((x - u.plot.x) / (u.plot.z - u.plot.x), 0.0, 1.0) * n - 0.5, 0.0, n - 1.0);
 }
 fn spectrumDb(x: f32) -> f32 {
     // Interpolated between bands, but never below the loudest band this pixel
@@ -93,9 +93,10 @@ fn yOf(db: f32) -> f32 {
     for (var i = 0; i < 8; i++) {
         grid = max(grid, 1.0 - smoothstep(0.0, s, abs(px.x - xOf(gridHz[i]))));
     }
-    for (var db = -48.0; db <= 24.0; db = db + 12.0) {
-        let line = 1.0 - smoothstep(0.0, s, abs(px.y - yOf(db)));
-        grid = max(grid, line * select(0.6, 1.0, db == 0.0));
+    // Horizontal lines on the spectrum's level scale (dBFS, labelled on the left).
+    let gridDb = array<f32, 7>(0.0, -12.0, -24.0, -36.0, -48.0, -60.0, -80.0);
+    for (var i = 0; i < 7; i++) {
+        grid = max(grid, 1.0 - smoothstep(0.0, s, abs(px.y - levelY(gridDb[i]))));
     }
     color += vec3f(0.06, 0.07, 0.08) * grid * inside;
 
@@ -197,29 +198,24 @@ public:
         auto *q = params.find("Q");
         if (!cutoff || !q) return; // until the plugin has sent its parameters
         ui.begin(width, height, scale);
-        const Clay_Color text = gpu::clayColor(ui.theme.text), dim = gpu::clayColor(ui.theme.dim);
 
-        // The layout, in points: a header, then the plot beside a column of knobs.
+        // The layout, in points: the plot fills the height on the left; a side
+        // bar on the right holds the knobs.
         layout.begin(ui.draw, width, height, scale);
-        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(14),
-                         .childGap = 10, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
         {
-            CLAY({.layout = {.childGap = 10, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
+                  .custom = {.customData = layout.custom(plotBox)}}) {}
+            CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(112), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(12),
+                             .childGap = 10, .childAlignment = {.x = CLAY_ALIGN_X_CENTER}, .layoutDirection = CLAY_TOP_TO_BOTTOM},
+                  .backgroundColor = gpu::clayColor(ui.theme.panel)})
             {
-                CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(10), CLAY_SIZING_FIXED(10)}},
-                      .backgroundColor = gpu::clayColor(ui.theme.accent), .cornerRadius = CLAY_CORNER_RADIUS(5)}) {}
-                CLAY_TEXT(CLAY_STRING("simpleCharClap"), CLAY_TEXT_CONFIG({.textColor = text, .fontSize = 15}));
-                CLAY_TEXT(CLAY_STRING("SVF LOWPASS"), CLAY_TEXT_CONFIG({.textColor = dim, .fontSize = 11}));
-            }
-            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 12}})
-            {
-                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
-                      .custom = {.customData = layout.custom(plotBox)}}) {}
-                CLAY({.layout = {.sizing = {CLAY_SIZING_FIT(0), CLAY_SIZING_GROW(0)}, .childGap = 12,
-                                 .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 12,
+                                 .childAlignment = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_CENTER},
+                                 .layoutDirection = CLAY_TOP_TO_BOTTOM}})
                 {
                     for (gpu::Param *p : {cutoff, q})
-                        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(76), CLAY_SIZING_GROW(0, 104)}},
+                        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(80), CLAY_SIZING_GROW(0, 108)}},
                               .custom = {.customData = layout.custom(knobBox, p)}}) {}
                 }
             }
@@ -247,7 +243,7 @@ private:
     void drawPlot(const wgpu::RenderPassEncoder &pass, float width, float height, gpu::Rect box, gpu::Param &cutoff, gpu::Param &q)
     {
         const float s = ui.s;
-        const float plot[4] = {box.x + 30 * s, box.y, box.x + box.w, box.y + box.h - 18 * s};
+        const float plot[4] = {box.x + 34 * s, box.y + 10 * s, box.x + box.w - 10 * s, box.y + box.h - 22 * s};
         auto area = ui.area(this, plot[0], plot[1], plot[2] - plot[0], plot[3] - plot[1]);
         if (area.pressed) params.begin(cutoff), params.begin(q);
         if (area.held)
@@ -270,16 +266,31 @@ private:
         {
             const float half = ui.draw.measure(11 * s, label) / 2;
             if (xOf(hz) - half < lastRight + 6 * s) continue;
-            ui.draw.text(xOf(hz), box.y + box.h - 3 * s, 11 * s, label, ui.theme.dim, gpu::Draw2D::Align::center);
+            ui.draw.text(xOf(hz), box.y + box.h - 7 * s, 11 * s, label, ui.theme.dim, gpu::Draw2D::Align::center);
             lastRight = xOf(hz) + half;
         }
-        // Fewer dB labels when the plot is short.
-        const float step = (plot[3] - plot[1]) / s < 150 ? 24.0f : 12.0f;
-        for (float db = maxDb; db > minDb; db -= step)
+        // Left: the spectrum's level in dBFS, on Signalsmith's scale (the
+        // shader's levelY). Labels that would crowd the one above are skipped.
+        auto levelY = [&](float dbfs) {
+            const float v = std::pow(10.0f, 0.012f * dbfs);
+            return plot[3] - (plot[3] - plot[1]) * 0.6f * v / (0.4f + 0.2f * v);
+        };
+        float lastY = -1e9f;
+        for (float dbfs : {0.0f, -12.0f, -24.0f, -36.0f, -48.0f, -60.0f, -80.0f})
         {
+            const float y = std::max(levelY(dbfs), plot[1] + 9 * s);
+            if (y - lastY < 14 * s) continue;
             char label[8];
-            std::snprintf(label, sizeof(label), db > 0 ? "+%.0f" : "%.0f", db);
-            ui.draw.text(plot[0] - 6 * s, yOf(db) + 4 * s, 11 * s, label, ui.theme.dim, gpu::Draw2D::Align::right);
+            std::snprintf(label, sizeof(label), "%.0f", dbfs);
+            ui.draw.text(plot[0] - 6 * s, y + 4 * s, 11 * s, label, ui.theme.dim, gpu::Draw2D::Align::right);
+            lastY = y;
+        }
+        // Right edge: the filter curve's gain, small ticks for +12, 0 and -12 dB.
+        for (float gain : {12.0f, 0.0f, -12.0f})
+        {
+            char label[12];
+            std::snprintf(label, sizeof(label), gain > 0 ? "+%.0f dB" : "%.0f dB", gain);
+            ui.draw.text(plot[2] - 4 * s, yOf(gain) - 4 * s, 10 * s, label, ui.theme.accent, gpu::Draw2D::Align::right);
         }
     }
 

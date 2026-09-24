@@ -25,8 +25,8 @@ public:
     void rect(float x, float y, float w, float h, float radius, Color fill,
               float border = 0, Color borderColor = {0, 0, 0, 0});
     void circle(float cx, float cy, float radius, Color fill, float border = 0, Color borderColor = {0, 0, 0, 0});
-    // Strokes with round ends and joins. All lines draw in one pass beneath the
-    // other shapes; only their points go to the GPU (16 bytes each).
+    // Strokes with round ends and joins. All lines draw in one pass on top of
+    // the other shapes; only their points go to the GPU (16 bytes each).
     void line(float x0, float y0, float x1, float y1, float width, Color color);
     void polyline(const float *xy, size_t points, float width, Color color);
     // A ring sector: angles in radians, 0 pointing up, increasing clockwise.

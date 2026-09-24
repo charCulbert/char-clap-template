@@ -327,6 +327,18 @@ void Draw2D::flush(const wgpu::RenderPassEncoder &pass)
     const float data[4] = {size[0], size[1], 0, 0};
     device.GetQueue().WriteBuffer(uniforms, 0, data, sizeof(data));
 
+    if (!batch.empty())
+    {
+    const uint64_t bytes = batch.size() * sizeof(Instance);
+    reserve(device, instances, capacity, bytes, wgpu::BufferUsage::Vertex);
+    device.GetQueue().WriteBuffer(instances, 0, batch.data(), bytes);
+    pass.SetPipeline(pipeline);
+    pass.SetBindGroup(0, bindGroup);
+    pass.SetVertexBuffer(0, instances, 0, bytes);
+    pass.Draw(4, uint32_t(batch.size()));
+    }
+
+    // Lines last, on top of the shapes (a knob's pointer sits on its face).
     if (points.size() >= 2)
     {
         const size_t styleBytes = styles.size() * sizeof(LineStyle), pointBytes = points.size() * sizeof(LinePoint);
@@ -354,15 +366,6 @@ void Draw2D::flush(const wgpu::RenderPassEncoder &pass)
         pass.SetBindGroup(0, lineBindGroup);
         pass.Draw(4, uint32_t(points.size() - 1));
     }
-
-    if (batch.empty()) return;
-    const uint64_t bytes = batch.size() * sizeof(Instance);
-    reserve(device, instances, capacity, bytes, wgpu::BufferUsage::Vertex);
-    device.GetQueue().WriteBuffer(instances, 0, batch.data(), bytes);
-    pass.SetPipeline(pipeline);
-    pass.SetBindGroup(0, bindGroup);
-    pass.SetVertexBuffer(0, instances, 0, bytes);
-    pass.Draw(4, uint32_t(batch.size()));
 }
 
 }

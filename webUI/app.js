@@ -58,7 +58,7 @@ function drawSpectrum(db) {
   // Signalsmith's level scale: 0 dBFS at the top, quiet levels compressed below.
   const y = d => { const v = Math.pow(10, 0.012 * d); return h * (1 - 0.6 * v / (0.4 + 0.2 * v)); };
   const line = new Path2D();
-  db.forEach((d, i) => line.lineTo(i / (db.length - 1) * w, y(d)));
+  db.forEach((d, i) => line.lineTo((i + 0.5) / db.length * w, y(d))); // band i covers [i, i+1)/n of the width
   const fill = new Path2D(line);
   fill.lineTo(w, h);
   fill.lineTo(0, h);
