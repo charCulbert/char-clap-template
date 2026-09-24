@@ -80,9 +80,19 @@ static unsigned modifiers(NSEvent *event)
     case 115: key = Key::home; break;
     case 119: key = Key::end; break;
     case 48: key = Key::tab; break;
+    case 36: case 76: key = Key::enter; break;
+    case 53: key = Key::escape; break;
+    case 51: key = Key::backspace; break;
+    case 117: key = Key::deleteForward; break;
     }
-    if (!key || !_callbacks || !_callbacks->key(*key, modifiers(event)))
-        [super keyDown:event]; // up the responder chain, to the host
+    if (_callbacks && key && _callbacks->key(*key, modifiers(event))) return;
+    // Typed characters, but not shortcuts or function keys (U+F700 and up).
+    NSString *characters = event.characters;
+    const bool typed = !key && characters.length > 0 && [characters characterAtIndex:0] >= 0x20
+                    && [characters characterAtIndex:0] < 0xF700 && [characters characterAtIndex:0] != 0x7F
+                    && !(event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl));
+    if (_callbacks && typed && _callbacks->text(characters.UTF8String)) return;
+    [super keyDown:event]; // up the responder chain, to the host
 }
 - (void)mouseDragged:(NSEvent *)event { [self send:gpu::View::Pointer::move event:event]; }
 - (void)mouseUp:(NSEvent *)event { [self send:gpu::View::Pointer::up event:event]; }

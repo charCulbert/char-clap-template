@@ -17,6 +17,7 @@ struct Callbacks
     std::function<void()> frame;                       // draw one frame
     std::function<void(const View::PointerEvent &)> pointer;
     std::function<bool(View::Key, unsigned modifiers)> key; // true if used
+    std::function<bool(const char *utf8)> text;             // true if used
 };
 
 Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Callbacks callbacks);

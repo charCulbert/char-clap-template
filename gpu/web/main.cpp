@@ -71,11 +71,16 @@ bool key(int, const EmscriptenKeyboardEvent *event, void *)
     using Key = gpu::View::Key;
     static const std::pair<const char *, Key> keys[] = {
         {"ArrowLeft", Key::left}, {"ArrowRight", Key::right}, {"ArrowUp", Key::up}, {"ArrowDown", Key::down},
-        {"PageUp", Key::pageUp}, {"PageDown", Key::pageDown}, {"Home", Key::home}, {"End", Key::end}, {"Tab", Key::tab}};
+        {"PageUp", Key::pageUp}, {"PageDown", Key::pageDown}, {"Home", Key::home}, {"End", Key::end}, {"Tab", Key::tab},
+        {"Enter", Key::enter}, {"Escape", Key::escape}, {"Backspace", Key::backspace}, {"Delete", Key::deleteForward}};
     if (!ready) return false;
     for (auto [name, k] : keys)
-        if (std::strcmp(event->key, name) == 0 && view->key(k, modifiers(*event)))
-            return dirty = true; // handled: the browser does nothing else with it
+        if (std::strcmp(event->key, name) == 0)
+            return view->key(k, modifiers(*event)) && (dirty = true); // handled: the browser does nothing else with it
+    // A typed character: key is the character itself (named keys are longer ASCII words).
+    const size_t length = std::strlen(event->key);
+    const bool typed = length == 1 || (length > 1 && static_cast<unsigned char>(event->key[0]) >= 0x80);
+    if (typed && !event->ctrlKey && !event->metaKey && view->text(event->key)) return dirty = true;
     return false;
 }
 

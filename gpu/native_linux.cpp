@@ -152,7 +152,26 @@ void pumpEvents(Window *window)
             case XK_Home: key = View::Key::home; break;
             case XK_End: key = View::Key::end; break;
             case XK_Tab: case XK_ISO_Left_Tab: key = View::Key::tab; break;
-            default: continue; // X11 has no simple way to hand keys back to the host
+            case XK_Return: case XK_KP_Enter: key = View::Key::enter; break;
+            case XK_Escape: key = View::Key::escape; break;
+            case XK_BackSpace: key = View::Key::backspace; break;
+            case XK_Delete: key = View::Key::deleteForward; break;
+            default:
+            {
+                // Typed characters (Latin-1 without an input method, which is
+                // enough for numbers). X11 has no simple way to hand unused
+                // keys back to the host.
+                char typed[8] = {};
+                if (XLookupString(&event.xkey, typed, sizeof(typed) - 1, nullptr, nullptr) == 1
+                    && static_cast<unsigned char>(typed[0]) >= 0x20 && typed[0] != 0x7F && !(event.xkey.state & ControlMask))
+                {
+                    const auto c = static_cast<unsigned char>(typed[0]);
+                    char utf8[3] = {char(c)};
+                    if (c >= 0x80) utf8[0] = char(0xC0 | c >> 6), utf8[1] = char(0x80 | (c & 0x3F));
+                    window->callbacks.text(utf8);
+                }
+                continue;
+            }
             }
             window->callbacks.key(key, modifiers(event.xkey.state));
         }

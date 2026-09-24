@@ -22,8 +22,8 @@ public:
         unsigned modifiers = 0; // Modifier bits
         float wheel = 0;        // for Pointer::wheel: notches, positive away from the user
     };
-    // The keys controls use; other keys go back to the host.
-    enum class Key { left, right, up, down, pageUp, pageDown, home, end, tab };
+    // The keys controls and text fields use; other keys go back to the host.
+    enum class Key { left, right, up, down, pageUp, pageDown, home, end, tab, enter, escape, backspace, deleteForward };
 
     virtual ~View() = default;
     virtual void prepare(const wgpu::Device &device, wgpu::TextureFormat format) = 0;
@@ -32,6 +32,8 @@ public:
     virtual void pointer(const PointerEvent &event) = 0;
     // Returns true if the key was used; presenters pass unused keys to the host.
     virtual bool key(Key, unsigned /*modifiers*/) { return false; }
+    // Typed text (UTF-8); returns true if used, e.g. by a focused text field.
+    virtual bool text(const char * /*utf8*/) { return false; }
     virtual void receive(const webview::Value &message) = 0;
     // Presenters draw only after input, a message or a resize, plus every
     // frame while this is true (e.g. during an animation).

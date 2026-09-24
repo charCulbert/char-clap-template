@@ -77,6 +77,7 @@ bool Gui::setParent(const clap_window_t *parent)
         [this] { frame(); },
         [this](const View::PointerEvent &event) { if (view) view->pointer(event), dirty = true; },
         [this](View::Key key, unsigned modifiers) { dirty = true; return view && view->key(key, modifiers); },
+        [this](const char *utf8) { dirty = true; return view && view->text(utf8); },
     });
     if (!window) return false;
     context->surface = platform::createSurface(context->instance, window);

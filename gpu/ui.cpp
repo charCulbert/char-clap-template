@@ -123,7 +123,7 @@ bool Ui::control(Params &params, Param &p, float x, float y, float w, float h, b
             case View::Key::pageDown: set(params, p, fromUnit(p, u - 0.1, log)); break;
             case View::Key::home: set(params, p, p.min); break;
             case View::Key::end: set(params, p, p.max); break;
-            case View::Key::tab: break; // in end()
+            default: break; // Tab: in end()
             }
         }
 
