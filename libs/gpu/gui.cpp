@@ -178,7 +178,18 @@ void Gui::onTimer(clap_id id)
 
 void Gui::frame()
 {
-    if (!window || !view || !(dirty || view->animating())) return;
+    if (!window || !view) return;
+    // The view's size in pixels changes without clap.gui.set_size too: a host
+    // may create it before it is in a window (AU), or move it to a screen of
+    // another scale. Keep the surface matching it.
+    uint32_t w, h;
+    platform::pixelSize(window, w, h);
+    if (w && h && (w != context->width || h != context->height))
+    {
+        context->configure(w, h);
+        dirty = true;
+    }
+    if (!(dirty || view->animating())) return;
     dirty = false;
     context->frame(*view, platform::scale(window));
 }

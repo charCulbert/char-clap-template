@@ -25,6 +25,11 @@
     [super viewDidChangeBackingProperties];
     self.layer.contentsScale = self.window ? self.window.backingScaleFactor : 1.0;
 }
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow]; // hosts may add us to a window after creating us
+    if (self.window) self.layer.contentsScale = self.window.backingScaleFactor;
+}
 
 static unsigned modifiers(NSEvent *event)
 {
