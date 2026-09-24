@@ -6,6 +6,9 @@ namespace gpu {
 
 Layout::Layout()
 {
+    // Clay_MinMemorySize and Clay_Initialize read Clay's global current
+    // context, which may belong to another instance: size from the defaults.
+    Clay_SetCurrentContext(nullptr);
     memory.resize(Clay_MinMemorySize());
     const Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory(memory.size(), memory.data());
     context = Clay_Initialize(arena, {1, 1}, {[](Clay_ErrorData error) {
@@ -13,7 +16,12 @@ Layout::Layout()
     }, nullptr});
 }
 
-Layout::~Layout() = default;
+Layout::~Layout()
+{
+    // Don't leave Clay pointing at memory that is about to be freed.
+    if (Clay_GetCurrentContext() == context)
+        Clay_SetCurrentContext(nullptr);
+}
 
 void Layout::begin(Draw2D &newDraw, float width, float height, float newScale)
 {
