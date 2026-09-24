@@ -411,8 +411,14 @@ static bool PluginReceiveMessage(MyPlugin *plugin, const webview::Value &message
         return false;
 
     // The host then calls process() or flush(), which send these to the host.
+    // A value change also asks the host to re-read values (get_value already
+    // reports it), for hosts whose parameter views ignore value events.
     if (plugin->hostParams)
+    {
         plugin->hostParams->request_flush(plugin->host);
+        if (type == "change")
+            plugin->hostParams->rescan(plugin->host, CLAP_PARAM_RESCAN_VALUES);
+    }
     return true;
 }
 
