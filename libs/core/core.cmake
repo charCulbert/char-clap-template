@@ -5,6 +5,7 @@
 #   include(libs/core/core.cmake)
 #   core_add_to(<impl target>)             entry glue, codec and resource loader
 #   core_ship_ui(<plugin name> <folder>)   copies <folder> into every format, as ui/
+#   core_ship_ui(<plugin name> "")         a plugin without files: signs and packages only
 include_guard(DIRECTORY)
 include(FetchContent)
 
@@ -61,14 +62,16 @@ function(core_ship_ui name folder)
             # next to a loose binary (TARGET_FILE here would make the target depend on itself)
             set(destination "$<TARGET_FILE_DIR:${target}>/$<TARGET_FILE_NAME:${target}>.resources/ui")
         endif()
-        add_custom_target(${target}_ui
-            COMMAND ${CMAKE_COMMAND} -E rm -rf "${destination}"
-            COMMAND ${CMAKE_COMMAND} -E copy_directory "${folder}" "${destination}"
-            VERBATIM)
-        if(ARG_DEPENDS)
-            add_dependencies(${target}_ui ${ARG_DEPENDS})
+        if(folder)
+            add_custom_target(${target}_ui
+                COMMAND ${CMAKE_COMMAND} -E rm -rf "${destination}"
+                COMMAND ${CMAKE_COMMAND} -E copy_directory "${folder}" "${destination}"
+                VERBATIM)
+            if(ARG_DEPENDS)
+                add_dependencies(${target}_ui ${ARG_DEPENDS})
+            endif()
+            add_dependencies(${target} ${target}_ui)
         endif()
-        add_dependencies(${target} ${target}_ui)
         # The linker signs only the binary; sign the bundle so its resources are
         # sealed too, or `codesign -v` (and stricter hosts) reject it. AUv3 and
         # AAX are signed by their own build steps.
@@ -84,13 +87,19 @@ function(core_ship_ui name folder)
         target_link_options(${name}_wclap PRIVATE $<$<CONFIG:Release,MinSizeRel>:-Wl,--strip-debug>)
         # A WCLAP is a .tar.gz of module.wasm plus its files, at the archive root.
         set(bundle "$<TARGET_FILE_DIR:${name}_wclap>/${name}.wclap")
+        set(contents module.wasm)
+        set(copy_ui "")
+        if(folder)
+            list(APPEND contents ui)
+            set(copy_ui COMMAND ${CMAKE_COMMAND} -E copy_directory "${folder}" "${bundle}/ui")
+        endif()
         add_custom_target(${name}_wclap_bundle ALL
             COMMAND ${CMAKE_COMMAND} -E rm -rf "${bundle}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${bundle}"
             COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:${name}_wclap>" "${bundle}/module.wasm"
-            COMMAND ${CMAKE_COMMAND} -E copy_directory "${folder}" "${bundle}/ui"
+            ${copy_ui}
             COMMAND ${CMAKE_COMMAND} -E chdir "${bundle}"
-                    ${CMAKE_COMMAND} -E tar czf "../${name}.wclap.tar.gz" --format=gnutar module.wasm ui
+                    ${CMAKE_COMMAND} -E tar czf "../${name}.wclap.tar.gz" --format=gnutar ${contents}
             DEPENDS ${name}_wclap
             VERBATIM)
         if(ARG_DEPENDS)

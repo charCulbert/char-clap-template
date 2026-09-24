@@ -15,6 +15,7 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+add_subdirectory(examples/headless-gain)
 add_subdirectory(examples/webview-synth)
 add_subdirectory(examples/gpu-analyzer)
 add_subdirectory(examples/imgui-filter)
