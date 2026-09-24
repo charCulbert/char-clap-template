@@ -1,5 +1,5 @@
 # Build output (including platform-specific build directories)
-/build*/
+build*/
 /CMakeFiles/
 /CMakeCache.txt
 /cmake_install.cmake

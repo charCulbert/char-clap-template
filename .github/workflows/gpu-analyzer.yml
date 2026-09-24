@@ -1,0 +1,138 @@
+name: GPU Analyzer
+
+# Builds and validates GPU Analyzer on macOS, Windows and Linux, and as a WCLAP;
+# uploads the plugins only once they pass. Runs when the plugin or a library
+# it uses changes.
+on:
+  push:
+    paths:
+      - examples/gpu-analyzer/**
+      - libs/core/**
+      - libs/gpu/**
+      - libs/draw2d/**
+      - .github/workflows/gpu-analyzer.yml
+  pull_request:
+    paths:
+      - examples/gpu-analyzer/**
+      - libs/core/**
+      - libs/gpu/**
+      - libs/draw2d/**
+      - .github/workflows/gpu-analyzer.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PROJECT: examples/gpu-analyzer        # the folder with the plugin's CMakeLists.txt
+  TARGET: GpuAnalyzer          # TARGET_NAME there
+  NAME: "GPU Analyzer"            # OUTPUT_NAME there: the plugin files' names
+  AU: "aufx GpAn ChCu"                # AUv2 type, subtype, manufacturer (for auval)
+
+jobs:
+  native:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libx11-dev mesa-vulkan-drivers xvfb xauth
+
+      - name: Build
+        run: |
+          cmake -S "$PROJECT" -B build
+          targets="${TARGET}_clap ${TARGET}_vst3"
+          if [ "$RUNNER_OS" = macOS ]; then targets="$targets ${TARGET}_auv2"; fi
+          cmake --build build --config Release --parallel 4 --target $targets
+
+      - name: Check out clap-validator
+        uses: actions/checkout@v4
+        with:
+          repository: free-audio/clap-validator
+          ref: 0.4.1
+          path: validator
+
+      - name: Validate CLAP
+        run: |
+          plugin=$(find build -name "$NAME.clap" -print -quit)
+          test -n "$plugin"
+          cargo run --release --locked --manifest-path validator/Cargo.toml -- validate "$plugin" --only-failed
+
+      # Includes pluginval's editor tests, which open the interface.
+      - name: Validate VST3
+        run: |
+          case "$RUNNER_OS" in
+            macOS) platform=macOS; binary=pluginval-dist/pluginval.app/Contents/MacOS/pluginval ;;
+            Linux) platform=Linux; binary=pluginval-dist/pluginval ;;
+            Windows) platform=Windows; binary=pluginval-dist/pluginval.exe ;;
+          esac
+          curl -sSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_$platform.zip"
+          unzip -q pluginval.zip -d pluginval-dist
+          plugin=$(find build -name "$NAME.vst3" -print -quit) # a folder, or on Windows a single file
+          test -n "$plugin"
+          if [ "$RUNNER_OS" = Linux ]; then run="xvfb-run -a"; fi
+          $run "$binary" --validate "$plugin" --strictness-level 5
+
+      - name: Validate AU
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "build/$NAME.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          auval -v $AU
+
+      - name: Upload validated plugins
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.TARGET }}-${{ matrix.os }}
+          # Windows and Linux CLAPs are single files, their ui/ folder beside them.
+          path: |
+            build/**/${{ env.NAME }}.clap
+            build/**/${{ env.NAME }}.clap.resources
+            build/**/${{ env.NAME }}.vst3
+            build/**/${{ env.NAME }}.component
+          if-no-files-found: error
+
+  wclap:
+    name: WCLAP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The interface's page is compiled with Emscripten.
+      - name: Install Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.11
+
+      - name: Install the WASI SDK
+        run: |
+          curl -sSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-33/wasi-sdk-33.0-x86_64-linux.tar.gz | tar xz
+          echo "WASI_SDK=$PWD/wasi-sdk-33.0-x86_64-linux" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          cmake -S "$PROJECT" -B build-wclap -DCMAKE_TOOLCHAIN_FILE="$WASI_SDK/share/cmake/wasi-sdk-p1.cmake"
+          cmake --build build-wclap --parallel 4
+
+      - name: Check the archive
+        run: |
+          tar tzf "build-wclap/$TARGET.wclap.tar.gz" | tee contents.txt
+          grep -qx 'module.wasm' contents.txt
+          grep -qx 'resources/page/index.html' contents.txt
+
+      - name: Upload WCLAP
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.TARGET }}-wclap
+          path: build-wclap/${{ env.TARGET }}.wclap.tar.gz
+          if-no-files-found: error
