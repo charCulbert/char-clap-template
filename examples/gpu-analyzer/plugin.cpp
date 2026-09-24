@@ -277,7 +277,7 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //                 {type: "begin" | "end", id}     a drag starts or ends (unused here)
 //   plugin -> UI  {type: "params", params: [{id, name, min, max, default}]}  the settings
 //                 {type: "values", values: [value per setting id]}
-//                 {type: "spectrum", db: [256 bands, 20 Hz to 20 kHz]}
+//                 {type: "spectrum", db: [512 bands, 20 Hz to 20 kHz]}
 static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
 {
     const auto type = message["type"].text();
@@ -394,7 +394,7 @@ static const clap_plugin_t pluginClass = {
         if (!plugin->spectrumPending.exchange(false, std::memory_order_acq_rel) || !plugin->uiReady)
             return;
         std::vector<double> bands;
-        if (plugin->spectrum.analyze(plugin->sampleRate, 20.0f, 20000.0f, 256, bands))
+        if (plugin->spectrum.analyze(plugin->sampleRate, 20.0f, 20000.0f, 512, bands))
             plugin->gui.send(core::Value::Map{{"type", "spectrum"}, {"db", core::Value::Array(bands.begin(), bands.end())}});
     },
 };

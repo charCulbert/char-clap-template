@@ -6,7 +6,9 @@ WebGPU by our own drawing code.
 - `entry.cpp`: the CLAP entry point, which makes the plugin.
 - `plugin.cpp`: the whole CLAP plugin: audio ports, state, the spectrum
   analysis hand-off, and the `clap.gui` and `clap.webview` extensions.
-- `chardsp_Spectrum.h`: the analysis, after Signalsmith's analyser.
+- `chardsp_Spectrum.h`: the analysis, after Signalsmith's analyser: three
+  window lengths (long for the lows, short for the highs) with a Blackman-Harris
+  window, so tones draw as rounded peaks and the highs still react quickly.
 - `ui/AnalyzerView.cpp`: the interface, a `gpu::View`: one fragment shader for
   the spectrum, and knobs and labels from `libs/draw2d`, laid out with Clay.
 - Smoothing and Colour are settings saved in the plugin's state, not CLAP

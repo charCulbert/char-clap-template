@@ -25,17 +25,35 @@ fn bandAt(x: f32) -> f32 { // fractional band index at a pixel x; band d covers 
     let n = f32(arrayLength(&spectrum));
     return clamp(clamp((x - u.plot.x) / (u.plot.z - u.plot.x), 0.0, 1.0) * n - 0.5, 0.0, n - 1.0);
 }
+fn band(i: i32) -> f32 {
+    return spectrum[u32(clamp(i, 0, i32(arrayLength(&spectrum)) - 1))];
+}
+// The tangent at a band for a monotone curve: flat at peaks and dips, so
+// the curve never overshoots the bands (Fritsch-Carlson).
+fn tangent(before: f32, after: f32) -> f32 {
+    if (before * after <= 0.0) { return 0.0; }
+    return 2.0 / (1.0 / before + 1.0 / after);
+}
 fn spectrumDb(x: f32) -> f32 {
-    // Interpolated between bands, but never below the loudest band this pixel
-    // column covers, so narrow peaks survive when bands outnumber pixels.
-    let n = arrayLength(&spectrum);
+    // A smooth curve through the bands around this pixel.
     let t = bandAt(x);
-    let i = u32(t);
-    var db = mix(spectrum[i], spectrum[min(i + 1u, n - 1u)], fract(t));
-    for (var k = u32(ceil(bandAt(x - 0.5))); f32(k) <= bandAt(x + 0.5) && k < n; k++) {
-        db = max(db, spectrum[k]);
-    }
-    return db;
+    let i = i32(floor(t));
+    let f = t - floor(t);
+    let p0 = band(i - 1);
+    let p1 = band(i);
+    let p2 = band(i + 1);
+    let p3 = band(i + 2);
+    let m1 = tangent(p1 - p0, p2 - p1);
+    let m2 = tangent(p2 - p1, p3 - p2);
+    let f2 = f * f;
+    let f3 = f2 * f;
+    return (2.0 * f3 - 3.0 * f2 + 1.0) * p1 + (f3 - 2.0 * f2 + f) * m1 + (-2.0 * f3 + 3.0 * f2) * p2 + (f3 - f2) * m2;
+}
+// Distance from a point to the segment a-b.
+fn segmentDistance(p: vec2f, a: vec2f, b: vec2f) -> f32 {
+    let ab = b - a;
+    let t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+    return length(p - (a + t * ab));
 }
 
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
@@ -83,13 +101,23 @@ fn levelY(dbfs: f32) -> f32 {
     }
     color += vec3f(0.06, 0.07, 0.08) * grid * inside;
 
-    // The spectrum: a fill below it, brighter near the line, and the line itself.
-    let ys = levelY(spectrumDb(px.x));
-    let slope = (levelY(spectrumDb(px.x + 1.0)) - levelY(spectrumDb(px.x - 1.0))) * 0.5;
-    let distance = abs(px.y - ys) / sqrt(1.0 + slope * slope);
+    // The spectrum: a fill below it, brighter near the line, and the line
+    // itself, fading out towards the noise floor (below about -90 dBFS).
+    let db = spectrumDb(px.x);
+    let visible = smoothstep(-102.0, -88.0, db);
+    let ys = levelY(db);
+    // The line: the true distance to the curve, drawn as segments one pixel
+    // wide, looking a few pixels each side, so steep sides stay solid.
+    var distance = 1e9;
+    var previous = vec2f(px.x - 4.0, levelY(spectrumDb(px.x - 4.0)));
+    for (var k = -3.0; k <= 4.0; k += 1.0) {
+        let next = vec2f(px.x + k, levelY(spectrumDb(px.x + k)));
+        distance = min(distance, segmentDistance(px, previous, next));
+        previous = next;
+    }
     let below = smoothstep(ys - 0.5, ys + 0.5, px.y) * inside;
-    color += u.color.rgb * below * (0.08 + 0.22 * exp(-(px.y - ys) / (40.0 * s)));
-    color += u.color.rgb * (1.0 - smoothstep(0.5 * s, 1.5 * s, distance)) * inside;
+    color += u.color.rgb * below * (0.08 + 0.22 * exp(-(px.y - ys) / (40.0 * s))) * visible;
+    color += u.color.rgb * (1.0 - smoothstep(0.6 * s, 1.6 * s, distance)) * inside * visible;
 
     return vec4f(color, 1.0);
 }
@@ -149,6 +177,14 @@ public:
         {
             const float level = float((*db)[i].number(-120));
             spectrum[i] = level > spectrum[i] ? level : spectrum[i] + (level - spectrum[i]) * fall;
+        }
+        // What's drawn: each band averaged a little with its neighbours
+        // (in power), which calms the noise without blunting peaks much.
+        auto power = [](float db) { return std::pow(10.0f, db / 10); };
+        for (size_t i = 0; i < spectrum.size(); ++i)
+        {
+            const float left = spectrum[i > 0 ? i - 1 : i], right = spectrum[std::min(i + 1, spectrum.size() - 1)];
+            shown[i] = 10 * std::log10(0.25f * power(left) + 0.5f * power(spectrum[i]) + 0.25f * power(right) + 1e-14f);
         }
     }
     void pointer(const PointerEvent &event) override { ui.pointer(event); }
@@ -278,7 +314,7 @@ private:
                             {minHz, maxHz, 0, 0},
                             {plot[0], plot[1], plot[2], plot[3]}};
         device.GetQueue().WriteBuffer(uniforms, 0, &data, sizeof(data));
-        device.GetQueue().WriteBuffer(spectrumBuffer, 0, spectrum.data(), sizeof(float) * spectrum.size());
+        device.GetQueue().WriteBuffer(spectrumBuffer, 0, shown.data(), sizeof(float) * shown.size());
         pass.SetPipeline(pipeline);
         pass.SetBindGroup(0, bindGroup);
         pass.Draw(3);
@@ -289,7 +325,8 @@ private:
     wgpu::Buffer uniforms;
     wgpu::BindGroup bindGroup;
     wgpu::Buffer spectrumBuffer;
-    std::vector<float> spectrum = std::vector<float>(256, -120.0f); // dB per band, as shown
+    std::vector<float> spectrum = std::vector<float>(512, -120.0f); // dB per band, smoothed over time
+    std::vector<float> shown = std::vector<float>(512, -120.0f);    // and across neighbours: what's drawn
     gpu::Params params; // the plugin's settings (not CLAP parameters; see plugin.cpp)
     gpu::Ui ui;
     gpu::Layout layout;

@@ -63,18 +63,23 @@ int main()
     std::printf("1 kHz sine: %.1f dB, an octave up %.1f dB\n", peakNear(sine1k, 1000), peakNear(sine1k, 2000));
     assert(peakNear(sine1k, 2000) < peakNear(sine1k, 1000) - 40);
 
-    // Timing: silence, a 1 kHz sine from 0.3 s to 0.6 s, silence again.
-    double reached = -1, faded = -1;
-    run([&](int n) {
-        const double t = n / sampleRate;
-        return t >= 0.3 && t < 0.6 ? float(0.5 * std::sin(2 * pi * 1000 * n / sampleRate)) : 0.0f;
-    }, 1.0f, [&](double t, const std::vector<double> &bands) {
-        if (t > 0.3 && reached < 0 && peakNear(bands, 1000) > -6.02 - 3) reached = t - 0.3;
-        if (t > 0.6 && faded < 0 && peakNear(bands, 1000) < -6.02 - 20) faded = t - 0.6;
-    });
-    std::printf("1 kHz tone: within 3 dB %.0f ms after it starts, 20 dB down %.0f ms after it stops\n",
-                reached * 1000, faded * 1000);
-    assert(reached > 0 && reached < 0.06 && faded > 0 && faded < 0.1);
+    // Timing: silence, a sine from 0.3 s to 0.6 s, silence again. The highs
+    // (short window) react within tens of milliseconds; the middle (medium
+    // window, sharper peaks) takes a little longer.
+    for (auto [hz, limit] : {std::pair{5000.0, 0.06}, {1000.0, 0.1}})
+    {
+        double reached = -1, faded = -1;
+        run([&](int n) {
+            const double t = n / sampleRate;
+            return t >= 0.3 && t < 0.6 ? float(0.5 * std::sin(2 * pi * hz * n / sampleRate)) : 0.0f;
+        }, 1.0f, [&](double t, const std::vector<double> &bands) {
+            if (t > 0.3 && reached < 0 && peakNear(bands, hz) > -6.02 - 3) reached = t - 0.3;
+            if (t > 0.6 && faded < 0 && peakNear(bands, hz) < -6.02 - 20) faded = t - 0.6;
+        });
+        std::printf("%5.0f Hz tone: within 3 dB %.0f ms after it starts, 20 dB down %.0f ms after it stops\n",
+                    hz, reached * 1000, faded * 1000);
+        assert(reached > 0 && reached < limit && faded > 0 && faded < limit + 0.04);
+    }
 
     // Shape: a pure tone draws one smooth peak, falling steadily on both sides
     // for 20 dB, with no needles or plateaus on top.
