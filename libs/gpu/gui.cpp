@@ -1,14 +1,70 @@
 #include "gui.h"
+#include <cstring>
+
+#if defined(__wasm__)
+
+// WCLAP: the host shows the page (gpu_add_page) and sends its messages to
+// clap.webview; this only accepts the host's "webview" window and sends ours.
+namespace gpu {
+
+Gui::Gui() = default;
+Gui::~Gui() = default;
+
+void Gui::init(const clap_plugin_t *plugin_, const clap_host_t *host_)
+{
+    plugin = plugin_;
+    host = host_;
+    pluginWebview = static_cast<const clap_plugin_webview_t *>(plugin->get_extension(plugin, CLAP_EXT_WEBVIEW));
+    hostWebview = static_cast<const clap_host_webview_t *>(host->get_extension(host, CLAP_EXT_WEBVIEW));
+}
+
+bool Gui::isApiSupported(const char *api, bool floating) const
+{
+    return api && !floating && pluginWebview && hostWebview && std::strcmp(api, CLAP_WINDOW_API_WEBVIEW) == 0;
+}
+
+bool Gui::getPreferredApi(const char **api, bool *floating) const
+{
+    *api = CLAP_WINDOW_API_WEBVIEW;
+    *floating = false;
+    return isApiSupported(*api, false);
+}
+
+bool Gui::create(const char *api, bool floating)
+{
+    if (created || !isApiSupported(api, floating)) return false;
+    return created = true;
+}
+
+void Gui::destroy() { created = false; }
+bool Gui::setParent(const clap_window_t *window)
+{
+    return created && window && window->api && std::strcmp(window->api, CLAP_WINDOW_API_WEBVIEW) == 0;
+}
+void Gui::setSize(uint32_t, uint32_t) {}
+bool Gui::show() { return created; }
+bool Gui::hide() { return created; }
+void Gui::onTimer(clap_id) {}
+
+bool Gui::send(const core::Value &message)
+{
+    const auto bytes = core::encode(message);
+    return hostWebview && hostWebview->send(host, bytes.data(), uint32_t(bytes.size()));
+}
+
+}
+
+#else
+
 #include "context.h"
 #include "native.h"
-#include "../webview/resources.h"
-#include <cstring>
+#include "../core/resources.h"
 
 namespace gpu {
 
 std::string loadAsset(const char *path)
 {
-    auto resource = webview::readResource(path);
+    auto resource = core::readResource(path);
     return resource ? std::move(resource->bytes) : std::string();
 }
 
@@ -49,8 +105,8 @@ bool Gui::create(const char *api, bool floating)
     context = std::move(newContext);
     view = createView();
     // The View talks to the plugin exactly as the page does: through clap.webview.
-    view->send = [this](const webview::Value &message) {
-        const auto bytes = webview::encode(message);
+    view->send = [this](const core::Value &message) {
+        const auto bytes = core::encode(message);
         pluginWebview->receive(plugin, bytes.data(), uint32_t(bytes.size()));
     };
     view->lockPointer = [this](bool locked) { if (window) platform::lockPointer(window, locked); };
@@ -127,7 +183,7 @@ void Gui::frame()
     context->frame(*view, platform::scale(window));
 }
 
-bool Gui::send(const webview::Value &message)
+bool Gui::send(const core::Value &message)
 {
     if (!view) return false;
     view->receive(message);
@@ -136,3 +192,5 @@ bool Gui::send(const webview::Value &message)
 }
 
 }
+
+#endif

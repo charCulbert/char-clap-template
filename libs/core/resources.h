@@ -4,13 +4,14 @@
 #include <string>
 #include <string_view>
 
-// Serves the packaged web UI folder. Nothing here knows about any plugin.
+// Serves the interface files packaged with the plugin (a web page, or a GPU
+// interface's fonts). Nothing here knows about any plugin.
 //
 // Where the folder lives:
-//   macOS bundles, VST3 bundles     <bundle>/Contents/Resources/webUI/
-//   loose binaries (Win/Linux .clap) <binary>.resources/webUI/
-//   WCLAP                           <bundle>/webUI/
-namespace webview {
+//   macOS bundles, VST3 bundles     <bundle>/Contents/Resources/ui/
+//   loose binaries (Win/Linux .clap) <binary>.resources/ui/
+//   WCLAP                           <bundle>/ui/
+namespace core {
 
 // Call from clap_entry.init. Native builds find the binary that contains this
 // code (wrappers pass different paths to init); WCLAP uses the bundle path.

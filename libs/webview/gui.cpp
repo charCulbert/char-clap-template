@@ -1,6 +1,15 @@
 #include "gui.h"
 #include <cstring>
 #include <string>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
+// A native WebView (CHOC) on desktop. WCLAP hosts show the page themselves,
+// and iOS has no native view here yet.
+#if !defined(__wasm__) && !(defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)
+#define WEBVIEW_NATIVE 1
+#endif
 
 #if WEBVIEW_NATIVE
 #include "native.h"
@@ -210,9 +219,9 @@ void Gui::onTimer(clap_id id)
 #endif
 }
 
-bool Gui::send(const Value &message)
+bool Gui::send(const core::Value &message)
 {
-    const auto bytes = encode(message);
+    const auto bytes = core::encode(message);
 #if WEBVIEW_NATIVE
     if (native)
     {

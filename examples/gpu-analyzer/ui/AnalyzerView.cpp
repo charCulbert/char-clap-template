@@ -180,13 +180,13 @@ public:
         ui.draw.prepare(device, format, gpu::loadAsset("/fonts/Inter.ttf"));
         params.send = send;
         ui.lockPointer = lockPointer;
-        send(webview::Value::Map{{"type", "ready"}});
+        send(core::Value::Map{{"type", "ready"}});
     }
 
-    void receive(const webview::Value &message) override
+    void receive(const core::Value &message) override
     {
         if (params.receive(message) || message["type"].text() != "spectrum") return;
-        if (auto db = std::get_if<webview::Value::Array>(&message["db"].data))
+        if (auto db = std::get_if<core::Value::Array>(&message["db"].data))
             for (size_t i = 0; i < spectrum.size() && i < db->size(); ++i)
                 spectrum[i] = float((*db)[i].number(-120));
     }

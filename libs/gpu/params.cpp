@@ -3,13 +3,13 @@
 
 namespace gpu {
 
-bool Params::receive(const webview::Value &message)
+bool Params::receive(const core::Value &message)
 {
     const auto type = message["type"].text();
     if (type == "params")
     {
         params.clear();
-        if (auto list = std::get_if<webview::Value::Array>(&message["params"].data))
+        if (auto list = std::get_if<core::Value::Array>(&message["params"].data))
             for (const auto &p : *list)
                 params.push_back({int(p["id"].number(-1)), std::string(p["name"].text()), p["min"].number(),
                                   p["max"].number(1), p["default"].number(), p["default"].number()});
@@ -17,7 +17,7 @@ bool Params::receive(const webview::Value &message)
     }
     if (type == "values")
     {
-        if (auto list = std::get_if<webview::Value::Array>(&message["values"].data))
+        if (auto list = std::get_if<core::Value::Array>(&message["values"].data))
             for (auto &p : params)
                 if (!p.dragging && size_t(p.id) < list->size()) p.value = (*list)[size_t(p.id)].number(p.value);
         return true;
@@ -35,19 +35,19 @@ Param *Params::find(std::string_view name)
 void Params::begin(Param &p)
 {
     p.dragging = true;
-    send(webview::Value::Map{{"type", "begin"}, {"id", p.id}});
+    send(core::Value::Map{{"type", "begin"}, {"id", p.id}});
 }
 
 void Params::change(Param &p, double value)
 {
     p.value = std::clamp(value, p.min, p.max);
-    send(webview::Value::Map{{"type", "change"}, {"id", p.id}, {"value", p.value}});
+    send(core::Value::Map{{"type", "change"}, {"id", p.id}, {"value", p.value}});
 }
 
 void Params::end(Param &p)
 {
     p.dragging = false;
-    send(webview::Value::Map{{"type", "end"}, {"id", p.id}});
+    send(core::Value::Map{{"type", "end"}, {"id", p.id}});
 }
 
 }

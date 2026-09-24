@@ -2,13 +2,13 @@
 #include "clap/clap.h"
 #include "clap/ext/draft/webview.h"
 #include "clap/ext/timer-support.h"
-#include "../webview/messages.h"
+#include "../core/messages.h"
 #include <memory>
 
 // clap.gui for a plugin whose interface is a gpu::View, drawn with Dawn straight
 // into the host's window: no WebView. Same interface as webview::Gui, so
-// plugin.cpp can use either. (WCLAP builds use webview::Gui, with the View
-// compiled to wasm as the page.)
+// plugin.cpp can use either. In WCLAP the host shows the View compiled to a web
+// page itself (see gpu.cmake); this then only agrees to that and passes messages.
 namespace gpu {
 
 struct Context;
@@ -34,7 +34,7 @@ public:
     void onTimer(clap_id timer);
 
     // Delivers a message to the View. Fails if the interface is not open.
-    bool send(const webview::Value &message);
+    bool send(const core::Value &message);
 
 private:
     void frame();
@@ -42,6 +42,10 @@ private:
     const clap_plugin_t *plugin = nullptr;
     const clap_host_t *host = nullptr;
     const clap_plugin_webview_t *pluginWebview = nullptr; // the View's messages go through it
+#if defined(__wasm__)
+    const clap_host_webview_t *hostWebview = nullptr; // shows the page
+    bool created = false;
+#else
     const clap_host_timer_support_t *hostTimers = nullptr;
     clap_id timer = CLAP_INVALID_ID;
     uint32_t width = 480, height = 300;
@@ -49,6 +53,7 @@ private:
     std::unique_ptr<View> view;
     platform::Window *window = nullptr;
     bool dirty = true; // something changed since the last frame
+#endif
 };
 
 }

@@ -6,11 +6,11 @@
 #include <iterator>
 #include <random>
 
-using webview::Value;
+using core::Value;
 
 static std::optional<Value> decode(const std::vector<unsigned char> &bytes)
 {
-    return webview::decode(bytes.data(), bytes.size());
+    return core::decode(bytes.data(), bytes.size());
 }
 
 int main(int argc, char **argv)
@@ -21,7 +21,7 @@ int main(int argc, char **argv)
         std::vector<unsigned char> bytes{std::istreambuf_iterator<char>(in), {}};
         auto value = decode(bytes);
         if (!value) return 1;
-        const auto out = webview::encode(*value);
+        const auto out = core::encode(*value);
         std::ofstream(argv[2], std::ios::binary).write((const char *)out.data(), out.size());
         return 0;
     }
@@ -31,9 +31,9 @@ int main(int argc, char **argv)
     const Value message = Value::Map{{"type", "param"}, {"id", 1}, {"value", 1234.5},
                                      {"list", Value::Array{Value(), true, false, -7, "text"}},
                                      {"big", big}};
-    const auto bytes = webview::encode(message);
+    const auto bytes = core::encode(message);
     const auto decoded = decode(bytes);
-    assert(decoded && webview::encode(*decoded) == bytes);
+    assert(decoded && core::encode(*decoded) == bytes);
     assert((*decoded)["type"].text() == "param");
     assert((*decoded)["value"].number() == 1234.5);
     assert((*decoded)["big"]["key29"].text().size() == 290);
@@ -46,7 +46,7 @@ int main(int argc, char **argv)
     auto extra = bytes;
     extra.push_back(0xf6);
     assert(!decode(extra));
-    assert(!webview::decode(nullptr, 0));
+    assert(!core::decode(nullptr, 0));
 
     // Lengths larger than the input, and the size/depth limits.
     assert(!decode({0x78, 100, 'a', 'b', 'c'}));                 // text claims 100 bytes
@@ -59,7 +59,7 @@ int main(int argc, char **argv)
     std::vector<unsigned char> deep(40, 0x81);
     deep.push_back(0xf6);
     assert(!decode(deep));
-    std::vector<unsigned char> tooBig(webview::maxMessageBytes + 1, 0);
+    std::vector<unsigned char> tooBig(core::maxMessageBytes + 1, 0);
     assert(!decode(tooBig));
 
     // Random input must be rejected or accepted without reading out of bounds.
@@ -68,6 +68,6 @@ int main(int argc, char **argv)
     {
         std::vector<unsigned char> noise(random() % 48);
         for (auto &b : noise) b = (unsigned char)random();
-        if (auto v = decode(noise)) assert(decode(webview::encode(*v)));
+        if (auto v = decode(noise)) assert(decode(core::encode(*v)));
     }
 }

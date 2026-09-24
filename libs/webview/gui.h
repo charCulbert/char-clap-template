@@ -2,7 +2,7 @@
 #include "clap/clap.h"
 #include "clap/ext/draft/webview.h"
 #include "clap/ext/timer-support.h"
-#include "messages.h"
+#include "../core/messages.h"
 #include <memory>
 
 // clap.gui for a plugin whose UI is a page served by its own clap.webview
@@ -38,7 +38,7 @@ public:
 
     // Sends to whichever WebView shows the page. Hosts that open the page
     // without clap.gui.create still receive messages. Fails if none is open.
-    bool send(const Value &message);
+    bool send(const core::Value &message);
 
 private:
     const clap_plugin_t *plugin = nullptr;

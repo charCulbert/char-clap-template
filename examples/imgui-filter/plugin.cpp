@@ -1,7 +1,14 @@
+// ImGui Filter: a stereo state-variable filter (lowpass, bandpass or highpass)
+// whose interface is drawn with Dear ImGui (ui/FilterView.cpp) on WebGPU.
+//
+// This one file is the whole CLAP plugin: its descriptor, audio ports,
+// parameters, state, the clap.webview and clap.gui extensions its interface
+// uses, and the audio processing. libs/ holds the reusable parts: the entry
+// point (core/entry.cpp), the message codec and file loader (core/), and the
+// presenter that shows a gpu::View in the host's window (gpu/).
 #include "clap/clap.h"
 #include "clap/events.h"
 #include "clap/ext/audio-ports.h"
-#include "clap/ext/note-ports.h"
 #include "clap/ext/params.h"
 #include "clap/ext/state.h"
 #include "clap/ext/gui.h"
@@ -15,25 +22,20 @@
 #include <cmath>
 #include <atomic>
 #include "chardsp_StateVariableFilter.h"
-#include "chardsp_Spectrum.h"
-// Which presenter shows the UI natively: a WebView page (webUI/), or a
-// gpu::View drawn with Dawn (ui/FilterView.cpp). CMake's SIMPLECHAR_UI picks one.
-#if SIMPLECHAR_GPU_UI
+#include "core/messages.h"
+#include "core/resources.h"
 #include "gpu/gui.h"
-using PluginGui = gpu::Gui;
-#else
-#include "webview/gui.h"
-using PluginGui = webview::Gui;
-#endif
-#include "webview/resources.h"
 
 static_assert(std::atomic<float>::is_always_lock_free);
 static_assert(std::atomic<bool>::is_always_lock_free);
 
 // Parameters.
-#define P_CUTOFF (0)
-#define P_Q (1)
-#define P_COUNT (2)
+#define P_TYPE (0)   // 0 lowpass, 1 bandpass, 2 highpass
+#define P_CUTOFF (1)
+#define P_RESONANCE (2)
+#define P_COUNT (3)
+
+static const char *const filterTypes[] = {"Lowpass", "Bandpass", "Highpass"};
 
 struct MyPlugin
 {
@@ -45,19 +47,12 @@ struct MyPlugin
     const clap_host_params_t *hostParams;
     chardsp::StateVariableFilter<float> filterL, filterR;
 
-    // Web UI. The UI edits parameters from the main thread through
+    // The interface. It edits parameters from the main thread through
     // mainParameters/mainChanged, plus these gesture flags.
-    PluginGui gui;
-    uint32_t guiWidth = 480, guiHeight = 300;
+    gpu::Gui gui;
+    uint32_t guiWidth = 420, guiHeight = 160;
     std::atomic<bool> gestureBegin[P_COUNT], gestureEnd[P_COUNT];
     std::atomic<bool> uiDirty; // set when the host changes a parameter
-
-    // Live spectrum for the UI: the audio thread fills it, the main thread
-    // analyzes it and sends the bands (see on_main_thread).
-    chardsp::Spectrum spectrum;
-    std::atomic<bool> spectrumPending;
-    uint32_t framesSinceSpectrum = 0; // audio thread only
-    bool uiReady = false; // the page has said "ready" and not been closed since
 };
 
 // The params/state extension tables below refer to these helpers before
@@ -66,25 +61,26 @@ static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *even
 static void PluginSyncMainToAudio(MyPlugin *plugin, const clap_output_events_t *out);
 static bool PluginSyncAudioToMain(MyPlugin *plugin);
 static double PluginGetValue(MyPlugin *plugin, uint32_t i);
-static bool PluginReceiveMessage(MyPlugin *plugin, const webview::Value &message);
+static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message);
 static void PluginSendValues(MyPlugin *plugin);
 
 static const char *const pluginFeatures[] = {
     CLAP_PLUGIN_FEATURE_AUDIO_EFFECT,
+    CLAP_PLUGIN_FEATURE_FILTER,
     CLAP_PLUGIN_FEATURE_STEREO,
     nullptr,
 };
 
 static const clap_plugin_descriptor_t pluginDescriptor = {
     .clap_version = CLAP_VERSION_INIT,
-    .id = "charlieculbert.simpleCharClap",
-    .name = "simpleCharClap",
-    .vendor = "charlieculbert",
+    .id = "com.charlieculbert.imguifilter",
+    .name = "ImGui Filter",
+    .vendor = "Charlie Culbert",
     .url = "https://github.com/charCulbert",
     .manual_url = "https://github.com/charCulbert",
     .support_url = "https://github.com/charCulbert",
     .version = "1.0.0",
-    .description = "A clap plug demoing a simple SVF.",
+    .description = "A state-variable filter with a Dear ImGui interface.",
 
     .features = pluginFeatures,
 };
@@ -117,32 +113,34 @@ static const clap_plugin_params_t extensionParams = {
 
     .get_info = [](const clap_plugin_t *_plugin, uint32_t index, clap_param_info_t *information) -> bool
     {
-        if (index == P_CUTOFF)
+        if (index >= P_COUNT)
+            return false;
+        memset(information, 0, sizeof(clap_param_info_t));
+        information->id = index;
+        information->flags = CLAP_PARAM_IS_AUTOMATABLE;
+        if (index == P_TYPE)
         {
-            memset(information, 0, sizeof(clap_param_info_t));
-            information->id = index;
-            information->flags = CLAP_PARAM_IS_AUTOMATABLE;
-            information->min_value = 20.0f;
-            information->max_value = 15000.0f;
-            information->default_value = 1000.0f;
-            strcpy(information->name, "Cutoff");
-            return true;
+            information->flags |= CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_ENUM;
+            information->min_value = 0;
+            information->max_value = 2;
+            information->default_value = 0;
+            strcpy(information->name, "Type");
         }
-        else if (index == P_Q)
+        else if (index == P_CUTOFF)
         {
-            memset(information, 0, sizeof(clap_param_info_t));
-            information->id = index;
-            information->flags = CLAP_PARAM_IS_AUTOMATABLE;
-            information->min_value = 0.0f;
-            information->max_value = 10.0f;
-            information->default_value = 0.5f;
-            strcpy(information->name, "Q");
-            return true;
+            information->min_value = 20.0;
+            information->max_value = 20000.0;
+            information->default_value = 1000.0;
+            strcpy(information->name, "Cutoff");
         }
         else
         {
-            return false;
+            information->min_value = 0.1;
+            information->max_value = 10.0;
+            information->default_value = 0.707;
+            strcpy(information->name, "Resonance");
         }
+        return true;
     },
 
     .get_value = [](const clap_plugin_t *_plugin, clap_id id, double *value) -> bool
@@ -156,26 +154,34 @@ static const clap_plugin_params_t extensionParams = {
         return true;
     },
 
-    .value_to_text = [](const clap_plugin_t *_plugin, clap_id id, double value, char *display, uint32_t size)
+    .value_to_text = [](const clap_plugin_t *_plugin, clap_id id, double value, char *display, uint32_t size) -> bool
     {
-        uint32_t i = (uint32_t) id;
-        if (i >= P_COUNT) return false;
-        if (i == P_CUTOFF)
-        {
-            snprintf(display, size, "%f Hz", value);
-            return true;
-        }
-        if (i == P_Q)
-        {
-            snprintf(display, size, "%f", value);
-            return true;
-        }
-        return false; },
+        if (id == P_TYPE)
+            snprintf(display, size, "%s", filterTypes[(int)fmin(fmax(value, 0), 2)]);
+        else if (id == P_CUTOFF)
+            snprintf(display, size, "%.0f Hz", value);
+        else if (id == P_RESONANCE)
+            snprintf(display, size, "%.2f", value);
+        else
+            return false;
+        return true;
+    },
 
-    .text_to_value = [](const clap_plugin_t *_plugin, clap_id param_id, const char *display, double *value)
+    .text_to_value = [](const clap_plugin_t *_plugin, clap_id id, const char *display, double *value) -> bool
     {
-        // TODO Implement this.
-        return false; },
+        if (id == P_TYPE)
+        {
+            for (int i = 0; i < 3; i++)
+                if (strcmp(display, filterTypes[i]) == 0)
+                    return *value = i, true;
+            return false;
+        }
+        if (id >= P_COUNT)
+            return false;
+        char *end = nullptr;
+        *value = strtod(display, &end); // "1000 Hz" reads as 1000
+        return end != display;
+    },
 
     .flush = [](const clap_plugin_t *_plugin, const clap_input_events_t *in, const clap_output_events_t *out)
     { MyPlugin *plugin = (MyPlugin *) _plugin->plugin_data; const uint32_t eventCount = in->size(in);
@@ -230,10 +236,10 @@ static const clap_plugin_state_t extensionState = {
     },
 };
 
-// The UI is one web page, in the webUI folder. clap.webview gives it to the
-// host: its start URI, its files, and messages from it. Hosts that show pages
-// themselves use this directly; for the others, webview::Gui (behind clap.gui
-// below) shows the same page through this same table.
+// The interface talks to the plugin through clap.webview: natively gpu::Gui
+// passes its messages here, and in WCLAP the host shows the interface as a web
+// page (the same view compiled to wasm), which it loads through get_uri and
+// get_resource.
 static const clap_plugin_webview_t extensionWebview = {
     .get_uri = [](const clap_plugin_t *_plugin, char *uri, uint32_t capacity) -> int32_t
     {
@@ -246,7 +252,7 @@ static const clap_plugin_webview_t extensionWebview = {
     .get_resource = [](const clap_plugin_t *_plugin, const char *path, char *mime, uint32_t mimeCapacity,
                        const clap_ostream_t *stream) -> bool
     {
-        auto resource = webview::readResource(path);
+        auto resource = core::readResource(path);
         if (!resource || resource->mime.size() >= mimeCapacity)
             return false;
         strcpy(mime, resource->mime.c_str());
@@ -266,14 +272,14 @@ static const clap_plugin_webview_t extensionWebview = {
     .receive = [](const clap_plugin_t *_plugin, const void *buffer, uint32_t size) -> bool
     {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-        auto message = webview::decode(buffer, size);
+        auto message = core::decode(buffer, size);
         return message && PluginReceiveMessage(plugin, *message);
     },
 };
 
-// clap.gui: size policy is ours; creating and embedding the view is webview::Gui's.
+// clap.gui: size policy is ours; creating and embedding the view is gpu::Gui's.
 #define GUI_MIN_WIDTH (320)
-#define GUI_MIN_HEIGHT (200)
+#define GUI_MIN_HEIGHT (140)
 #define GUI_MAX_WIDTH (1600)
 #define GUI_MAX_HEIGHT (1200)
 
@@ -294,14 +300,10 @@ static const clap_plugin_gui_t extensionGui = {
     },
 
     .destroy = [](const clap_plugin_t *_plugin)
-    {
-        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-        plugin->gui.destroy();
-        plugin->uiReady = false;
-    },
+    { ((MyPlugin *)_plugin->plugin_data)->gui.destroy(); },
 
     .set_scale = [](const clap_plugin_t *_plugin, double scale) -> bool
-    { return false; }, // WebViews scale their content themselves
+    { return false; }, // the view reads the window's scale itself
 
     .get_size = [](const clap_plugin_t *_plugin, uint32_t *width, uint32_t *height) -> bool
     {
@@ -355,7 +357,7 @@ static const clap_plugin_gui_t extensionGui = {
     { return ((MyPlugin *)_plugin->plugin_data)->gui.hide(); },
 };
 
-// Linux's native WebView needs a main-thread timer; see webview::Gui::onTimer.
+// On Linux the host's timer drives the view's events and frames; see gpu::Gui::onTimer.
 static const clap_plugin_timer_support_t extensionTimerSupport = {
     .on_timer = [](const clap_plugin_t *_plugin, clap_id timerId)
     { ((MyPlugin *)_plugin->plugin_data)->gui.onTimer(timerId); },
@@ -367,25 +369,23 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //                 {type: "change", id, value}
 //   plugin -> UI  {type: "params", params: [{id, name, min, max, default}]}
 //                 {type: "values", values: [value per parameter id]}
-//                 {type: "spectrum", db: [256 bands, 20 Hz to 20 kHz]}
-static bool PluginReceiveMessage(MyPlugin *plugin, const webview::Value &message)
+static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
 {
     const auto type = message["type"].text();
     if (type == "ready")
     {
-        webview::Value::Array params;
+        core::Value::Array params;
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
             clap_param_info_t information = {};
             extensionParams.get_info(&plugin->plugin, i, &information);
-            params.push_back(webview::Value::Map{
+            params.push_back(core::Value::Map{
                 {"id", (double)information.id}, {"name", information.name},
                 {"min", information.min_value}, {"max", information.max_value},
                 {"default", information.default_value}});
         }
-        plugin->gui.send(webview::Value::Map{{"type", "params"}, {"params", params}});
+        plugin->gui.send(core::Value::Map{{"type", "params"}, {"params", params}});
         PluginSendValues(plugin);
-        plugin->uiReady = true;
         return true;
     }
 
@@ -424,10 +424,10 @@ static bool PluginReceiveMessage(MyPlugin *plugin, const webview::Value &message
 
 static void PluginSendValues(MyPlugin *plugin)
 {
-    webview::Value::Array values;
+    core::Value::Array values;
     for (uint32_t i = 0; i < P_COUNT; i++)
         values.push_back(PluginGetValue(plugin, i));
-    plugin->gui.send(webview::Value::Map{{"type", "values"}, {"values", values}});
+    plugin->gui.send(core::Value::Map{{"type", "values"}, {"values", values}});
 }
 
 // The current value on the main thread: the audio thread's value, unless the
@@ -521,15 +521,19 @@ static bool PluginSyncAudioToMain(MyPlugin *plugin)
 static void PluginRenderAudio(MyPlugin *plugin, uint32_t start, uint32_t end,
                               float *const *input, float *const *output)
 {
-    float cutoff = plugin->parameters[P_CUTOFF].load(std::memory_order_relaxed);
-    float q = plugin->parameters[P_Q].load(std::memory_order_relaxed);
-    plugin->filterL.setCutoffAndQ(cutoff, q);
-    plugin->filterR.setCutoffAndQ(cutoff, q);
+    const auto type = (chardsp::FilterMode)(int)plugin->parameters[P_TYPE].load(std::memory_order_relaxed);
+    const float cutoff = plugin->parameters[P_CUTOFF].load(std::memory_order_relaxed);
+    const float resonance = plugin->parameters[P_RESONANCE].load(std::memory_order_relaxed);
+    for (auto *filter : {&plugin->filterL, &plugin->filterR})
+    {
+        filter->setMode(type);
+        filter->setCutoffAndQ(cutoff, resonance);
+    }
 
     for (uint32_t index = start; index < end; index++)
     {
-            output[0][index] = plugin->filterL.process(input[0][index]);
-            output[1][index] = plugin->filterR.process(input[1][index]);
+        output[0][index] = plugin->filterL.process(input[0][index]);
+        output[1][index] = plugin->filterR.process(input[1][index]);
     }
 }
 
@@ -627,17 +631,6 @@ static const clap_plugin_t pluginClass = {
             i = nextEventFrame;
         }
 
-        // Hand the output to the spectrum, and every 1/60 s of audio ask the main
-        // thread to analyze and send it. (Counting samples needs no clock.)
-        plugin->spectrum.push(process->audio_outputs[0].data32[0], process->audio_outputs[0].data32[1], frameCount);
-        plugin->framesSinceSpectrum += frameCount;
-        if (plugin->framesSinceSpectrum >= plugin->sampleRate / 60)
-        {
-            plugin->framesSinceSpectrum = 0;
-            if (!plugin->spectrumPending.exchange(true, std::memory_order_acq_rel))
-                plugin->host->request_callback(plugin->host);
-        }
-
         return CLAP_PROCESS_CONTINUE;
     },
 
@@ -645,9 +638,10 @@ static const clap_plugin_t pluginClass = {
     {
         if (0 == strcmp(id, CLAP_EXT_AUDIO_PORTS))
             return &extensionAudioPorts;
-        if (0 == strcmp(id, CLAP_EXT_PARAMS)) return &extensionParams; // New!
+        if (0 == strcmp(id, CLAP_EXT_PARAMS))
+            return &extensionParams;
         if (0 == strcmp(id, CLAP_EXT_STATE))
-            return &extensionState; // New!
+            return &extensionState;
         if (0 == strcmp(id, CLAP_EXT_WEBVIEW))
             return &extensionWebview;
         if (0 == strcmp(id, CLAP_EXT_GUI))
@@ -662,22 +656,10 @@ static const clap_plugin_t pluginClass = {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
         if (plugin->uiDirty.exchange(false, std::memory_order_acq_rel))
             PluginSendValues(plugin);
-
-        // The audio thread asks for this 60 times a second; skip it while the page is closed.
-        if (plugin->spectrumPending.exchange(false, std::memory_order_acq_rel) && plugin->uiReady)
-        {
-            webview::Value::Array db;
-            std::vector<double> bands;
-            if (plugin->spectrum.analyze(plugin->sampleRate, 20.0f, 20000.0f, 256, bands))
-            {
-                db.assign(bands.begin(), bands.end());
-                plugin->gui.send(webview::Value::Map{{"type", "spectrum"}, {"db", std::move(db)}});
-            }
-        }
     },
 };
 
-// Functions available to the entry via plugin.h
+// What libs/core/entry.cpp needs (core/plugin.h).
 const clap_plugin_descriptor_t *getPluginDescriptor()
 {
     return &pluginDescriptor;

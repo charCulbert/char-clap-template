@@ -1,5 +1,5 @@
 #pragma once
-#include "../webview/messages.h"
+#include "../core/messages.h"
 #include <functional>
 #include <string>
 #include <string_view>
@@ -22,14 +22,14 @@ class Params
 {
 public:
     // Handles "params" and "values"; returns false for other messages.
-    bool receive(const webview::Value &message);
+    bool receive(const core::Value &message);
 
     Param *find(std::string_view name);
     void begin(Param &p);
     void change(Param &p, double value); // clamps to the range
     void end(Param &p);
 
-    std::function<void(const webview::Value &)> send; // set to the View's send
+    std::function<void(const core::Value &)> send; // set to the View's send
 
 private:
     std::vector<Param> params;

@@ -1,8 +1,8 @@
 #pragma once
 #include "draw2d.h"
 #include "layout.h"
-#include "params.h"
-#include "view.h"
+#include "../gpu/params.h"
+#include "../gpu/view.h"
 #include <chrono>
 
 // Immediate-mode controls: call them from View::draw every frame, each with

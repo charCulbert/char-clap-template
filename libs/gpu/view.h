@@ -1,6 +1,6 @@
 #pragma once
 #include <webgpu/webgpu_cpp.h>
-#include "../webview/messages.h"
+#include "../core/messages.h"
 #include <functional>
 #include <memory>
 
@@ -34,13 +34,13 @@ public:
     virtual bool key(Key, unsigned /*modifiers*/) { return false; }
     // Typed text (UTF-8); returns true if used, e.g. by a focused text field.
     virtual bool text(const char * /*utf8*/) { return false; }
-    virtual void receive(const webview::Value &message) = 0;
+    virtual void receive(const core::Value &message) = 0;
     // Presenters draw only after input, a message or a resize, plus every
     // frame while this is true (e.g. during an animation).
     virtual bool animating() const { return false; }
 
     // Set by the presenter: delivers a message to the plugin.
-    std::function<void(const webview::Value &)> send;
+    std::function<void(const core::Value &)> send;
     // Set by the presenter: while locked, the cursor is hidden and stays put,
     // and pointer() positions keep moving with the mouse past the view's and
     // the screen's edges. Where the platform refuses, drags work as before.

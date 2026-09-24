@@ -1,6 +1,6 @@
 // Runs a gpu::View in a WCLAP host's page: the browser's WebGPU draws into
 // #canvas, and messages travel as clap.webview/3 describes (ArrayBuffers via
-// window.parent.postMessage, and 'message' events back), encoded like webUI/.
+// window.parent.postMessage, and 'message' events back), encoded as libs/core/messages.h describes.
 #include "../context.h"
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -125,14 +125,14 @@ std::string gpu::loadAsset(const char *path)
 
 extern "C" EMSCRIPTEN_KEEPALIVE void gpuReceive(const unsigned char *data, int size)
 {
-    if (auto message = webview::decode(data, size); message && view) view->receive(*message), dirty = true;
+    if (auto message = core::decode(data, size); message && view) view->receive(*message), dirty = true;
 }
 
 int main()
 {
     view = gpu::createView();
-    view->send = [](const webview::Value &message) {
-        const auto bytes = webview::encode(message);
+    view->send = [](const core::Value &message) {
+        const auto bytes = core::encode(message);
         postToPlugin(bytes.data(), int(bytes.size()));
     };
     view->lockPointer = [](bool locked) { setPointerLock(locked); };

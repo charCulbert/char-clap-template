@@ -7,8 +7,8 @@
 #include <vector>
 
 // Messages between plugin and web page: JSON-like values, sent as CBOR bytes.
-// The page side is webUI/lib/messages.js. Use on the main thread only.
-namespace webview {
+// The page side is libs/webview/js/messages.js. Use on the main thread only.
+namespace core {
 
 struct Value
 {

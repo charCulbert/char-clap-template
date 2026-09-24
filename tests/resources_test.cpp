@@ -15,8 +15,8 @@ int main(int argc, char **argv)
     std::ofstream(root / "assets/empty.css");
     std::ofstream(root / "assets/with space.bin", std::ios::binary).write("\0\1\xff", 3);
     std::ofstream(base / "secret.txt") << "outside";
-    webview::setResourceRoot(root);
-    using webview::readResource;
+    core::setResourceRoot(root);
+    using core::readResource;
 
     assert(readResource("/index.html")->bytes == "<html>");
     assert(readResource("/index.html")->mime == "text/html");
@@ -35,6 +35,6 @@ int main(int argc, char **argv)
                              "/..\\secret.txt", "/assets%2f..%2f..%2fsecret.txt"})
         assert(!readResource(path));
 
-    webview::setResourceRoot({});
+    core::setResourceRoot({});
     assert(!readResource("/index.html"));
 }

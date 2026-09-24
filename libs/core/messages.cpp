@@ -4,7 +4,7 @@
 
 // CBOR (RFC 8949) subset: null, booleans, integers and floats (read as
 // double), text strings, arrays, and maps with text keys. Definite lengths only.
-namespace webview {
+namespace core {
 
 const Value &Value::operator[](std::string_view key) const
 {
