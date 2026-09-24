@@ -4,6 +4,7 @@
 #include "../gpu/ui.h"
 #include <algorithm>
 #include <cmath>
+#include <vector>
 #include <cstdio>
 
 namespace {
@@ -17,6 +18,12 @@ struct Uniforms {
     plot: vec4f,    // plot area: left, top, right, bottom (pixels)
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
+// The response in dB at each pixel column, computed on the CPU once per frame.
+@group(0) @binding(1) var<storage, read> curve: array<f32>;
+fn curveDb(x: f32) -> f32 {
+    let i = clamp(i32(x), 0, i32(arrayLength(&curve)) - 1);
+    return curve[i];
+}
 
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
     let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
@@ -24,17 +31,6 @@ struct Uniforms {
 }
 
 const pi = 3.14159265;
-
-// The plugin's TPT state-variable lowpass is a bilinear-transformed analog
-// filter, so this is its exact digital magnitude response in dB.
-fn responseDb(f: f32) -> f32 {
-    let fs = u.svf.w;
-    let fc = clamp(u.svf.x, 1.0, fs * 0.48);
-    let w = tan(pi * min(f, fs * 0.499) / fs) / tan(pi * fc / fs);
-    let q = max(u.svf.y, 1e-3);
-    let m = (1.0 - w * w) * (1.0 - w * w) + (w / q) * (w / q);
-    return -10.0 * log(m) / log(10.0);
-}
 
 // Plot coordinates: x is log frequency, y is dB, inside the plot area the C++
 // side also uses for text and the pointer.
@@ -75,8 +71,8 @@ fn yOf(db: f32) -> f32 {
     color += vec3f(0.06, 0.07, 0.08) * grid * inside;
 
     // The curve: distance to it from this pixel, using the local slope.
-    let y0 = yOf(responseDb(freqAt(px.x)));
-    let slope = (yOf(responseDb(freqAt(px.x + 1.0))) - yOf(responseDb(freqAt(px.x - 1.0)))) * 0.5;
+    let y0 = yOf(curveDb(px.x));
+    let slope = (yOf(curveDb(px.x + 1.0)) - yOf(curveDb(px.x - 1.0))) * 0.5;
     let dist = abs(px.y - y0) / sqrt(1.0 + slope * slope);
     let accent = vec3f(0.37, 0.71, 0.64);
 
@@ -111,6 +107,17 @@ struct Uniforms
 };
 
 constexpr float minHz = 20, maxHz = 20000, minDb = -48, maxDb = 24;
+
+// The plugin's TPT state-variable lowpass is a bilinear-transformed analog
+// filter, so this is its exact digital magnitude response in dB.
+float responseDb(float hz, float cutoff, float q, float sampleRate)
+{
+    const float pi = 3.14159265f;
+    const float fc = std::clamp(cutoff, 1.0f, sampleRate * 0.48f);
+    const float w = std::tan(pi * std::min(hz, sampleRate * 0.499f) / sampleRate) / std::tan(pi * fc / sampleRate);
+    const float k = 1 / std::max(q, 1e-3f);
+    return -10 * std::log10((1 - w * w) * (1 - w * w) + (w * k) * (w * k));
+}
 
 class FilterView : public gpu::View
 {
@@ -194,13 +201,26 @@ private:
         bufferDescriptor.size = sizeof(Uniforms);
         bufferDescriptor.usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst;
         uniforms = device.CreateBuffer(&bufferDescriptor);
-        wgpu::BindGroupEntry entry;
-        entry.binding = 0;
-        entry.buffer = uniforms;
+    }
+
+    // One float per pixel column; the bind group follows the buffer's size.
+    void resizeCurve(size_t columns)
+    {
+        if (curveBuffer && curveColumns == columns) return;
+        curveColumns = columns;
+        wgpu::BufferDescriptor bufferDescriptor;
+        bufferDescriptor.size = columns * sizeof(float);
+        bufferDescriptor.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
+        curveBuffer = device.CreateBuffer(&bufferDescriptor);
+        wgpu::BindGroupEntry entries[2];
+        entries[0].binding = 0;
+        entries[0].buffer = uniforms;
+        entries[1].binding = 1;
+        entries[1].buffer = curveBuffer;
         wgpu::BindGroupDescriptor groupDescriptor;
         groupDescriptor.layout = pipeline.GetBindGroupLayout(0);
-        groupDescriptor.entryCount = 1;
-        groupDescriptor.entries = &entry;
+        groupDescriptor.entryCount = 2;
+        groupDescriptor.entries = entries;
         bindGroup = device.CreateBindGroup(&groupDescriptor);
     }
 
@@ -212,6 +232,14 @@ private:
                             {minHz, maxHz, minDb, maxDb},
                             {plot[0], plot[1], plot[2], plot[3]}};
         device.GetQueue().WriteBuffer(uniforms, 0, &data, sizeof(data));
+        resizeCurve(size_t(width) + 1);
+        columns.resize(curveColumns);
+        for (size_t x = 0; x < columns.size(); ++x)
+        {
+            const float t = std::clamp((float(x) - plot[0]) / (plot[2] - plot[0]), 0.0f, 1.0f);
+            columns[x] = responseDb(minHz * std::pow(maxHz / minHz, t), cutoff, q, 48000.0f);
+        }
+        device.GetQueue().WriteBuffer(curveBuffer, 0, columns.data(), columns.size() * sizeof(float));
         pass.SetPipeline(pipeline);
         pass.SetBindGroup(0, bindGroup);
         pass.Draw(3);
@@ -221,6 +249,9 @@ private:
     wgpu::RenderPipeline pipeline;
     wgpu::Buffer uniforms;
     wgpu::BindGroup bindGroup;
+    wgpu::Buffer curveBuffer;
+    size_t curveColumns = 0;
+    std::vector<float> columns;
     gpu::Params params;
     gpu::Ui ui;
     unsigned frames = 0;
