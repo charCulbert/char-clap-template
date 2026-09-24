@@ -180,6 +180,19 @@ void Ui::slider(Params &params, Param *p, Rect box, const char *format, bool log
     draw.circle(px + w * u, track, (dragging ? 7.0f : 6.0f) * s, theme.text);
 }
 
+void Ui::resizeGrip(float width, float height)
+{
+    if (!resizeTo) return;
+    const float size = 14 * s;
+    const auto grip = area(&gripOffsetX, width - size, height - size, size, size);
+    if (grip.pressed) gripOffsetX = width - grip.x, gripOffsetY = height - grip.y;
+    if (grip.held) resizeTo(grip.x + gripOffsetX, grip.y + gripOffsetY);
+    // Three short diagonal lines, as windows' resize corners have.
+    const Color color = grip.held ? theme.accent : theme.dim;
+    for (float d : {4.0f, 8.0f, 12.0f})
+        draw.line(width - 3 * s - d * s, height - 3 * s, width - 3 * s, height - 3 * s - d * s, 1.2f * s, color);
+}
+
 Ui::Area Ui::area(const void *id, float x, float y, float w, float h)
 {
     Area result;

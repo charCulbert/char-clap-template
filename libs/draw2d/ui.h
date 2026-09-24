@@ -25,7 +25,8 @@ class Ui
 public:
     Draw2D draw;
     Theme theme;
-    std::function<void(bool)> lockPointer; // View::lockPointer: knob and slider drags lock the pointer
+    std::function<void(bool)> lockPointer;      // View::lockPointer: knob and slider drags lock the pointer
+    std::function<void(float, float)> resizeTo; // View::resizeTo: for resizeGrip
 
     void pointer(const View::PointerEvent &event);
     bool key(View::Key key, unsigned modifiers);
@@ -47,6 +48,11 @@ public:
         unsigned modifiers = 0;
     };
     Area area(const void *id, float x, float y, float w, float h);
+
+    // A grip in the bottom-right corner of a view `width` x `height` pixels:
+    // dragging it resizes the window (through resizeTo; drawn only if set).
+    // Hosts without resizing of their own, such as AU hosts, need one.
+    void resizeGrip(float width, float height);
 
     float s = 1; // pixels per point for this frame
 
@@ -73,6 +79,7 @@ private:
 
     const void *active = nullptr; // the control being dragged
     float grabX = 0, grabY = 0;
+    float gripOffsetX = 0, gripOffsetY = 0; // from the pointer to the view's corner
     double grabUnit = 0;
     bool grabFine = false;
 

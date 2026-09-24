@@ -2,7 +2,8 @@
 // plugin.cpp documents:
 //   from the plugin  {type: "params", params: [{id, name, min, max, default, unit}]},
 //                    {type: "values", values: [...]}
-//   to the plugin    {type: "ready"}, {type: "begin" | "end", id}, {type: "change", id, value}
+//   to the plugin    {type: "ready"}, {type: "begin" | "end", id}, {type: "change", id, value},
+//                    {type: "resize", width, height, scale}: the page's new size in CSS pixels
 import {sendMessage, onMessage} from './lib/messages.js';
 
 const sliders = [];
@@ -55,4 +56,15 @@ onMessage(message => {
   if (message.type === 'params') build(message.params);
   if (message.type === 'values') message.values.forEach((value, id) => show(id, value));
 });
+// The corner grip asks the plugin for a new window size while it is dragged.
+const grip = document.getElementById('resize');
+grip.addEventListener('pointerdown', event => {
+  grip.setPointerCapture(event.pointerId);
+  const offsetX = innerWidth - event.clientX, offsetY = innerHeight - event.clientY;
+  const move = e => sendMessage({type: 'resize', width: e.clientX + offsetX, height: e.clientY + offsetY,
+                                 scale: devicePixelRatio});
+  grip.addEventListener('pointermove', move);
+  grip.addEventListener('pointerup', () => grip.removeEventListener('pointermove', move), {once: true});
+});
+
 sendMessage({type: 'ready'});

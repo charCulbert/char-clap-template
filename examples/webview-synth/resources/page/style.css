@@ -8,3 +8,8 @@ label { display: grid; grid-template-columns: 70px 1fr 80px; align-items: center
 input[type=range] { width: 100%; accent-color: #5fb4a2; }
 output { font-variant-numeric: tabular-nums; text-align: right; color: #aab3bb; }
 .status { color: #8a949c; }
+/* A resize grip in the corner, for hosts that don't resize plugin windows
+   themselves (AU hosts); dragging it sends "resize" (see app.js). */
+#resize { position: fixed; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize;
+          background: linear-gradient(135deg, transparent 50%, #5a646c 50%, #5a646c 58%, transparent 58%,
+                                      transparent 70%, #5a646c 70%, #5a646c 78%, transparent 78%); }

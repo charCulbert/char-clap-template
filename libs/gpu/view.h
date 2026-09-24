@@ -45,6 +45,10 @@ public:
     // and pointer() positions keep moving with the mouse past the view's and
     // the screen's edges. Where the platform refuses, drags work as before.
     std::function<void(bool locked)> lockPointer;
+    // Set by the presenter where the view can ask for a new size (natively;
+    // not in WCLAP pages): pixels, as draw() gets them. The plugin's
+    // clap.gui.adjust_size limits it, and the host resizes the window.
+    std::function<void(float width, float height)> resizeTo;
 };
 
 // Implemented by the plugin's interface code (e.g. ui/AnalyzerView.cpp).

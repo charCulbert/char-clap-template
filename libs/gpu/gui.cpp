@@ -1,4 +1,5 @@
 #include "gui.h"
+#include <algorithm>
 #include <cstring>
 
 #if defined(__wasm__)
@@ -77,6 +78,8 @@ void Gui::init(const clap_plugin_t *plugin_, const clap_host_t *host_)
     host = host_;
     pluginWebview = static_cast<const clap_plugin_webview_t *>(plugin->get_extension(plugin, CLAP_EXT_WEBVIEW));
     hostTimers = static_cast<const clap_host_timer_support_t *>(host->get_extension(host, CLAP_EXT_TIMER_SUPPORT));
+    hostGui = static_cast<const clap_host_gui_t *>(host->get_extension(host, CLAP_EXT_GUI));
+    pluginGui = static_cast<const clap_plugin_gui_t *>(plugin->get_extension(plugin, CLAP_EXT_GUI));
 }
 
 bool Gui::isApiSupported(const char *api, bool floating) const
@@ -110,6 +113,15 @@ bool Gui::create(const char *api, bool floating)
         pluginWebview->receive(plugin, bytes.data(), uint32_t(bytes.size()));
     };
     view->lockPointer = [this](bool locked) { if (window) platform::lockPointer(window, locked); };
+    if (hostGui && pluginGui)
+        view->resizeTo = [this](float w, float h) {
+            // clap.gui sizes are points on macOS and pixels elsewhere.
+            const float perUnit = std::strcmp(platform::windowApi, CLAP_WINDOW_API_COCOA) == 0 && window ? platform::scale(window) : 1.0f;
+            uint32_t newWidth = uint32_t(std::max(1.0f, w / perUnit)), newHeight = uint32_t(std::max(1.0f, h / perUnit));
+            pluginGui->adjust_size(plugin, &newWidth, &newHeight);
+            if (newWidth != width || newHeight != height)
+                hostGui->request_resize(host, newWidth, newHeight); // the host then calls set_size
+        };
     return true;
 }
 

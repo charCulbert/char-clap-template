@@ -1,6 +1,7 @@
 #pragma once
 #include "clap/clap.h"
 #include "clap/ext/draft/webview.h"
+#include "clap/ext/gui.h"
 #include "clap/ext/timer-support.h"
 #include "../core/messages.h"
 #include <memory>
@@ -47,6 +48,8 @@ private:
     bool created = false;
 #else
     const clap_host_timer_support_t *hostTimers = nullptr;
+    const clap_host_gui_t *hostGui = nullptr;      // request_resize, for the view's resize grip
+    const clap_plugin_gui_t *pluginGui = nullptr;  // adjust_size: the plugin's own limits
     clap_id timer = CLAP_INVALID_ID;
     uint32_t width = 480, height = 300;
     std::unique_ptr<Context> context;

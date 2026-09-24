@@ -54,6 +54,8 @@ struct MyPlugin
     std::atomic<float> parameters[P_COUNT], mainParameters[P_COUNT];
     std::atomic<bool> changed[P_COUNT], mainChanged[P_COUNT];
     const clap_host_params_t *hostParams;
+    const clap_host_gui_t *hostGui;          // request_resize, for the page's resize grip
+    bool guiSizesInPoints = true;            // clap.gui sizes: points on macOS, pixels elsewhere
     std::vector<Voice> voices; // audio thread only
 
     // The page. It edits parameters from the main thread through
@@ -326,6 +328,7 @@ static const clap_plugin_gui_t extensionGui = {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
         if (!plugin->gui.create(api, isFloating))
             return false;
+        plugin->guiSizesInPoints = strcmp(api, CLAP_WINDOW_API_WIN32) != 0 && strcmp(api, CLAP_WINDOW_API_X11) != 0;
         plugin->gui.setSize(plugin->guiWidth, plugin->guiHeight);
         return true;
     },
@@ -398,6 +401,7 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //   UI -> plugin  {type: "ready"}
 //                 {type: "begin" | "end", id}     a drag starts or ends
 //                 {type: "change", id, value}
+//                 {type: "resize", width, height, scale}  the page's grip (CSS pixels)
 //   plugin -> UI  {type: "params", params: [{id, name, min, max, default, unit}]}
 //                 {type: "values", values: [value per parameter id]}
 static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
@@ -417,6 +421,19 @@ static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
         }
         plugin->gui.send(core::Value::Map{{"type", "params"}, {"params", params}});
         PluginSendValues(plugin);
+        return true;
+    }
+
+    if (type == "resize")
+    {
+        // The page's grip: ask the host for the new size (it then calls
+        // set_size), within our limits. CSS pixels are points on macOS.
+        const double perPixel = plugin->guiSizesInPoints ? 1 : message["scale"].number(1);
+        uint32_t width = (uint32_t)fmax(1, message["width"].number(0) * perPixel);
+        uint32_t height = (uint32_t)fmax(1, message["height"].number(0) * perPixel);
+        extensionGui.adjust_size(&plugin->plugin, &width, &height);
+        if (plugin->hostGui && (width != plugin->guiWidth || height != plugin->guiHeight))
+            plugin->hostGui->request_resize(plugin->host, width, height);
         return true;
     }
 
@@ -643,6 +660,7 @@ static const clap_plugin_t pluginClass = {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
 
         plugin->hostParams = (const clap_host_params_t *)plugin->host->get_extension(plugin->host, CLAP_EXT_PARAMS);
+        plugin->hostGui = (const clap_host_gui_t *)plugin->host->get_extension(plugin->host, CLAP_EXT_GUI);
         plugin->gui.init(_plugin, plugin->host);
 
         for (uint32_t i = 0; i < P_COUNT; i++)

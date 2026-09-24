@@ -126,6 +126,7 @@ public:
         slider(*cutoff, "%.0f Hz", ImGuiSliderFlags_Logarithmic);
         slider(*resonance, "%.2f", ImGuiSliderFlags_Logarithmic);
         ImGui::PopItemWidth();
+        resizeGrip(io);
         ImGui::End();
 
         ImGui::Render();
@@ -144,6 +145,25 @@ private:
         io.AddKeyEvent(ImGuiMod_Alt, mods & alt);
     }
 
+    // A grip in the bottom-right corner: dragging it asks the host for a new
+    // window size (View::resizeTo). Hosts without resizing of their own, such
+    // as AU hosts, need one.
+    void resizeGrip(const ImGuiIO &io)
+    {
+        if (!resizeTo) return;
+        const float size = 14;
+        const ImVec2 corner = io.DisplaySize;
+        ImGui::PushClipRect({0, 0}, corner, false); // the corner is outside the window's padded area
+        ImGui::SetCursorScreenPos({corner.x - size, corner.y - size});
+        ImGui::InvisibleButton("##resize", {size, size});
+        if (ImGui::IsItemActivated()) gripOffset = {corner.x - io.MousePos.x, corner.y - io.MousePos.y};
+        if (ImGui::IsItemActive()) resizeTo((io.MousePos.x + gripOffset.x) * scale, (io.MousePos.y + gripOffset.y) * scale);
+        const ImU32 color = ImGui::GetColorU32(ImGui::IsItemActive() || ImGui::IsItemHovered() ? ImGuiCol_ResizeGripActive : ImGuiCol_TextDisabled);
+        for (float d : {4.0f, 8.0f, 12.0f})
+            ImGui::GetWindowDrawList()->AddLine({corner.x - 3 - d, corner.y - 3}, {corner.x - 3, corner.y - 3 - d}, color, 1.2f);
+        ImGui::PopClipRect();
+    }
+
     // A stock slider bound to a parameter, reporting its gesture.
     void slider(gpu::Param &p, const char *format, ImGuiSliderFlags flags)
     {
@@ -160,6 +180,7 @@ private:
     gpu::Params params;
     std::chrono::steady_clock::time_point lastFrame;
     float scale = 1;
+    ImVec2 gripOffset;
     int framesLeft = 0;
     bool typing = false;
 };
