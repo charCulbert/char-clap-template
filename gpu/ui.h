@@ -3,10 +3,15 @@
 #include "layout.h"
 #include "params.h"
 #include "view.h"
+#include <chrono>
 
 // Immediate-mode controls: call them from View::draw every frame, each with
-// the pixel rectangle Layout gave it; each draws itself, and a drag on it
-// edits its parameter (with begin/change/end). Forward View::pointer here.
+// the pixel rectangle Layout gave it; each draws itself and edits its
+// parameter (with begin/change/end). Forward View::pointer and View::key here.
+//
+// Knobs and sliders: drag (Shift for fine), scroll, double-click for the
+// default. The last one clicked has keyboard focus: arrows step (Shift for
+// fine), Page Up/Down step further, Home/End go to the ends, Tab moves on.
 namespace gpu {
 
 struct Theme
@@ -22,7 +27,8 @@ public:
     Theme theme;
     std::function<void(bool)> lockPointer; // View::lockPointer: knob and slider drags lock the pointer
 
-    void pointer(View::Pointer type, float x, float y);
+    void pointer(const View::PointerEvent &event);
+    bool key(View::Key key, unsigned modifiers);
     void begin(float width, float height, float scale); // starts a frame of controls
     void end(const wgpu::RenderPassEncoder &pass);
 
@@ -32,8 +38,14 @@ public:
     // A horizontal fader with its name and value above; drag left/right.
     void slider(Params &params, Param *p, Rect r, const char *format, bool log = false);
 
-    // A custom draggable region (pixels): reports press, drag and release on it.
-    struct Area { bool pressed = false, held = false, released = false; float x = 0, y = 0; };
+    // A custom region (pixels): reports press, drag and release on it, plus
+    // double-clicks and the wheel over it.
+    struct Area
+    {
+        bool pressed = false, held = false, released = false, doubleClicked = false;
+        float x = 0, y = 0, wheel = 0;
+        unsigned modifiers = 0;
+    };
     Area area(const void *id, float x, float y, float w, float h);
 
     float s = 1; // pixels per point for this frame
@@ -42,14 +54,32 @@ private:
     // 0..1 position of a value, and back.
     static double toUnit(const Param &p, double v, bool log);
     static double fromUnit(const Param &p, double u, bool log);
-    // Starts, continues or ends a drag on the control with rectangle x,y,w,h.
-    // Returns true while that control is being dragged.
-    bool drag(Params &params, Param &p, float x, float y, float w, float h, bool vertical, float travel, bool log);
+    // Handles all input for the control with rectangle x,y,w,h. Returns true
+    // while that control is being dragged.
+    bool control(Params &params, Param &p, float x, float y, float w, float h, bool vertical, float travel, bool log);
+    // A whole edit: begin, change and end at once (wheel, keys, double-click).
+    void set(Params &params, Param &p, double value);
+    bool over(float x, float y, float w, float h) const;
+    bool focusShown(const void *id) const { return focus == id && focusVisible; }
 
-    struct { float x = 0, y = 0; bool down = false, pressed = false, released = false; } mouse;
+    struct
+    {
+        float x = 0, y = 0, wheel = 0;
+        unsigned modifiers = 0;
+        bool down = false, pressed = false, released = false, doubleClicked = false;
+    } mouse;
+    std::chrono::steady_clock::time_point lastPress;
+    float lastPressX = -1e9f, lastPressY = -1e9f;
+
     const void *active = nullptr; // the control being dragged
     float grabX = 0, grabY = 0;
     double grabUnit = 0;
+    bool grabFine = false;
+
+    const void *focus = nullptr; // the control keys go to
+    bool focusVisible = false;   // after a key, until the next click
+    std::vector<std::pair<View::Key, unsigned>> keys; // this frame's
+    std::vector<const void *> order;                  // controls in drawing order, for Tab
 };
 
 }

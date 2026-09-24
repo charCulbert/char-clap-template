@@ -1,5 +1,6 @@
 #include "native.h"
 #include <X11/Xlib.h> // after webgpu_cpp.h: Xlib defines macros such as Status and None
+#include <X11/keysym.h>
 
 // A child X11 window in the host's window. Dawn draws into it with Vulkan.
 // Linux hosts have no shared event loop, so the host's timer (needsTimer)
@@ -30,7 +31,7 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     }
     auto *window = new Window{display, 0, std::move(callbacks)};
     window->window = XCreateSimpleWindow(display, ::Window(parent->x11), 0, 0, width, height, 0, 0, 0);
-    XSelectInput(display, window->window, ButtonPressMask | ButtonReleaseMask | Button1MotionMask);
+    XSelectInput(display, window->window, ButtonPressMask | ButtonReleaseMask | Button1MotionMask | KeyPressMask);
     XMapWindow(display, window->window);
     XFlush(display);
     return window;
@@ -101,6 +102,11 @@ void setVisible(Window *window, bool visible)
     XFlush(window->display);
 }
 
+static unsigned modifiers(unsigned state)
+{
+    return (state & ShiftMask ? View::shift : 0u) | (state & ControlMask ? View::control : 0u) | (state & Mod1Mask ? View::alt : 0u);
+}
+
 void pumpEvents(Window *window)
 {
     while (XPending(window->display))
@@ -120,13 +126,35 @@ void pumpEvents(Window *window)
                 window->x += float(x - window->anchorX), window->y += float(y - window->anchorY);
                 XWarpPointer(window->display, 0, window->window, 0, 0, 0, 0, window->anchorX, window->anchorY);
             }
-            window->callbacks.pointer(View::Pointer::move, window->x, window->y);
+            window->callbacks.pointer({View::Pointer::move, window->x, window->y, modifiers(event.xmotion.state)});
         }
+        else if (event.type == ButtonPress && (event.xbutton.button == Button4 || event.xbutton.button == Button5))
+            window->callbacks.pointer({View::Pointer::wheel, float(event.xbutton.x), float(event.xbutton.y),
+                                       modifiers(event.xbutton.state), event.xbutton.button == Button4 ? 1.0f : -1.0f});
         else if ((event.type == ButtonPress || event.type == ButtonRelease) && event.xbutton.button == Button1)
         {
             if (!window->locked) window->x = float(event.xbutton.x), window->y = float(event.xbutton.y);
-            window->callbacks.pointer(event.type == ButtonPress ? View::Pointer::down : View::Pointer::up,
-                                      window->x, window->y);
+            if (event.type == ButtonPress) XSetInputFocus(window->display, window->window, RevertToParent, CurrentTime);
+            window->callbacks.pointer({event.type == ButtonPress ? View::Pointer::down : View::Pointer::up,
+                                       window->x, window->y, modifiers(event.xbutton.state)});
+        }
+        else if (event.type == KeyPress)
+        {
+            View::Key key;
+            switch (XLookupKeysym(&event.xkey, 0))
+            {
+            case XK_Left: key = View::Key::left; break;
+            case XK_Right: key = View::Key::right; break;
+            case XK_Up: key = View::Key::up; break;
+            case XK_Down: key = View::Key::down; break;
+            case XK_Page_Up: key = View::Key::pageUp; break;
+            case XK_Page_Down: key = View::Key::pageDown; break;
+            case XK_Home: key = View::Key::home; break;
+            case XK_End: key = View::Key::end; break;
+            case XK_Tab: case XK_ISO_Left_Tab: key = View::Key::tab; break;
+            default: continue; // X11 has no simple way to hand keys back to the host
+            }
+            window->callbacks.key(key, modifiers(event.xkey.state));
         }
     }
 }

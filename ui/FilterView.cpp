@@ -190,7 +190,8 @@ public:
             for (size_t i = 0; i < spectrum.size() && i < db->size(); ++i)
                 spectrum[i] = float((*db)[i].number(-120));
     }
-    void pointer(Pointer type, float x, float y) override { ui.pointer(type, x, y); }
+    void pointer(const PointerEvent &event) override { ui.pointer(event); }
+    bool key(Key key, unsigned modifiers) override { return ui.key(key, modifiers); }
     bool animating() const override { return dragging; } // the glow breathes while dragging
 
     void draw(const wgpu::RenderPassEncoder &pass, float width, float height, float scale) override
@@ -239,8 +240,9 @@ public:
 private:
     enum { plotBox, knobBox };
 
-    // The plot: axis labels on its left and bottom edges, the curve inside,
-    // and dragging on it moves the peak (x: Cutoff, y: dB = 20 log10 Q).
+    // The plot: axis labels on its left and bottom edges, the curve inside.
+    // Dragging on it moves the peak (x: Cutoff, y: dB = 20 log10 Q), the
+    // wheel changes Q, and a double-click resets both.
     void drawPlot(const wgpu::RenderPassEncoder &pass, float width, float height, gpu::Rect box, gpu::Param &cutoff, gpu::Param &q)
     {
         const float s = ui.s;
@@ -255,6 +257,14 @@ private:
             params.change(q, std::pow(10.0f, (minDb + ty * (maxDb - minDb)) / 20.0f));
         }
         if (area.released) params.end(cutoff), params.end(q);
+        if (area.doubleClicked)
+            for (gpu::Param *p : {&cutoff, &q})
+                params.begin(*p), params.change(*p, p->defaultValue), params.end(*p);
+        if (area.wheel != 0)
+        {
+            const float db = 20 * std::log10(float(q.value)) + area.wheel * (area.modifiers & shift ? 0.1f : 1.0f);
+            params.begin(q), params.change(q, std::pow(10.0f, db / 20)), params.end(q);
+        }
         dragging = area.held;
 
         drawCurve(pass, width, height, float(cutoff.value), float(q.value), plot);

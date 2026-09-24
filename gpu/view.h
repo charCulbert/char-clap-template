@@ -13,13 +13,25 @@ namespace gpu {
 class View
 {
 public:
-    enum class Pointer { down, move, up };
+    enum class Pointer { down, move, up, wheel };
+    enum Modifier : unsigned { shift = 1, control = 2, alt = 4, command = 8 };
+    struct PointerEvent
+    {
+        Pointer type;
+        float x, y;             // pixels
+        unsigned modifiers = 0; // Modifier bits
+        float wheel = 0;        // for Pointer::wheel: notches, positive away from the user
+    };
+    // The keys controls use; other keys go back to the host.
+    enum class Key { left, right, up, down, pageUp, pageDown, home, end, tab };
 
     virtual ~View() = default;
     virtual void prepare(const wgpu::Device &device, wgpu::TextureFormat format) = 0;
     // Sizes are in pixels; scale is pixels per logical point (for line widths).
     virtual void draw(const wgpu::RenderPassEncoder &pass, float width, float height, float scale) = 0;
-    virtual void pointer(Pointer type, float x, float y) = 0; // pixels
+    virtual void pointer(const PointerEvent &event) = 0;
+    // Returns true if the key was used; presenters pass unused keys to the host.
+    virtual bool key(Key, unsigned /*modifiers*/) { return false; }
     virtual void receive(const webview::Value &message) = 0;
     // Presenters draw only after input, a message or a resize, plus every
     // frame while this is true (e.g. during an animation).

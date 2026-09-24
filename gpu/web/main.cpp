@@ -4,6 +4,7 @@
 #include "../context.h"
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 
@@ -48,6 +49,36 @@ bool frame(double, void *)
     return true; // keep the requestAnimationFrame loop going
 }
 
+template <class Event> unsigned modifiers(const Event &event)
+{
+    return (event.shiftKey ? gpu::View::shift : 0u) | (event.ctrlKey ? gpu::View::control : 0u)
+         | (event.altKey ? gpu::View::alt : 0u) | (event.metaKey ? gpu::View::command : 0u);
+}
+
+bool wheel(int, const EmscriptenWheelEvent *event, void *)
+{
+    if (!ready) return false;
+    // deltaY is positive towards the user, in pixels (about 100 per notch), lines or pages.
+    const double perNotch = event->deltaMode == DOM_DELTA_PIXEL ? 100 : event->deltaMode == DOM_DELTA_LINE ? 3 : 1;
+    view->pointer({gpu::View::Pointer::wheel, float(event->mouse.targetX) * pixelRatio(),
+                   float(event->mouse.targetY) * pixelRatio(), modifiers(event->mouse), float(-event->deltaY / perNotch)});
+    dirty = true;
+    return true; // don't also scroll the page
+}
+
+bool key(int, const EmscriptenKeyboardEvent *event, void *)
+{
+    using Key = gpu::View::Key;
+    static const std::pair<const char *, Key> keys[] = {
+        {"ArrowLeft", Key::left}, {"ArrowRight", Key::right}, {"ArrowUp", Key::up}, {"ArrowDown", Key::down},
+        {"PageUp", Key::pageUp}, {"PageDown", Key::pageDown}, {"Home", Key::home}, {"End", Key::end}, {"Tab", Key::tab}};
+    if (!ready) return false;
+    for (auto [name, k] : keys)
+        if (std::strcmp(event->key, name) == 0 && view->key(k, modifiers(*event)))
+            return dirty = true; // handled: the browser does nothing else with it
+    return false;
+}
+
 bool mouse(int type, const EmscriptenMouseEvent *event, void *)
 {
     if (!ready) return false;
@@ -58,7 +89,9 @@ bool mouse(int type, const EmscriptenMouseEvent *event, void *)
         pointerX = float(event->targetX) * pixelRatio(), pointerY = float(event->targetY) * pixelRatio();
     else if (pointer == gpu::View::Pointer::move)
         pointerX += float(event->movementX) * pixelRatio(), pointerY += float(event->movementY) * pixelRatio();
-    view->pointer(pointer, pointerX, pointerY);
+    // Handling the press stops the browser focusing this page, so do it here: keys come to the focused page.
+    if (pointer == gpu::View::Pointer::down) EM_ASM(window.focus());
+    view->pointer({pointer, pointerX, pointerY, modifiers(*event)});
     dirty = true;
     return true;
 }
@@ -71,6 +104,8 @@ void start()
     // Moves and releases anywhere in the page, so a drag can leave the canvas.
     emscripten_set_mousemove_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, nullptr, true, mouse);
     emscripten_set_mouseup_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, nullptr, true, mouse);
+    emscripten_set_wheel_callback("#canvas", nullptr, true, wheel);
+    emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, nullptr, true, key);
     emscripten_request_animation_frame_loop(frame, nullptr);
 }
 

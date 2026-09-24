@@ -1,9 +1,10 @@
 #import <AppKit/AppKit.h>
 #import <QuartzCore/CAMetalLayer.h>
 #include "native.h"
+#include <optional>
 
 // An NSView backed by a CAMetalLayer, added to the host's view. It forwards the
-// mouse and runs a 60 Hz timer on the main run loop to draw frames.
+// mouse and keys and runs a 60 Hz timer on the main run loop to draw frames.
 @interface GpuView : NSView
 @property(nonatomic) gpu::platform::Callbacks *callbacks;
 @property(nonatomic) BOOL locked;
@@ -15,6 +16,7 @@
 }
 - (BOOL)isFlipped { return YES; } // top-left origin, like the shader
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+- (BOOL)acceptsFirstResponder { return YES; }
 - (BOOL)wantsUpdateLayer { return YES; }
 - (CALayer *)makeBackingLayer { return [CAMetalLayer layer]; }
 
@@ -22,6 +24,13 @@
 {
     [super viewDidChangeBackingProperties];
     self.layer.contentsScale = self.window ? self.window.backingScaleFactor : 1.0;
+}
+
+static unsigned modifiers(NSEvent *event)
+{
+    const NSEventModifierFlags flags = event.modifierFlags;
+    return (flags & NSEventModifierFlagShift ? gpu::View::shift : 0u) | (flags & NSEventModifierFlagControl ? gpu::View::control : 0u)
+         | (flags & NSEventModifierFlagOption ? gpu::View::alt : 0u) | (flags & NSEventModifierFlagCommand ? gpu::View::command : 0u);
 }
 
 - (void)send:(gpu::View::Pointer)type event:(NSEvent *)event
@@ -38,9 +47,43 @@
         const NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
         _position = NSMakePoint(p.x * scale, p.y * scale);
     }
-    if (_callbacks) _callbacks->pointer(type, float(_position.x), float(_position.y));
+    if (_callbacks) _callbacks->pointer({type, float(_position.x), float(_position.y), modifiers(event)});
 }
-- (void)mouseDown:(NSEvent *)event { [self send:gpu::View::Pointer::down event:event]; }
+- (void)mouseDown:(NSEvent *)event
+{
+    [self.window makeFirstResponder:self]; // for keys
+    [self send:gpu::View::Pointer::down event:event];
+}
+- (void)scrollWheel:(NSEvent *)event
+{
+    if (!_callbacks) return;
+    // Trackpads report points, wheels lines (notches). Follow the fingers,
+    // not "natural scrolling": a swipe away from the user turns things up.
+    double notches = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 10 : event.scrollingDeltaY;
+    if (event.isDirectionInvertedFromDevice) notches = -notches;
+    const NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
+    const CGFloat scale = self.layer.contentsScale;
+    _callbacks->pointer({gpu::View::Pointer::wheel, float(p.x * scale), float(p.y * scale), modifiers(event), float(notches)});
+}
+- (void)keyDown:(NSEvent *)event
+{
+    using Key = gpu::View::Key;
+    std::optional<Key> key;
+    switch (event.keyCode) // kVK_* from Carbon's Events.h
+    {
+    case 123: key = Key::left; break;
+    case 124: key = Key::right; break;
+    case 125: key = Key::down; break;
+    case 126: key = Key::up; break;
+    case 116: key = Key::pageUp; break;
+    case 121: key = Key::pageDown; break;
+    case 115: key = Key::home; break;
+    case 119: key = Key::end; break;
+    case 48: key = Key::tab; break;
+    }
+    if (!key || !_callbacks || !_callbacks->key(*key, modifiers(event)))
+        [super keyDown:event]; // up the responder chain, to the host
+}
 - (void)mouseDragged:(NSEvent *)event { [self send:gpu::View::Pointer::move event:event]; }
 - (void)mouseUp:(NSEvent *)event { [self send:gpu::View::Pointer::up event:event]; }
 @end

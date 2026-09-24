@@ -15,7 +15,8 @@ struct Window;
 struct Callbacks
 {
     std::function<void()> frame;                       // draw one frame
-    std::function<void(View::Pointer, float, float)> pointer; // pixels
+    std::function<void(const View::PointerEvent &)> pointer;
+    std::function<bool(View::Key, unsigned modifiers)> key; // true if used
 };
 
 Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Callbacks callbacks);

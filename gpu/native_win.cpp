@@ -3,7 +3,7 @@
 #include "native.h"
 
 // A child HWND in the host's window. Dawn draws into it with D3D12; a Win32
-// timer on it drives frames, and its window procedure forwards the mouse.
+// timer on it drives frames, and its window procedure forwards the mouse and keys.
 namespace gpu::platform {
 
 const char *const windowApi = CLAP_WINDOW_API_WIN32;
@@ -26,10 +26,37 @@ static HINSTANCE thisModule()
     return module;
 }
 
+static unsigned modifiers()
+{
+    auto down = [](int key) { return GetKeyState(key) < 0; };
+    return (down(VK_SHIFT) ? View::shift : 0u) | (down(VK_CONTROL) ? View::control : 0u) | (down(VK_MENU) ? View::alt : 0u);
+}
+
+static bool keyFor(WPARAM virtualKey, View::Key &key)
+{
+    switch (virtualKey)
+    {
+    case VK_LEFT: key = View::Key::left; return true;
+    case VK_RIGHT: key = View::Key::right; return true;
+    case VK_UP: key = View::Key::up; return true;
+    case VK_DOWN: key = View::Key::down; return true;
+    case VK_PRIOR: key = View::Key::pageUp; return true;
+    case VK_NEXT: key = View::Key::pageDown; return true;
+    case VK_HOME: key = View::Key::home; return true;
+    case VK_END: key = View::Key::end; return true;
+    case VK_TAB: key = View::Key::tab; return true;
+    }
+    return false;
+}
+
 static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     auto *window = reinterpret_cast<Window *>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    if (window)
+    if (!window) return DefWindowProcW(hwnd, message, wParam, lParam);
+    auto pointer = [&](View::Pointer type, float wheel = 0) {
+        window->callbacks.pointer({type, window->x, window->y, modifiers(), wheel});
+    };
+    if (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP)
     {
         if (!window->locked)
             window->x = float(short(LOWORD(lParam))), window->y = float(short(HIWORD(lParam)));
@@ -43,15 +70,35 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
             window->x += float(cursor.x - window->anchor.x), window->y += float(cursor.y - window->anchor.y);
             SetCursorPos(window->anchor.x, window->anchor.y);
         }
-        const float x = window->x, y = window->y;
-        switch (message)
-        {
-        case WM_TIMER: window->callbacks.frame(); return 0;
-        case WM_LBUTTONDOWN: SetCapture(hwnd); window->callbacks.pointer(View::Pointer::down, x, y); return 0;
-        case WM_MOUSEMOVE: if (GetCapture() == hwnd) window->callbacks.pointer(View::Pointer::move, x, y); return 0;
-        case WM_LBUTTONUP: ReleaseCapture(); window->callbacks.pointer(View::Pointer::up, x, y); return 0;
-        case WM_ERASEBKGND: return 1; // Dawn paints every pixel
-        }
+    }
+    switch (message)
+    {
+    case WM_TIMER: window->callbacks.frame(); return 0;
+    case WM_LBUTTONDOWN:
+        SetFocus(hwnd); // for keys
+        SetCapture(hwnd);
+        pointer(View::Pointer::down);
+        return 0;
+    case WM_MOUSEMOVE: if (GetCapture() == hwnd) pointer(View::Pointer::move); return 0;
+    case WM_LBUTTONUP: ReleaseCapture(); pointer(View::Pointer::up); return 0;
+    case WM_MOUSEWHEEL:
+    {
+        POINT at = {short(LOWORD(lParam)), short(HIWORD(lParam))}; // screen coordinates
+        ScreenToClient(hwnd, &at);
+        window->callbacks.pointer({View::Pointer::wheel, float(at.x), float(at.y), modifiers(),
+                                   float(GET_WHEEL_DELTA_WPARAM(wParam)) / WHEEL_DELTA});
+        return 0;
+    }
+    case WM_KEYDOWN:
+    {
+        View::Key key;
+        if (keyFor(wParam, key) && window->callbacks.key(key, modifiers())) return 0;
+        // Not ours: let the host's window have it (its shortcuts, transport).
+        PostMessageW(GetParent(hwnd), message, wParam, lParam);
+        return 0;
+    }
+    case WM_KEYUP: PostMessageW(GetParent(hwnd), message, wParam, lParam); return 0;
+    case WM_ERASEBKGND: return 1; // Dawn paints every pixel
     }
     return DefWindowProcW(hwnd, message, wParam, lParam);
 }
