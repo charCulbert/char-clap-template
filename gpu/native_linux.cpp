@@ -14,6 +14,10 @@ struct Window
     Display *display = nullptr; // our own connection, so we see only our events
     ::Window window = 0;
     Callbacks callbacks;
+    bool locked = false;
+    int anchorX = 0, anchorY = 0; // where the cursor is held while locked
+    float x = 0, y = 0;           // pointer position reported to the view (pixels)
+    Cursor blank = 0;             // an invisible cursor, made on first lock
 };
 
 Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Callbacks callbacks)
@@ -42,8 +46,34 @@ wgpu::Surface createSurface(const wgpu::Instance &instance, Window *window)
     return instance.CreateSurface(&descriptor);
 }
 
+void lockPointer(Window *window, bool locked)
+{
+    if (window->locked == locked) return;
+    window->locked = locked;
+    if (!locked)
+    {
+        XUngrabPointer(window->display, CurrentTime);
+        XFlush(window->display);
+        return;
+    }
+    if (!window->blank)
+    {
+        const char bits[1] = {0};
+        const Pixmap empty = XCreateBitmapFromData(window->display, window->window, bits, 1, 1);
+        XColor black = {};
+        window->blank = XCreatePixmapCursor(window->display, empty, empty, &black, &black, 0, 0);
+        XFreePixmap(window->display, empty);
+    }
+    window->anchorX = int(window->x), window->anchorY = int(window->y);
+    XGrabPointer(window->display, window->window, False, ButtonReleaseMask | Button1MotionMask,
+                 GrabModeAsync, GrabModeAsync, 0, window->blank, CurrentTime);
+    XFlush(window->display);
+}
+
 void destroy(Window *window)
 {
+    lockPointer(window, false);
+    if (window->blank) XFreeCursor(window->display, window->blank);
     XDestroyWindow(window->display, window->window);
     XCloseDisplay(window->display);
     delete window;
@@ -77,12 +107,27 @@ void pumpEvents(Window *window)
     {
         XEvent event;
         XNextEvent(window->display, &event);
-        if (event.type == ButtonPress && event.xbutton.button == Button1)
-            window->callbacks.pointer(View::Pointer::down, float(event.xbutton.x), float(event.xbutton.y));
-        else if (event.type == MotionNotify)
-            window->callbacks.pointer(View::Pointer::move, float(event.xmotion.x), float(event.xmotion.y));
-        else if (event.type == ButtonRelease && event.xbutton.button == Button1)
-            window->callbacks.pointer(View::Pointer::up, float(event.xbutton.x), float(event.xbutton.y));
+        if (event.type == MotionNotify)
+        {
+            const int x = event.xmotion.x, y = event.xmotion.y;
+            if (!window->locked)
+                window->x = float(x), window->y = float(y);
+            else if (x == window->anchorX && y == window->anchorY)
+                continue; // our own warp back to the anchor
+            else
+            {
+                // Move by how far the cursor got from the anchor, then put it back.
+                window->x += float(x - window->anchorX), window->y += float(y - window->anchorY);
+                XWarpPointer(window->display, 0, window->window, 0, 0, 0, 0, window->anchorX, window->anchorY);
+            }
+            window->callbacks.pointer(View::Pointer::move, window->x, window->y);
+        }
+        else if ((event.type == ButtonPress || event.type == ButtonRelease) && event.xbutton.button == Button1)
+        {
+            if (!window->locked) window->x = float(event.xbutton.x), window->y = float(event.xbutton.y);
+            window->callbacks.pointer(event.type == ButtonPress ? View::Pointer::down : View::Pointer::up,
+                                      window->x, window->y);
+        }
     }
 }
 

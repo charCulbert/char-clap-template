@@ -20,6 +20,18 @@ EM_JS(void, postToPlugin, (const unsigned char *data, int size), {
 
 float pixelRatio() { return float(emscripten_get_device_pixel_ratio()); }
 
+// Pointer lock needs a recent click (it comes from a knob press) and, inside
+// an iframe, the host's sandbox must allow it; if refused, drags stay plain.
+EM_JS(void, setPointerLock, (bool locked), {
+    const canvas = document.getElementById('canvas');
+    if (locked) try { Promise.resolve(canvas.requestPointerLock()).catch(() => {}); } catch {}
+    else if (document.pointerLockElement === canvas) document.exitPointerLock();
+});
+EM_JS(bool, pointerLocked, (), {
+    return document.pointerLockElement === document.getElementById('canvas');
+});
+float pointerX = 0, pointerY = 0; // pixels; keeps moving while the pointer is locked
+
 bool frame(double, void *)
 {
     double cssWidth, cssHeight;
@@ -42,7 +54,11 @@ bool mouse(int type, const EmscriptenMouseEvent *event, void *)
     const auto pointer = type == EMSCRIPTEN_EVENT_MOUSEDOWN ? gpu::View::Pointer::down
                        : type == EMSCRIPTEN_EVENT_MOUSEUP   ? gpu::View::Pointer::up
                                                             : gpu::View::Pointer::move;
-    view->pointer(pointer, float(event->targetX) * pixelRatio(), float(event->targetY) * pixelRatio());
+    if (!pointerLocked())
+        pointerX = float(event->targetX) * pixelRatio(), pointerY = float(event->targetY) * pixelRatio();
+    else if (pointer == gpu::View::Pointer::move)
+        pointerX += float(event->movementX) * pixelRatio(), pointerY += float(event->movementY) * pixelRatio();
+    view->pointer(pointer, pointerX, pointerY);
     dirty = true;
     return true;
 }
@@ -79,6 +95,7 @@ int main()
         const auto bytes = webview::encode(message);
         postToPlugin(bytes.data(), int(bytes.size()));
     };
+    view->lockPointer = [](bool locked) { setPointerLock(locked); };
     EM_ASM({
         window.addEventListener('message', event => {
             if (!(event.data instanceof ArrayBuffer)) return;

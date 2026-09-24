@@ -6,9 +6,13 @@
 // mouse and runs a 60 Hz timer on the main run loop to draw frames.
 @interface GpuView : NSView
 @property(nonatomic) gpu::platform::Callbacks *callbacks;
+@property(nonatomic) BOOL locked;
 @end
 
 @implementation GpuView
+{
+    NSPoint _position; // pixels; keeps moving while the pointer is locked
+}
 - (BOOL)isFlipped { return YES; } // top-left origin, like the shader
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
 - (BOOL)wantsUpdateLayer { return YES; }
@@ -22,9 +26,19 @@
 
 - (void)send:(gpu::View::Pointer)type event:(NSEvent *)event
 {
-    const NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
     const CGFloat scale = self.layer.contentsScale;
-    if (_callbacks) _callbacks->pointer(type, float(p.x * scale), float(p.y * scale));
+    if (_locked && type == gpu::View::Pointer::move)
+    {
+        // The cursor is frozen: move by the mouse's own deltas (points, y down).
+        _position.x += event.deltaX * scale;
+        _position.y += event.deltaY * scale;
+    }
+    else if (!_locked)
+    {
+        const NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
+        _position = NSMakePoint(p.x * scale, p.y * scale);
+    }
+    if (_callbacks) _callbacks->pointer(type, float(_position.x), float(_position.y));
 }
 - (void)mouseDown:(NSEvent *)event { [self send:gpu::View::Pointer::down event:event]; }
 - (void)mouseDragged:(NSEvent *)event { [self send:gpu::View::Pointer::move event:event]; }
@@ -70,8 +84,19 @@ wgpu::Surface createSurface(const wgpu::Instance &instance, Window *window)
     return instance.CreateSurface(&descriptor);
 }
 
+void lockPointer(Window *window, bool locked)
+{
+    if (window->view.locked == locked) return;
+    window->view.locked = locked;
+    // Detach the cursor from the mouse, so it stays where the drag began.
+    CGAssociateMouseAndMouseCursorPosition(!locked);
+    if (locked) [NSCursor hide];
+    else [NSCursor unhide];
+}
+
 void destroy(Window *window)
 {
+    lockPointer(window, false);
     [window->timer invalidate];
     window->view.callbacks = nullptr;
     [window->view removeFromSuperview];

@@ -26,5 +26,6 @@ void pixelSize(Window *window, uint32_t &width, uint32_t &height);
 float scale(Window *window); // pixels per logical point
 void setVisible(Window *window, bool visible);
 void pumpEvents(Window *window); // only where needsTimer
+void lockPointer(Window *window, bool locked); // see View::lockPointer
 
 }

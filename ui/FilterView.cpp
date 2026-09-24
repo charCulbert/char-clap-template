@@ -179,6 +179,7 @@ public:
         createCurvePipeline(format);
         ui.draw.prepare(device, format, gpu::loadAsset("/fonts/Inter.ttf"));
         params.send = send;
+        ui.lockPointer = lockPointer;
         send(webview::Value::Map{{"type", "ready"}});
     }
 

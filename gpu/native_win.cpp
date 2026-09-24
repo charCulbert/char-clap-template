@@ -13,6 +13,9 @@ struct Window
 {
     HWND hwnd = nullptr;
     Callbacks callbacks;
+    bool locked = false;
+    POINT anchor = {};       // screen position the cursor is held at while locked
+    float x = 0, y = 0;      // pointer position reported to the view (pixels)
 };
 
 static HINSTANCE thisModule()
@@ -28,7 +31,19 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
     auto *window = reinterpret_cast<Window *>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (window)
     {
-        const float x = float(short(LOWORD(lParam))), y = float(short(HIWORD(lParam)));
+        if (!window->locked)
+            window->x = float(short(LOWORD(lParam))), window->y = float(short(HIWORD(lParam)));
+        else if (message == WM_MOUSEMOVE)
+        {
+            // Move by how far the cursor got from the anchor, then put it back
+            // (which sends one more WM_MOUSEMOVE, with no movement).
+            POINT cursor;
+            GetCursorPos(&cursor);
+            if (cursor.x == window->anchor.x && cursor.y == window->anchor.y) return 0;
+            window->x += float(cursor.x - window->anchor.x), window->y += float(cursor.y - window->anchor.y);
+            SetCursorPos(window->anchor.x, window->anchor.y);
+        }
+        const float x = window->x, y = window->y;
         switch (message)
         {
         case WM_TIMER: window->callbacks.frame(); return 0;
@@ -76,8 +91,17 @@ wgpu::Surface createSurface(const wgpu::Instance &instance, Window *window)
     return instance.CreateSurface(&descriptor);
 }
 
+void lockPointer(Window *window, bool locked)
+{
+    if (window->locked == locked) return;
+    window->locked = locked;
+    if (locked) GetCursorPos(&window->anchor);
+    ShowCursor(locked ? FALSE : TRUE);
+}
+
 void destroy(Window *window)
 {
+    lockPointer(window, false);
     KillTimer(window->hwnd, 1);
     SetWindowLongPtrW(window->hwnd, GWLP_USERDATA, 0);
     DestroyWindow(window->hwnd);

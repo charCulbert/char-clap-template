@@ -45,6 +45,7 @@ bool Ui::drag(Params &params, Param &p, float x, float y, float w, float h, bool
         active = &p;
         grabX = mouse.x, grabY = mouse.y, grabUnit = toUnit(p, p.value, log);
         params.begin(p);
+        if (lockPointer) lockPointer(true);
     }
     if (active != &p) return false;
     const double moved = vertical ? (grabY - mouse.y) / travel : (mouse.x - grabX) / travel;
@@ -54,6 +55,7 @@ bool Ui::drag(Params &params, Param &p, float x, float y, float w, float h, bool
     {
         params.end(p);
         active = nullptr;
+        if (lockPointer) lockPointer(false);
     }
     return true;
 }

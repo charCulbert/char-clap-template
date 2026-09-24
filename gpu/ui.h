@@ -20,6 +20,7 @@ class Ui
 public:
     Draw2D draw;
     Theme theme;
+    std::function<void(bool)> lockPointer; // View::lockPointer: knob and slider drags lock the pointer
 
     void pointer(View::Pointer type, float x, float y);
     void begin(float width, float height, float scale); // starts a frame of controls

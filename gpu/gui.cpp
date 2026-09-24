@@ -53,6 +53,7 @@ bool Gui::create(const char *api, bool floating)
         const auto bytes = webview::encode(message);
         pluginWebview->receive(plugin, bytes.data(), uint32_t(bytes.size()));
     };
+    view->lockPointer = [this](bool locked) { if (window) platform::lockPointer(window, locked); };
     return true;
 }
 

@@ -27,6 +27,10 @@ public:
 
     // Set by the presenter: delivers a message to the plugin.
     std::function<void(const webview::Value &)> send;
+    // Set by the presenter: while locked, the cursor is hidden and stays put,
+    // and pointer() positions keep moving with the mouse past the view's and
+    // the screen's edges. Where the platform refuses, drags work as before.
+    std::function<void(bool locked)> lockPointer;
 };
 
 // Implemented by the plugin's interface code (SIMPLECHAR_GPU_VIEW in CMake).
