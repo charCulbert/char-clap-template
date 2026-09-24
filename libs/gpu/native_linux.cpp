@@ -1,6 +1,7 @@
 #include "native.h"
 #include <X11/Xlib.h> // after webgpu_cpp.h: Xlib defines macros such as Status and None
 #include <X11/keysym.h>
+#include <X11/Xutil.h> // XLookupString
 
 // A child X11 window in the host's window. Dawn draws into it with Vulkan.
 // Linux hosts have no shared event loop, so the host's timer (needsTimer)

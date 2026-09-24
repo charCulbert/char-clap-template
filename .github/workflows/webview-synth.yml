@@ -75,7 +75,7 @@ jobs:
           esac
           curl -sSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_$platform.zip"
           unzip -q pluginval.zip -d pluginval-dist
-          plugin=$(find build -name "$NAME.vst3" -type d -print -quit)
+          plugin=$(find build -name "$NAME.vst3" -print -quit) # a folder, or on Windows a single file
           test -n "$plugin"
           if [ "$RUNNER_OS" = Linux ]; then run="xvfb-run -a"; fi
           $run "$binary" --validate "$plugin" --strictness-level 5
