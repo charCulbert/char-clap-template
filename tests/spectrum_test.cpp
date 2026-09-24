@@ -1,6 +1,6 @@
 // The spectrum: sines read their level wherever they fall, the display has
 // no needles between bands, and it reacts in tens of milliseconds.
-#include "../chardsp_Spectrum.h"
+#include "../examples/gpu-analyzer/chardsp_Spectrum.h"
 #include <cassert>
 #include <cmath>
 #include <cstdio>

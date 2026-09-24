@@ -5,7 +5,7 @@ import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {encode, decode} from '../webUI/lib/messages.js';
+import {encode, decode} from '../libs/webview/js/messages.js';
 
 const roundTrip = v => decode(encode(v));
 

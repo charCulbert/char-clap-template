@@ -5,7 +5,7 @@
 #   include(libs/core/core.cmake)
 #   core_add_to(<impl target>)             entry glue, codec and resource loader
 #   core_ship_ui(<plugin name> <folder>)   copies <folder> into every format, as ui/
-include_guard(GLOBAL)
+include_guard(DIRECTORY)
 include(FetchContent)
 
 set(CORE_DIR "${CMAKE_CURRENT_LIST_DIR}")

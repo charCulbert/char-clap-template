@@ -6,7 +6,7 @@
 #   include(libs/webview/webview.cmake)
 #   webview_add_to(<impl target>)             the presenter (clap.gui side)
 #   webview_page(<out var> <name> <folder>)   the page plus js/ as lib/, for core_ship_ui
-include_guard(GLOBAL)
+include_guard(DIRECTORY)
 include(FetchContent)
 
 set(WEBVIEW_DIR "${CMAKE_CURRENT_LIST_DIR}")

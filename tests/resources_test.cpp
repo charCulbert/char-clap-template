@@ -1,5 +1,5 @@
 // Serving the UI folder: nested files, binary data, and nothing outside it.
-#include "../webview/resources.h"
+#include "../libs/core/resources.h"
 #include <cassert>
 #include <fstream>
 
@@ -7,7 +7,7 @@ int main(int argc, char **argv)
 {
     assert(argc == 2); // a fresh, empty directory
     const std::filesystem::path base = argv[1];
-    const auto root = base / "webUI";
+    const auto root = base / "ui";
     std::filesystem::create_directories(root / "assets/fonts");
     std::ofstream(root / "index.html") << "<html>";
     std::ofstream(root / "assets/app.mjs") << "export {}";

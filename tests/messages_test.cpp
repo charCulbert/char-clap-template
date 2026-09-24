@@ -1,6 +1,6 @@
 // C++ side of the message codec. With "<in> <out>" arguments it decodes a
 // packet and writes it re-encoded, so messages.test.mjs can cross-check JS.
-#include "../webview/messages.h"
+#include "../libs/core/messages.h"
 #include <cassert>
 #include <fstream>
 #include <iterator>

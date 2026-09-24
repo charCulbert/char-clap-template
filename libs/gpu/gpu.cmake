@@ -10,7 +10,7 @@
 #
 # The View reads its files (fonts) with gpu::loadAsset: natively from the
 # plugin's ui/ folder (core_ship_ui), in the page from files built into it.
-include_guard(GLOBAL)
+include_guard(DIRECTORY)
 include(FetchContent)
 
 set(GPU_DIR "${CMAKE_CURRENT_LIST_DIR}")

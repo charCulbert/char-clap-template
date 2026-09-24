@@ -1,0 +1,36 @@
+name: Tests
+
+# Unit tests for the shared code (libs/core, libs/webview/js) and the
+# analyzer's DSP. The plugins' own workflows build and validate them.
+on:
+  push:
+    paths:
+      - tests/**
+      - libs/core/messages.*
+      - libs/core/resources.*
+      - libs/webview/js/**
+      - examples/gpu-analyzer/chardsp_Spectrum.h
+      - .github/workflows/tests.yml
+  pull_request:
+    paths:
+      - tests/**
+      - libs/core/messages.*
+      - libs/core/resources.*
+      - libs/webview/js/**
+      - examples/gpu-analyzer/chardsp_Spectrum.h
+      - .github/workflows/tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run
+        run: |
+          cmake -S tests -B build-tests
+          cmake --build build-tests --parallel 4
+          ctest --test-dir build-tests --output-on-failure

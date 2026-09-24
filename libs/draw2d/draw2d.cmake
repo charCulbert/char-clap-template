@@ -4,7 +4,7 @@
 #
 #   include(libs/draw2d/draw2d.cmake)
 #   draw2d_add_to(<target>)      the impl target natively, the page target in WCLAP
-include_guard(GLOBAL)
+include_guard(DIRECTORY)
 include(FetchContent)
 
 set(DRAW2D_DIR "${CMAKE_CURRENT_LIST_DIR}")
