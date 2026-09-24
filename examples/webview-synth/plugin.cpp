@@ -2,10 +2,10 @@
 // shown by the host itself where it supports clap.webview, otherwise in a
 // WebView inside the host's window.
 //
-// This one file is the whole CLAP plugin: its descriptor, note and audio
-// ports, parameters, state, the clap.webview and clap.gui extensions its page
-// uses, and the audio processing. libs/ holds the reusable parts: the entry
-// point (core/entry.cpp), the message codec and file loader (core/), and the
+// This file is the whole CLAP plugin: its descriptor, note and audio ports,
+// parameters, state, the clap.webview and clap.gui extensions its page uses,
+// and the audio processing; entry.cpp is the entry point that makes it. libs/
+// holds the reusable parts: the message codec and file loader (core/), and the
 // presenter that shows the page (webview/).
 #include "clap/clap.h"
 #include "clap/events.h"
@@ -754,7 +754,7 @@ static const clap_plugin_t pluginClass = {
     },
 };
 
-// What libs/core/entry.cpp needs (core/plugin.h).
+// What entry.cpp needs.
 const clap_plugin_descriptor_t *getPluginDescriptor()
 {
     return &pluginDescriptor;

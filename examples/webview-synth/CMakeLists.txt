@@ -47,12 +47,12 @@ set(identity
 
 # iOS: an AUv3 extension inside an app (configure with -G Xcode -DCMAKE_SYSTEM_NAME=iOS).
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-    add_executable(WebViewSynth_auv3 "${LIBS}/core/entry.cpp")
+    add_executable(WebViewSynth_auv3 entry.cpp)
     target_link_libraries(WebViewSynth_auv3 PRIVATE WebViewSynth_impl)
     target_add_auv3_wrapper(TARGET WebViewSynth_auv3 ${identity}
         MANUFACTURER_NAME "Charlie Culbert" MANUFACTURER_CODE "ChCu"
         SUBTYPE_CODE "WvSy" INSTRUMENT_TYPE "aumu")
-    add_executable(WebViewSynth_ios "${LIBS}/core/entry.cpp")
+    add_executable(WebViewSynth_ios entry.cpp)
     target_link_libraries(WebViewSynth_ios PRIVATE WebViewSynth_impl)
     target_add_auv3_standalone_ios_wrapper(TARGET WebViewSynth_ios
         OUTPUT_NAME "WebView Synth" BUNDLE_IDENTIFIER "com.charlieculbert.webviewsynth.ios"
@@ -81,7 +81,7 @@ endif()
 make_clapfirst_plugins(
     TARGET_NAME WebViewSynth
     IMPL_TARGET WebViewSynth_impl
-    ENTRY_SOURCE "${LIBS}/core/entry.cpp"
+    ENTRY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/entry.cpp"
     ${identity}
     AUV2_MANUFACTURER_NAME "Charlie Culbert"
     AUV2_MANUFACTURER_CODE "ChCu"

@@ -79,7 +79,7 @@ endif()
 make_clapfirst_plugins(
     TARGET_NAME ImGuiFilter
     IMPL_TARGET ImGuiFilter_impl
-    ENTRY_SOURCE "${LIBS}/core/entry.cpp"
+    ENTRY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/entry.cpp"
     OUTPUT_NAME "ImGui Filter"
     BUNDLE_IDENTIFIER "com.charlieculbert.imguifilter"
     BUNDLE_VERSION "${PROJECT_VERSION}"

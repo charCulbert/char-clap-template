@@ -1,11 +1,11 @@
 // ImGui Filter: a stereo state-variable filter (lowpass, bandpass or highpass)
 // whose interface is drawn with Dear ImGui (ui/FilterView.cpp) on WebGPU.
 //
-// This one file is the whole CLAP plugin: its descriptor, audio ports,
-// parameters, state, the clap.webview and clap.gui extensions its interface
-// uses, and the audio processing. libs/ holds the reusable parts: the entry
-// point (core/entry.cpp), the message codec and file loader (core/), and the
-// presenter that shows a gpu::View in the host's window (gpu/).
+// This file is the whole CLAP plugin: its descriptor, audio ports, parameters,
+// state, the clap.webview and clap.gui extensions its interface uses, and the
+// audio processing; entry.cpp is the entry point that makes it. libs/ holds the
+// reusable parts: the message codec and file loader (core/), and the presenter
+// that shows a gpu::View in the host's window (gpu/).
 #include "clap/clap.h"
 #include "clap/events.h"
 #include "clap/ext/audio-ports.h"
@@ -685,7 +685,7 @@ static const clap_plugin_t pluginClass = {
     },
 };
 
-// What libs/core/entry.cpp needs (core/plugin.h).
+// What entry.cpp needs.
 const clap_plugin_descriptor_t *getPluginDescriptor()
 {
     return &pluginDescriptor;

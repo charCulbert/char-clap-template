@@ -58,7 +58,7 @@ endif()
 make_clapfirst_plugins(
     TARGET_NAME GpuAnalyzer
     IMPL_TARGET GpuAnalyzer_impl
-    ENTRY_SOURCE "${LIBS}/core/entry.cpp"
+    ENTRY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/entry.cpp"
     OUTPUT_NAME "GPU Analyzer"
     BUNDLE_IDENTIFIER "com.charlieculbert.gpuanalyzer"
     BUNDLE_VERSION "${PROJECT_VERSION}"

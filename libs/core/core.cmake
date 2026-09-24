@@ -1,9 +1,9 @@
 # What every plugin here builds on: the CLAP SDK, clap-wrapper (VST3, AU,
-# standalone and WCLAP from the one CLAP plugin), the CLAP entry point, the
-# message codec its interface uses, and the loader for its packaged UI files.
+# standalone and WCLAP from the one CLAP plugin), the message codec its
+# interface (and its state) use, and the loader for its packaged UI files.
 #
 #   include(libs/core/core.cmake)
-#   core_add_to(<impl target>)             entry glue, codec and resource loader
+#   core_add_to(<impl target>)             codec and resource loader
 #   core_ship_ui(<plugin name> <folder>)   copies <folder> into every format, as ui/
 #   core_ship_ui(<plugin name> "")         a plugin without files: signs and packages only
 include_guard(DIRECTORY)

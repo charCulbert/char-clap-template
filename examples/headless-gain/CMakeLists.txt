@@ -42,7 +42,7 @@ endif()
 make_clapfirst_plugins(
     TARGET_NAME HeadlessGain
     IMPL_TARGET HeadlessGain_impl
-    ENTRY_SOURCE "${LIBS}/core/entry.cpp"
+    ENTRY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/entry.cpp"
     OUTPUT_NAME "Headless Gain"
     BUNDLE_IDENTIFIER "com.charlieculbert.headlessgain"
     BUNDLE_VERSION "${PROJECT_VERSION}"

@@ -1,9 +1,9 @@
 // Headless Gain: stereo gain and pan with no interface of its own. Hosts show
 // their own controls for its parameters.
 //
-// This one file is the whole CLAP plugin: its descriptor, audio ports,
-// parameters, state and the audio processing. libs/core holds the entry point
-// (entry.cpp) and the CBOR codec its state uses (messages.h).
+// This file is the whole CLAP plugin: its descriptor, audio ports, parameters,
+// state and the audio processing; entry.cpp is the entry point that makes it.
+// libs/core holds the CBOR codec its state uses (messages.h).
 #include "clap/clap.h"
 #include "clap/events.h"
 #include "clap/ext/audio-ports.h"
@@ -414,7 +414,7 @@ static const clap_plugin_t pluginClass = {
     .on_main_thread = [](const clap_plugin *_plugin) {},
 };
 
-// What libs/core/entry.cpp needs (core/plugin.h).
+// What entry.cpp needs.
 const clap_plugin_descriptor_t *getPluginDescriptor()
 {
     return &pluginDescriptor;
