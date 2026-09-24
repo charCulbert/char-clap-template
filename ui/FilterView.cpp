@@ -24,6 +24,15 @@ fn curveDb(x: f32) -> f32 {
     let i = clamp(i32(x), 0, i32(arrayLength(&curve)) - 1);
     return curve[i];
 }
+// The live spectrum from the plugin: bands in dB, log-spaced over the plot.
+@group(0) @binding(2) var<storage, read> spectrum: array<f32>;
+fn spectrumDb(x: f32) -> f32 {
+    let r = u.plot;
+    let n = f32(arrayLength(&spectrum));
+    let t = clamp((x - r.x) / (r.z - r.x), 0.0, 1.0) * (n - 1.0);
+    let i = u32(t);
+    return mix(spectrum[i], spectrum[min(i + 1u, u32(n) - 1u)], fract(t));
+}
 
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
     let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
@@ -69,6 +78,11 @@ fn yOf(db: f32) -> f32 {
         grid = max(grid, line * select(0.6, 1.0, db == 0.0));
     }
     color += vec3f(0.06, 0.07, 0.08) * grid * inside;
+
+    // The spectrum, behind the curve: a soft fill below it and a faint edge.
+    let ys = yOf(spectrumDb(px.x));
+    color += vec3f(0.30, 0.42, 0.52) * 0.30 * step(ys, px.y) * inside;
+    color += vec3f(0.45, 0.60, 0.72) * 0.5 * (1.0 - smoothstep(0.0, 1.5 * s, abs(px.y - ys))) * inside;
 
     // The curve: distance to it from this pixel, using the local slope.
     let y0 = yOf(curveDb(px.x));
@@ -131,7 +145,13 @@ public:
         send(webview::Value::Map{{"type", "ready"}});
     }
 
-    void receive(const webview::Value &message) override { params.receive(message); }
+    void receive(const webview::Value &message) override
+    {
+        if (params.receive(message) || message["type"].text() != "spectrum") return;
+        if (auto db = std::get_if<webview::Value::Array>(&message["db"].data))
+            for (size_t i = 0; i < spectrum.size() && i < db->size(); ++i)
+                spectrum[i] = float((*db)[i].number(-120));
+    }
     void pointer(Pointer type, float x, float y) override { ui.pointer(type, x, y); }
     bool animating() const override { return dragging; } // the glow breathes while dragging
 
@@ -201,6 +221,9 @@ private:
         bufferDescriptor.size = sizeof(Uniforms);
         bufferDescriptor.usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst;
         uniforms = device.CreateBuffer(&bufferDescriptor);
+        bufferDescriptor.size = sizeof(float) * spectrum.size();
+        bufferDescriptor.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
+        spectrumBuffer = device.CreateBuffer(&bufferDescriptor);
     }
 
     // One float per pixel column; the bind group follows the buffer's size.
@@ -212,14 +235,16 @@ private:
         bufferDescriptor.size = columns * sizeof(float);
         bufferDescriptor.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
         curveBuffer = device.CreateBuffer(&bufferDescriptor);
-        wgpu::BindGroupEntry entries[2];
+        wgpu::BindGroupEntry entries[3];
         entries[0].binding = 0;
         entries[0].buffer = uniforms;
         entries[1].binding = 1;
         entries[1].buffer = curveBuffer;
+        entries[2].binding = 2;
+        entries[2].buffer = spectrumBuffer;
         wgpu::BindGroupDescriptor groupDescriptor;
         groupDescriptor.layout = pipeline.GetBindGroupLayout(0);
-        groupDescriptor.entryCount = 2;
+        groupDescriptor.entryCount = 3;
         groupDescriptor.entries = entries;
         bindGroup = device.CreateBindGroup(&groupDescriptor);
     }
@@ -240,6 +265,7 @@ private:
             columns[x] = responseDb(minHz * std::pow(maxHz / minHz, t), cutoff, q, 48000.0f);
         }
         device.GetQueue().WriteBuffer(curveBuffer, 0, columns.data(), columns.size() * sizeof(float));
+        device.GetQueue().WriteBuffer(spectrumBuffer, 0, spectrum.data(), sizeof(float) * spectrum.size());
         pass.SetPipeline(pipeline);
         pass.SetBindGroup(0, bindGroup);
         pass.Draw(3);
@@ -249,7 +275,8 @@ private:
     wgpu::RenderPipeline pipeline;
     wgpu::Buffer uniforms;
     wgpu::BindGroup bindGroup;
-    wgpu::Buffer curveBuffer;
+    wgpu::Buffer curveBuffer, spectrumBuffer;
+    std::vector<float> spectrum = std::vector<float>(256, -120.0f); // dB per band, from the plugin
     size_t curveColumns = 0;
     std::vector<float> columns;
     gpu::Params params;

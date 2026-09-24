@@ -15,6 +15,7 @@
 #include <cmath>
 #include <atomic>
 #include "chardsp_StateVariableFilter.h"
+#include "chardsp_Spectrum.h"
 // Which presenter shows the UI natively: a WebView page (webUI/), or a
 // gpu::View drawn with Dawn (ui/FilterView.cpp). CMake's SIMPLECHAR_UI picks one.
 #if SIMPLECHAR_GPU_UI
@@ -50,6 +51,13 @@ struct MyPlugin
     uint32_t guiWidth = 480, guiHeight = 300;
     std::atomic<bool> gestureBegin[P_COUNT], gestureEnd[P_COUNT];
     std::atomic<bool> uiDirty; // set when the host changes a parameter
+
+    // Live spectrum for the UI: the audio thread fills it, the main thread
+    // analyzes it and sends the bands (see on_main_thread).
+    chardsp::Spectrum spectrum;
+    std::atomic<bool> spectrumPending;
+    uint32_t framesSinceSpectrum = 0; // audio thread only
+    bool uiReady = false; // the page has said "ready" and not been closed since
 };
 
 // The params/state extension tables below refer to these helpers before
@@ -286,7 +294,11 @@ static const clap_plugin_gui_t extensionGui = {
     },
 
     .destroy = [](const clap_plugin_t *_plugin)
-    { ((MyPlugin *)_plugin->plugin_data)->gui.destroy(); },
+    {
+        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        plugin->gui.destroy();
+        plugin->uiReady = false;
+    },
 
     .set_scale = [](const clap_plugin_t *_plugin, double scale) -> bool
     { return false; }, // WebViews scale their content themselves
@@ -355,6 +367,7 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //                 {type: "change", id, value}
 //   plugin -> UI  {type: "params", params: [{id, name, min, max, default}]}
 //                 {type: "values", values: [value per parameter id]}
+//                 {type: "spectrum", db: [256 bands, 20 Hz to 20 kHz]}
 static bool PluginReceiveMessage(MyPlugin *plugin, const webview::Value &message)
 {
     const auto type = message["type"].text();
@@ -372,6 +385,7 @@ static bool PluginReceiveMessage(MyPlugin *plugin, const webview::Value &message
         }
         plugin->gui.send(webview::Value::Map{{"type", "params"}, {"params", params}});
         PluginSendValues(plugin);
+        plugin->uiReady = true;
         return true;
     }
 
@@ -607,6 +621,17 @@ static const clap_plugin_t pluginClass = {
             i = nextEventFrame;
         }
 
+        // Hand the output to the spectrum, and every 1/60 s of audio ask the main
+        // thread to analyze and send it. (Counting samples needs no clock.)
+        plugin->spectrum.push(process->audio_outputs[0].data32[0], process->audio_outputs[0].data32[1], frameCount);
+        plugin->framesSinceSpectrum += frameCount;
+        if (plugin->framesSinceSpectrum >= plugin->sampleRate / 60)
+        {
+            plugin->framesSinceSpectrum = 0;
+            if (!plugin->spectrumPending.exchange(true, std::memory_order_acq_rel))
+                plugin->host->request_callback(plugin->host);
+        }
+
         return CLAP_PROCESS_CONTINUE;
     },
 
@@ -631,6 +656,18 @@ static const clap_plugin_t pluginClass = {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
         if (plugin->uiDirty.exchange(false, std::memory_order_acq_rel))
             PluginSendValues(plugin);
+
+        // The audio thread asks for this 60 times a second; skip it while the page is closed.
+        if (plugin->spectrumPending.exchange(false, std::memory_order_acq_rel) && plugin->uiReady)
+        {
+            webview::Value::Array db;
+            std::vector<double> bands;
+            if (plugin->spectrum.analyze(plugin->sampleRate, 20.0f, 20000.0f, bands))
+            {
+                db.assign(bands.begin(), bands.end());
+                plugin->gui.send(webview::Value::Map{{"type", "spectrum"}, {"db", std::move(db)}});
+            }
+        }
     },
 };
 

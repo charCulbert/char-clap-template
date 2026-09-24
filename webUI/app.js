@@ -49,8 +49,29 @@ function show(id, value) {
   slider.output.textContent = format(slider.p, value);
 }
 
+// The live spectrum: bands in dB from 20 Hz to 20 kHz, drawn as a filled curve.
+const spectrum = document.getElementById('spectrum');
+const context = spectrum.getContext('2d');
+function drawSpectrum(db) {
+  const r = devicePixelRatio, w = spectrum.clientWidth * r, h = spectrum.clientHeight * r;
+  if (spectrum.width !== w || spectrum.height !== h) spectrum.width = w, spectrum.height = h;
+  const y = d => h * (1 - (Math.max(d, -96) + 96) / 108); // -96 dB .. +12 dB
+  const line = new Path2D();
+  db.forEach((d, i) => line.lineTo(i / (db.length - 1) * w, y(d)));
+  const fill = new Path2D(line);
+  fill.lineTo(w, h);
+  fill.lineTo(0, h);
+  context.clearRect(0, 0, w, h);
+  context.fillStyle = 'rgba(95, 180, 162, 0.25)';
+  context.fill(fill);
+  context.strokeStyle = '#5fb4a2';
+  context.lineWidth = 1.5 * r;
+  context.stroke(line);
+}
+
 onMessage(message => {
   if (message.type === 'params') build(message.params);
   if (message.type === 'values') message.values.forEach((value, id) => show(id, value));
+  if (message.type === 'spectrum') drawSpectrum(message.db);
 });
 sendMessage({type: 'ready'});
