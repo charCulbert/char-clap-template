@@ -113,7 +113,9 @@ struct Varyings {
     // Arc: distance to the ring, cut to the angle range.
     let angle = fract(atan2(in.local.x, -in.local.y) / 6.2831853) * 6.2831853;
     let ring = abs(length(in.local) - (in.half.x - in.shape.y - 1.0)) - in.shape.y;
-    let da = select(1e3, ring, angle >= in.uv.x && angle <= in.uv.y);
+    // Ranges may pass 2π (e.g. a knob track from 7:30 through 12 to 4:30).
+    let inRange = (angle >= in.uv.x && angle <= in.uv.y) || (angle + 6.2831853 >= in.uv.x && angle + 6.2831853 <= in.uv.y);
+    let da = select(1e3, ring, inRange);
     let arc = vec4f(in.fill.rgb, in.fill.a * (1.0 - smoothstep(-fwidth(ring), fwidth(ring), da)));
 
     let kind = in.shape.x;
@@ -132,11 +134,11 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
     const auto *bytes = reinterpret_cast<const unsigned char *>(fontData.data());
     if (fontData.empty() || !stbtt_InitFont(&font, bytes, stbtt_GetFontOffsetForIndex(bytes, 0))) return false;
     const float scale = stbtt_ScaleForPixelHeight(&font, bakeSize);
-    constexpr int padding = 6;
+    constexpr int padding = 4;
     constexpr unsigned char onEdge = 128;
     constexpr float distanceScale = onEdge / float(padding);
     std::vector<unsigned char> atlas(size_t(atlasSize) * atlasSize, 0);
-    int penX = 1, penY = 1, rowHeight = 0;
+    int penX = 4, penY = 4, rowHeight = 0;
     for (int c = ' '; c <= '~'; ++c)
     {
         Glyph &g = glyphs[c - ' '];
@@ -146,14 +148,17 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
         int w = 0, h = 0, xoff = 0, yoff = 0;
         unsigned char *sdf = stbtt_GetCodepointSDF(&font, scale, c, padding, onEdge, distanceScale, &w, &h, &xoff, &yoff);
         if (!sdf) continue; // space
-        if (penX + w + 1 > atlasSize) penX = 1, penY += rowHeight + 1, rowHeight = 0;
-        if (penY + h + 1 > atlasSize) { stbtt_FreeSDF(sdf, nullptr); return false; }
+        // A few texels between glyphs, so small text sampled from the big atlas never
+        // picks up a neighbour.
+        constexpr int gap = 4;
+        if (penX + w + gap > atlasSize) penX = gap, penY += rowHeight + gap, rowHeight = 0;
+        if (penY + h + gap > atlasSize) { stbtt_FreeSDF(sdf, nullptr); return false; }
         for (int row = 0; row < h; ++row)
             std::copy_n(sdf + row * w, w, &atlas[size_t(penY + row) * atlasSize + penX]);
         stbtt_FreeSDF(sdf, nullptr);
         g = {float(penX) / atlasSize, float(penY) / atlasSize, float(penX + w) / atlasSize,
              float(penY + h) / atlasSize, float(xoff), float(yoff), float(w), float(h), g.advance};
-        penX += w + 1;
+        penX += w + gap;
         rowHeight = std::max(rowHeight, h);
     }
 

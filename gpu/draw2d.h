@@ -31,7 +31,8 @@ public:
     void polyline(const float *xy, size_t points, float width, Color color);
     // A ring sector: angles in radians, 0 pointing up, increasing clockwise.
     void arc(float cx, float cy, float radius, float width, float from, float to, Color color);
-    // y is the text's baseline; returns the text's width.
+    // y is the text's baseline; returns the text's width. Distance-field text
+    // without hinting: keep it at 11 px or more on 1x screens.
     float text(float x, float y, float size, std::string_view text, Color color, Align align = Align::left);
     float measure(float size, std::string_view text) const;
     void flush(const wgpu::RenderPassEncoder &pass);
@@ -51,7 +52,7 @@ private:
         float x, y, w, h;     // quad relative to the pen, at bakeSize
         float advance;        // at bakeSize
     };
-    static constexpr float bakeSize = 48; // pixels the atlas is rendered at
+    static constexpr float bakeSize = 24; // pixels the atlas is rendered at; distance fields scale up well
     static constexpr int atlasSize = 1024;
 
     struct LineStyle

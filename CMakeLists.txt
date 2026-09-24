@@ -64,7 +64,7 @@ if(SIMPLECHAR_GPU_PAGE)
         URL_HASH SHA256=381a56505a68db3a8f34ec43eefa87214a45b3b94a438624297fd6186c8db257)
     FetchContent_MakeAvailable(emdawnwebgpu)
     set(webgpu_port "--use-port=${emdawnwebgpu_SOURCE_DIR}/emdawnwebgpu.port.py")
-    add_executable(gui gpu/web/main.cpp gpu/context.cpp gpu/draw2d.cpp ui/FilterView.cpp webview/messages.cpp)
+    add_executable(gui gpu/web/main.cpp gpu/context.cpp gpu/draw2d.cpp gpu/params.cpp gpu/ui.cpp ui/FilterView.cpp webview/messages.cpp)
     target_include_directories(gui PRIVATE "${stb_SOURCE_DIR}")
     target_compile_options(gui PRIVATE ${webgpu_port})
     # ui/assets/ (the font) goes inside gui.wasm, readable at /assets.
@@ -72,6 +72,9 @@ if(SIMPLECHAR_GPU_PAGE)
         "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/ui/assets@/assets"
         -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_gpuReceive)
     set_target_properties(gui PROPERTIES SUFFIX ".js" RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/page")
+    # Relink when an embedded asset changes (the linker reads them, CMake doesn't know).
+    file(GLOB_RECURSE ui_assets CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ui/assets/*")
+    set_property(TARGET gui APPEND PROPERTY LINK_DEPENDS ${ui_assets})
     # Copied on every build, so editing the page needs no recompile.
     add_custom_target(page_html ALL COMMAND ${CMAKE_COMMAND} -E copy
         "${CMAKE_CURRENT_SOURCE_DIR}/gpu/web/index.html" "${CMAKE_BINARY_DIR}/page/index.html")
@@ -159,7 +162,7 @@ target_link_libraries(simpleCharClap_impl PUBLIC clap)
 if(SIMPLECHAR_NATIVE_GPU)
     # gpu/ is the reusable Dawn presenter; ui/ is this plugin's interface.
     target_compile_definitions(simpleCharClap_impl PRIVATE SIMPLECHAR_GPU_UI=1)
-    target_sources(simpleCharClap_impl PRIVATE gpu/gui.cpp gpu/context.cpp gpu/draw2d.cpp ui/FilterView.cpp)
+    target_sources(simpleCharClap_impl PRIVATE gpu/gui.cpp gpu/context.cpp gpu/draw2d.cpp gpu/params.cpp gpu/ui.cpp ui/FilterView.cpp)
     target_include_directories(simpleCharClap_impl PRIVATE "${stb_SOURCE_DIR}")
     target_link_libraries(simpleCharClap_impl PUBLIC dawn::webgpu_dawn)
     if(APPLE)
