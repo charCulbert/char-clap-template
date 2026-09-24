@@ -394,5 +394,13 @@ foreach(target simpleCharClap_clap simpleCharClap_vst3 simpleCharClap_auv2 simpl
         COMMAND ${CMAKE_COMMAND} -E copy_directory "${SIMPLECHAR_WEB_UI}" "${destination}"
         VERBATIM)
     add_dependencies(${target} ${target}_webUI)
+    # The linker signs only the binary; sign the bundle so its resources are
+    # sealed too, or `codesign -v` (and stricter hosts) reject it. AUv3 and
+    # AAX are signed by their own build steps.
+    if(APPLE AND NOT target MATCHES "_auv3|_aax")
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND codesign --force --sign - "$<TARGET_BUNDLE_DIR:${target}>"
+            VERBATIM)
+    endif()
 endforeach()
 
