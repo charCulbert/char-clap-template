@@ -74,10 +74,16 @@ fn xOf(f: f32) -> f32 {
 }
 // The spectrum's own vertical scale, Signalsmith's: 0 dBFS at the top, quiet
 // levels compressed towards the bottom (energy^0.12, then a soft curve).
+// The scale's shape before the floor: 1 at 0 dBFS, falling towards 0.
+fn levelCurve(dbfs: f32) -> f32 {
+    let v = pow(10.0, 0.012 * dbfs); // (10^(dB/10))^0.12
+    return 0.6 * v / (0.4 + 0.2 * v);
+}
+const floorDb = -96.0; // the plot's bottom edge; anything quieter sits on it
 fn levelY(dbfs: f32) -> f32 {
     let r = plotRect();
-    let v = pow(10.0, 0.012 * dbfs); // (10^(dB/10))^0.12
-    return r.w - (r.w - r.y) * 0.6 * v / (0.4 + 0.2 * v);
+    let t = clamp((levelCurve(dbfs) - levelCurve(floorDb)) / (1.0 - levelCurve(floorDb)), 0.0, 1.0);
+    return r.w - (r.w - r.y) * t;
 }
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let px = pos.xy;
@@ -95,17 +101,18 @@ fn levelY(dbfs: f32) -> f32 {
         grid = max(grid, 1.0 - smoothstep(0.0, s, abs(px.x - xOf(gridHz[i]))));
     }
     // Horizontal lines on the spectrum's level scale (dBFS, labelled on the left).
-    let gridDb = array<f32, 7>(0.0, -12.0, -24.0, -36.0, -48.0, -60.0, -80.0);
-    for (var i = 0; i < 7; i++) {
+    let gridDb = array<f32, 8>(0.0, -12.0, -24.0, -36.0, -48.0, -60.0, -72.0, -84.0);
+    for (var i = 0; i < 8; i++) {
         grid = max(grid, 1.0 - smoothstep(0.0, s, abs(px.y - levelY(gridDb[i]))));
     }
     color += vec3f(0.06, 0.07, 0.08) * grid * inside;
 
     // The spectrum: a fill below it, brighter near the line, and the line
-    // itself, fading out towards the noise floor (below about -90 dBFS).
+    // itself, which rests on the bottom edge in silence. The line may spill a
+    // little past the plot, so it isn't cut in half there.
     let db = spectrumDb(px.x);
-    let visible = smoothstep(-102.0, -88.0, db);
     let ys = levelY(db);
+    let nearPlot = step(r.x, px.x) * step(px.x, r.z) * step(r.y - 2.0 * s, px.y) * step(px.y, r.w + 2.0 * s);
     // The line: the true distance to the curve, drawn as segments one pixel
     // wide, looking a few pixels each side, so steep sides stay solid.
     var distance = 1e9;
@@ -116,8 +123,8 @@ fn levelY(dbfs: f32) -> f32 {
         previous = next;
     }
     let below = smoothstep(ys - 0.5, ys + 0.5, px.y) * inside;
-    color += u.color.rgb * below * (0.08 + 0.22 * exp(-(px.y - ys) / (40.0 * s))) * visible;
-    color += u.color.rgb * (1.0 - smoothstep(0.6 * s, 1.6 * s, distance)) * inside * visible;
+    color += u.color.rgb * below * (0.08 + 0.22 * exp(-(px.y - ys) / (40.0 * s)));
+    color += u.color.rgb * (1.0 - smoothstep(0.6 * s, 1.6 * s, distance)) * nearPlot;
 
     return vec4f(color, 1.0);
 }
@@ -252,12 +259,16 @@ private:
         }
         // Left: the spectrum's level in dBFS, on Signalsmith's scale (the
         // shader's levelY). Labels that would crowd the one above are skipped.
-        auto levelY = [&](float dbfs) {
+        auto curve = [](float dbfs) {
             const float v = std::pow(10.0f, 0.012f * dbfs);
-            return plot[3] - (plot[3] - plot[1]) * 0.6f * v / (0.4f + 0.2f * v);
+            return 0.6f * v / (0.4f + 0.2f * v);
+        };
+        auto levelY = [&](float dbfs) { // the shader's levelY, with its floor at -96 dBFS
+            const float t = std::clamp((curve(dbfs) - curve(-96)) / (1 - curve(-96)), 0.0f, 1.0f);
+            return plot[3] - (plot[3] - plot[1]) * t;
         };
         float lastY = -1e9f;
-        for (float dbfs : {0.0f, -12.0f, -24.0f, -36.0f, -48.0f, -60.0f, -80.0f})
+        for (float dbfs : {0.0f, -12.0f, -24.0f, -36.0f, -48.0f, -60.0f, -72.0f, -84.0f, -96.0f})
         {
             const float y = std::max(levelY(dbfs), plot[1] + 9 * s);
             if (y - lastY < 14 * s) continue;
