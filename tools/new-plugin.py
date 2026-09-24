@@ -28,7 +28,7 @@ EXAMPLES = {
                   notices=["clap", "clap-wrapper", "choc"]),
     "analyzer": dict(folder="gpu-analyzer", name="GPU Analyzer", target="GpuAnalyzer",
                      id="com.charlieculbert.gpuanalyzer", subtype="GpAn", libs=["core", "gpu", "draw2d"],
-                     notices=["clap", "clap-wrapper", "dawn", "stb", "clay", "inter"]),
+                     notices=["clap", "clap-wrapper", "dawn", "stb", "clay", "signalsmith", "inter"]),
     "filter": dict(folder="imgui-filter", name="ImGui Filter", target="ImGuiFilter",
                    id="com.charlieculbert.imguifilter", subtype="ImFl", libs=["core", "gpu"],
                    notices=["clap", "clap-wrapper", "dawn", "imgui", "inter"]),
@@ -47,6 +47,7 @@ NOTICES = {
     "stb": ("stb_truetype", "https://github.com/nothings/stb", "MIT or public domain"),
     "clay": ("Clay", "https://github.com/nicbarker/clay", "zlib"),
     "imgui": ("Dear ImGui", "https://github.com/ocornut/imgui", "MIT"),
+    "signalsmith": ("Signalsmith Audio DSP (its FFT)", "https://github.com/Signalsmith-Audio/dsp", "MIT"),
     "inter": ("Inter (font, in resources/fonts with its licence)", "https://rsms.me/inter", "SIL Open Font License 1.1"),
 }
 

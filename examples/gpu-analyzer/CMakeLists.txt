@@ -28,6 +28,7 @@ endif()
 set(LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../../libs")
 include(${LIBS}/gpu/gpu.cmake)
 include(${LIBS}/draw2d/draw2d.cmake)
+include(signalsmith-dsp.cmake)
 
 # WCLAP builds this file a second time with Emscripten, for the page the host shows.
 if(GPU_PAGE)
@@ -40,6 +41,7 @@ endif()
 include(${LIBS}/core/core.cmake)
 
 add_library(GpuAnalyzer_impl STATIC plugin.cpp)
+target_include_directories(GpuAnalyzer_impl PRIVATE ${SIGNALSMITH_DSP_INCLUDE})
 core_add_to(GpuAnalyzer_impl)
 gpu_add_to(GpuAnalyzer_impl)
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")

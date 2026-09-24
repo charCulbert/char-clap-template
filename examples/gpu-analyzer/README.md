@@ -6,6 +6,7 @@ WebGPU by our own drawing code.
 - `entry.cpp`: the CLAP entry point, which makes the plugin.
 - `plugin.cpp`: the whole CLAP plugin: audio ports, state, the spectrum
   analysis hand-off, and the `clap.gui` and `clap.webview` extensions.
+- `signalsmith-dsp.cmake`: pins Signalsmith Audio's DSP headers, for their FFT.
 - `chardsp_Spectrum.h`: the analysis, after Signalsmith's analyser: three
   window lengths (long for the lows, short for the highs) with a Blackman-Harris
   window, so tones draw as rounded peaks and the highs still react quickly.

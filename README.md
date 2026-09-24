@@ -241,15 +241,16 @@ Every version is pinned in one place:
 | Dawn | `libs/gpu/gpu.cmake` | release v20260922.191850 |
 | stb_truetype, Clay | `libs/draw2d/draw2d.cmake` | a commit, v0.14 |
 | Dear ImGui | `examples/imgui-filter/CMakeLists.txt` | v1.92.9b |
+| Signalsmith DSP (FFT) | `examples/gpu-analyzer/signalsmith-dsp.cmake` | a commit |
 
 Downloads are checked against a SHA256 where CMake allows it (Dawn, stb, Clay,
-ImGui). When you change a pin, change the hash too, then run the check above.
+ImGui, Signalsmith DSP). When you change a pin, change the hash too, then run the check above.
 
 ## Licences
 
 The dependencies are all permissively licensed: CLAP SDK and clap-wrapper
 (MIT), CHOC (ISC), Dawn (BSD 3-Clause), stb_truetype (MIT or public domain),
-Clay (zlib), Dear ImGui (MIT), and the Inter font (SIL Open Font License, its
+Clay (zlib), Dear ImGui (MIT), Signalsmith DSP (MIT), and the Inter font (SIL Open Font License, its
 licence beside it in `resources/fonts/`). The VST3 and AudioUnit SDKs that
 clap-wrapper downloads have their own terms. Projects made with
 `new-plugin.py` get a `THIRD_PARTY_NOTICES.md` listing the ones they use.

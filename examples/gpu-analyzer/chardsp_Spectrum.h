@@ -6,13 +6,15 @@
 #include <complex>
 #include <cstdint>
 #include <vector>
+#include "dsp/fft.h" // Signalsmith Audio's FFT (MIT)
 
 namespace chardsp
 {
 // A spectrum for display, after the method of Signalsmith Audio's analyser
 // (github.com/Signalsmith-Audio/basics, analyser.h, MIT), at three resolutions:
 //
-// - Blackman-Harris-windowed FFTs every few milliseconds: a long window (8192 samples) for the
+// - Blackman-Harris-windowed FFTs (Signalsmith's real-input FFT) every few
+//   milliseconds: a long window (8192 samples) for the
 //   lows, where notes are close together in Hz, a medium one (4096) for the
 //   middle, and a short one (2048) for the highs, so they still react within
 //   tens of milliseconds. Neighbouring resolutions are blended over an
@@ -130,6 +132,8 @@ private:
             }
             amplitudeScale = 2 / windowSum; // a sine of amplitude A peaks at A·Σw/2 in the FFT
             buffer.resize (fftSize);
+            spectrum.resize (fftSize / 2);
+            transform.setSize (fftSize);
 
             const double windowBinHz = double (rate) / windowSize, step = std::pow (2.0, 1.0 / 24);
             hz.clear();
@@ -162,15 +166,15 @@ private:
             for (int i = 0; i < windowSize; ++i)
                 buffer[(i - windowSize / 2 + fftSize) % fftSize] =
                     ring[(end - windowSize + i) % ringSize].load (std::memory_order_relaxed) * window[i];
-            fft (buffer);
+            transform.fft (buffer, spectrum);
             const double binHz = sampleRate / fftSize;
             for (size_t b = 0; b < hz.size(); ++b)
             {
                 // The FFT's value at the band's centre, interpolated between bins.
                 const double bin = std::min (hz[b] / binHz, fftSize / 2 - 1.001);
                 const int k = int (bin);
-                const std::complex<double> input = std::complex<double> (buffer[k]) * (k + 1 - bin)
-                                                 + std::complex<double> (buffer[k + 1]) * (bin - k);
+                const std::complex<double> input = std::complex<double> (spectrum[k]) * (k + 1 - bin)
+                                                 + std::complex<double> (spectrum[k + 1]) * (bin - k);
                 state1[b] = state1[b] * twist[b] + input * gain[b];
                 state2[b] = state2[b] * twist[b] + state1[b] * gain[b];
             }
@@ -219,7 +223,9 @@ private:
         float sampleRate = 48000;
         std::vector<float> window;
         double amplitudeScale = 1;
-        std::vector<std::complex<float>> buffer;
+        std::vector<float> buffer;                    // the windowed frame
+        std::vector<std::complex<float>> spectrum;    // its bins up to half the FFT size
+        signalsmith::fft::RealFFT<float> transform;
         std::vector<double> hz, widthHz, gain;
         std::vector<std::complex<double>> twist, state1, state2;
         std::vector<int> known;
@@ -228,35 +234,6 @@ private:
     using Long = Resolution<8192, 16384, 4 * hop>;  // 170 ms window, every 20 ms
     using Medium = Resolution<4096, 8192, 2 * hop>; // 85 ms window, every 10 ms
     using Short = Resolution<2048, 4096, hop>;      // 43 ms window, every 5 ms
-
-    // In-place radix-2 FFT.
-    static void fft (std::vector<std::complex<float>>& x)
-    {
-        const size_t n = x.size();
-        for (size_t i = 1, j = 0; i < n; ++i)
-        {
-            size_t bit = n >> 1;
-            for (; j & bit; bit >>= 1)
-                j ^= bit;
-            j ^= bit;
-            if (i < j)
-                std::swap (x[i], x[j]);
-        }
-        for (size_t length = 2; length <= n; length <<= 1)
-        {
-            const double angle = -2 * pi / length;
-            for (size_t k = 0; k < length / 2; ++k)
-            {
-                const std::complex<float> w (float (std::cos (angle * k)), float (std::sin (angle * k)));
-                for (size_t i = 0; i < n; i += length)
-                {
-                    const auto a = x[i + k], b = x[i + k + length / 2] * w;
-                    x[i + k] = a + b;
-                    x[i + k + length / 2] = a - b;
-                }
-            }
-        }
-    }
 
     std::atomic<float> ring[ringSize] {};
     std::atomic<uint32_t> writeIndex { 0 };

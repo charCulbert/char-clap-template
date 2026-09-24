@@ -10,6 +10,7 @@ on:
       - libs/core/resources.*
       - libs/webview/js/**
       - examples/gpu-analyzer/chardsp_Spectrum.h
+      - examples/gpu-analyzer/signalsmith-dsp.cmake
       - .github/workflows/tests.yml
   pull_request:
     paths:
@@ -18,6 +19,7 @@ on:
       - libs/core/resources.*
       - libs/webview/js/**
       - examples/gpu-analyzer/chardsp_Spectrum.h
+      - examples/gpu-analyzer/signalsmith-dsp.cmake
       - .github/workflows/tests.yml
   workflow_dispatch:
 

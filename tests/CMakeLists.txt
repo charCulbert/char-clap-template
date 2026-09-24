@@ -19,7 +19,9 @@ if(NODE)
     add_test(NAME messages_js COMMAND "${NODE}" "${CMAKE_CURRENT_SOURCE_DIR}/messages.test.mjs" "$<TARGET_FILE:messages_test>")
 endif()
 
+include(../examples/gpu-analyzer/signalsmith-dsp.cmake)
 add_executable(spectrum_test spectrum_test.cpp)
+target_include_directories(spectrum_test PRIVATE ${SIGNALSMITH_DSP_INCLUDE})
 add_test(NAME spectrum COMMAND spectrum_test)
 
 # The tests are assert()s, so keep them in every build type.
