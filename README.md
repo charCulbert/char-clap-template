@@ -36,6 +36,7 @@ warm-filter/
   libs/                                          only the libraries it uses
   CMakeLists.txt                                 builds it (libs/ found beside it)
   .github/workflows/build.yml                    CI, runs on every push
+  .vscode/tasks.json                             Build, and Run in clap-host (if clap-host is installed)
   README.md, LICENSE, THIRD_PARTY_NOTICES.md, .gitignore
 ```
 

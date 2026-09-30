@@ -14,6 +14,7 @@ Uses only Python's standard library (3.8+).
 """
 import argparse
 import datetime
+import json
 import re
 import shutil
 import sys
@@ -184,6 +185,20 @@ def main():
         return text.replace(" Runs when the plugin or a library\n# it uses changes.", "")
     copy(REPO / ".github" / "workflows" / f"{old['folder']}.yml",
          dest / ".github" / "workflows" / "build.yml", fix_workflow)
+
+    # A VS Code task that builds and opens the plugin in clap-host, if it's installed. The task's
+    # terminal stays a prompt for clap-host commands; the audio stays off until you press Power.
+    if shutil.which("clap-host"):
+        (dest / ".vscode").mkdir()
+        (dest / ".vscode" / "clap-host.txt").write_text(
+            "panel\n" + ("" if example == "gain" else "gui.open\n"), encoding="utf-8")
+        (dest / ".vscode" / "tasks.json").write_text(json.dumps({"version": "2.0.0", "tasks": [
+            {"label": "Build", "type": "shell", "command": "cmake -B build && cmake --build build --parallel",
+             "group": {"kind": "build", "isDefault": True}, "problemMatcher": ["$gcc"]},
+            {"label": "Run in clap-host", "type": "shell", "command": "clap-host",
+             "args": [f"build/{name}.clap", "--script", ".vscode/clap-host.txt"],
+             "dependsOn": "Build", "problemMatcher": []},
+        ]}, indent=2) + "\n", encoding="utf-8")
 
     (dest / ".gitignore").write_text("build*/\n.DS_Store\n", encoding="utf-8")
     if args.license.lower() == "mit":
