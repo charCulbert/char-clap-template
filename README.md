@@ -127,6 +127,25 @@ Read a file with `core::readResource("/sounds/kick.wav")` on the main thread
   page's CSS, Clay in the analyzer, ImGui in the filter).
 - **Sound**: `PluginRenderAudio` in `plugin.cpp`.
 
+### Instrument or effect
+
+The synth is the only instrument; the other examples are effects. To turn one
+into the other, change all of these. Only the sound tells you when you've
+missed one, and auval checks the AU type only in CI.
+
+- `pluginFeatures` in `plugin.cpp`: `CLAP_PLUGIN_FEATURE_INSTRUMENT` (and
+  `SYNTHESIZER`) or `CLAP_PLUGIN_FEATURE_AUDIO_EFFECT`.
+- Ports in `plugin.cpp`: an instrument has `extensionNotePorts` (returned from
+  `get_extension`) and an audio output only; an effect has an audio input too.
+  Copy whichever you need from the synth or the gain.
+- `PluginRenderAudio` and `PluginProcessEvent`: the synth's voices and note
+  events, or the gain's input-to-output processing.
+- The AU type: `aumu` (instrument) or `aufx` (effect), in
+  `AUV2_INSTRUMENT_TYPE` in `CMakeLists.txt` (and the iOS lines, if you have
+  them), and in `AU:` in `.github/workflows/build.yml`.
+
+The interface doesn't change with the type, only with the parameters.
+
 ## Build
 
 You need CMake 3.28 or newer and a C++20 compiler: Xcode on macOS, Visual
