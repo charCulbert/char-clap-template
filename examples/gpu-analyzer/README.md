@@ -13,7 +13,7 @@ WebGPU by our own drawing code.
 - `ui/AnalyzerView.cpp`: the interface, a `gpu::View`: one fragment shader for
   the spectrum, and knobs and labels from `libs/draw2d`, laid out with Clay.
 - The display matches FabFilter Pro-Q's: a logarithmic frequency axis
-  (20 Hz to 20 kHz), levels in dB from 0 to -110, and a tilt of 4.5 dB per
+  (10 Hz to 30 kHz), levels in dB from 0 to -100, and a tilt of 4.5 dB per
   octave around 1 kHz by default, so music looks roughly level.
 - Smoothing, Colour and Tilt are settings saved in the plugin's state, not
   CLAP parameters, since they only change the display.

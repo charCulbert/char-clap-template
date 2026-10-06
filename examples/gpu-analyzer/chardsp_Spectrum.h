@@ -54,7 +54,7 @@ struct Spectrum
         if (sampleRate != preparedRate)
         {
             preparedRate = sampleRate;
-            low.prepare (sampleRate, 20, 500);
+            low.prepare (sampleRate, 10, 500);
             mid.prepare (sampleRate, 250, 2000);
             high.prepare (sampleRate, 1000, sampleRate / 2);
             analysed = 0;
@@ -90,6 +90,8 @@ struct Spectrum
             const double toHigh = std::clamp (std::log2 (hzAtBand / 1000), 0.0, 1.0); // 0 at 1 kHz, 1 at 2 kHz
             const double lowMid = lowDisplay[d] * (1 - toMid) + midDisplay[d] * toMid;
             display[d] = lowMid * (1 - toHigh) + display[d] * toHigh;
+            if (hzAtBand > sampleRate / 2) // nothing above Nyquist: the curve drops to the floor
+                display[d] = -140.0;
         }
         return true;
     }

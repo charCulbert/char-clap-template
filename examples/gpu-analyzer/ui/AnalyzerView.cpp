@@ -74,7 +74,7 @@ fn xOf(f: f32) -> f32 {
 }
 // The level scale: linear in dB, 0 dBFS at the top, the floor at the bottom
 // edge; anything quieter rests on it.
-const floorDb = -110.0; // as FabFilter Pro-Q's analyzer
+const floorDb = -100.0;
 fn levelY(dbfs: f32) -> f32 {
     let r = plotRect();
     return r.y + (r.w - r.y) * clamp(dbfs / floorDb, 0.0, 1.0);
@@ -101,7 +101,7 @@ fn levelY(dbfs: f32) -> f32 {
     }
     color += vec3f(0.06, 0.07, 0.08) * grid * inside;
 
-    // The spectrum: a fill below it, brighter near the line, and the line
+    // The spectrum: a fill below it, brighter higher up, and the line
     // itself, which rests on the bottom edge in silence. The line may spill a
     // little past the plot, so it isn't cut in half there.
     let db = spectrumDb(px.x);
@@ -117,7 +117,10 @@ fn levelY(dbfs: f32) -> f32 {
         previous = next;
     }
     let below = smoothstep(ys - 0.5, ys + 0.5, px.y) * inside;
-    color += u.color.rgb * below * (0.08 + 0.22 * exp(-(px.y - ys) / (40.0 * s)));
+    // The fill's brightness follows height on the plot, not distance from the
+    // line, so it is the same in every column and doesn't streak.
+    let height = 1.0 - clamp((px.y - r.y) / (r.w - r.y), 0.0, 1.0);
+    color += u.color.rgb * below * (0.05 + 0.25 * height * height);
     color += u.color.rgb * (1.0 - smoothstep(0.6 * s, 1.6 * s, distance)) * nearPlot;
 
     return vec4f(color, 1.0);
@@ -132,7 +135,7 @@ struct Uniforms
     float plot[4];
 };
 
-constexpr float minHz = 20, maxHz = 20000;
+constexpr float minHz = 10, maxHz = 30000; // past the audible range each side, as Pro-Q
 
 // The plot's frequency scale (the shader's warp/xOf): logarithmic, as a 0..1
 // position across the plot.
@@ -168,13 +171,16 @@ public:
         auto *db = std::get_if<core::Value::Array>(&message["db"].data);
         const gpu::Param *smoothing = params.find("Smoothing"), *tilt = params.find("Tilt");
         if (!db || !smoothing || !tilt) return;
-        // Levels jump up at once and fall back at a rate Smoothing sets
+        // Levels fall back with a time constant Smoothing sets, from 10 ms
+        // to 5 s, and rise eight times faster than they fall
         // (messages arrive about 60 times a second).
-        const float fall = 1 - 0.97f * float(smoothing->value) / 100;
+        const float fallSeconds = 0.01f * std::pow(500.0f, float(smoothing->value) / 100);
+        const float fall = 1 - std::exp(-1 / (60 * fallSeconds));
+        const float rise = 1 - std::exp(-8 / (60 * fallSeconds));
         for (size_t i = 0; i < spectrum.size() && i < db->size(); ++i)
         {
             const float level = float((*db)[i].number(-120));
-            spectrum[i] = level > spectrum[i] ? level : spectrum[i] + (level - spectrum[i]) * fall;
+            spectrum[i] += (level - spectrum[i]) * (level > spectrum[i] ? rise : fall);
         }
         // What's drawn: each band averaged a little with its neighbours
         // (in power), which calms the noise without blunting peaks much.
@@ -254,16 +260,16 @@ private:
                                  {1000.0f, "1k"}, {2000.0f, "2k"}, {5000.0f, "5k"}, {10000.0f, "10k"}, {20000.0f, "20k"}})
         {
             const float half = ui.draw.measure(11 * s, label) / 2;
-            const float x = std::clamp(xOf(hz), plot[0] + half, plot[2] - half); // 20 and 20k sit at the edges
+            const float x = std::clamp(xOf(hz), plot[0] + half, plot[2] - half);
             if (x - half < lastRight + 6 * s) continue;
             ui.draw.text(x, box.y + box.h - 7 * s, 11 * s, label, ui.theme.dim, gpu::Draw2D::Align::center);
             lastRight = x + half;
         }
-        // Left: the spectrum's level in dBFS, linear, 0 at the top and -110 at
+        // Left: the spectrum's level in dBFS, linear, 0 at the top and -100 at
         // the bottom (the shader's levelY). Labels too close together are skipped.
-        auto levelY = [&](float dbfs) { return plot[1] + (plot[3] - plot[1]) * std::clamp(dbfs / -110.0f, 0.0f, 1.0f); };
+        auto levelY = [&](float dbfs) { return plot[1] + (plot[3] - plot[1]) * std::clamp(dbfs / -100.0f, 0.0f, 1.0f); };
         float lastY = -1e9f;
-        for (float dbfs = 0; dbfs >= -110; dbfs -= 10)
+        for (float dbfs = 0; dbfs >= -100; dbfs -= 10)
         {
             const float y = std::clamp(levelY(dbfs), plot[1] + 9 * s, plot[3] - 2 * s);
             if (y - lastY < 14 * s) continue;
