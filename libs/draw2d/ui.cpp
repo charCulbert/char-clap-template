@@ -1,13 +1,25 @@
 #include "ui.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
 
 namespace gpu {
 
 void Ui::pointer(const View::PointerEvent &event)
 {
     mouse.x = event.x, mouse.y = event.y, mouse.modifiers = event.modifiers;
+    if (event.type == View::Pointer::down) mouse.down = true;
+    if (event.type == View::Pointer::up) mouse.down = false;
+    layout.pointer(event.x, event.y, mouse.down);
+    if (event.type == View::Pointer::wheel) layout.wheel(event.wheel);
+    if (event.type == View::Pointer::leave && !mouse.down) // over nothing now
+    {
+        mouse.x = mouse.y = -1e9f;
+        layout.pointer(mouse.x, mouse.y, false);
+        return;
+    }
     switch (event.type)
     {
     case View::Pointer::down:
@@ -19,34 +31,71 @@ void Ui::pointer(const View::PointerEvent &event)
         mouse.doubleClicked |= second; // both presses may arrive before the next frame
         lastPress = second ? std::chrono::steady_clock::time_point{} : now;
         lastPressX = event.x, lastPressY = event.y;
-        mouse.down = mouse.pressed = true;
+        mouse.pressed = true;
         focusVisible = false;
         break;
     }
-    case View::Pointer::up: mouse.down = false, mouse.released = true; break;
+    case View::Pointer::up: mouse.released = true; break;
     case View::Pointer::wheel: mouse.wheel += event.wheel; break;
-    case View::Pointer::move: break;
+    case View::Pointer::move: case View::Pointer::leave: break;
     }
 }
 
 bool Ui::key(View::Key key, unsigned modifiers)
 {
-    // Tab moves between controls; the rest need a control to act on.
-    if (!focus && key != View::Key::tab) return false;
+    // Tab moves between controls; the rest need a control or a text field to act on.
+    if (!focus && !editing && key != View::Key::tab) return false;
     keys.push_back({key, modifiers});
-    focusVisible = true;
+    if (editing) edits.push_back({{}, key});
+    focusVisible = !editing;
     return true;
+}
+
+bool Ui::text(const char *utf8)
+{
+    if (!editing) return false;
+    edits.push_back({utf8, {}});
+    return true;
+}
+
+bool Ui::animating() const
+{
+    // Controls declared before a click was handled drew the old state, and
+    // Clay hit-tests against the last layout: one more frame settles both.
+    return tooltipWaiting || settle;
 }
 
 void Ui::begin(float width, float height, float scale)
 {
     s = scale;
+    widthPoints = width / scale, heightPoints = height / scale;
     draw.begin(width, height);
     order.clear();
+    placed.clear();
+    layout.begin(draw, width, height, scale);
+    overPopup = openMenu && Clay_PointerOver({openMenu, 0, 0, {}});
+    menuSeen = false;
+    lastElement = 0;
+    settle = mouse.pressed || mouse.released || !keys.empty() || mouse.wheel != 0;
+    tooltipWaiting = false;
 }
 
-void Ui::end(const wgpu::RenderPassEncoder &pass)
+void Ui::end(const wgpu::RenderPassEncoder &pass, const std::function<void(int, void *, Rect)> &onCustom)
 {
+    layout.end([&](int kind, void *data, Rect r) {
+        const auto *c = static_cast<const Placed *>(data);
+        if (kind == knobBox) knob(*c->params, c->p, r, c->format, c->log);
+        else if (kind == sliderBox) slider(*c->params, c->p, r, c->format, c->log);
+        else if (kind == chevronBox)
+        {
+            const float xy[] = {r.x, r.y + r.h * 0.3f, r.x + r.w / 2, r.y + r.h * 0.7f, r.x + r.w, r.y + r.h * 0.3f};
+            draw.polyline(xy, 3, 1.2f * s, theme.dim);
+        }
+        else if (onCustom) onCustom(kind, data, r);
+    });
+    drawGrip();
+    grip = {};
+    if (!menuSeen) openMenu = 0; // its dropdown is gone
     for (auto [key, modifiers] : keys)
     {
         if (key != View::Key::tab || order.empty()) continue;
@@ -61,6 +110,7 @@ void Ui::end(const wgpu::RenderPassEncoder &pass)
     mouse.pressed = mouse.released = mouse.doubleClicked = false;
     mouse.wheel = 0;
     keys.clear();
+    edits.clear();
 }
 
 double Ui::toUnit(const Param &p, double v, bool log)
@@ -79,7 +129,7 @@ double Ui::fromUnit(const Param &p, double u, bool log)
 
 bool Ui::over(float x, float y, float w, float h) const
 {
-    return mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h;
+    return !overPopup && mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h;
 }
 
 void Ui::set(Params &params, Param &p, double value)
@@ -146,58 +196,81 @@ void Ui::knob(Params &params, Param *p, Rect box, const char *format, bool log)
 {
     if (!p) return;
     // The dial fills the width, leaving room below for two lines of text.
-    const float r = std::min(box.w, box.h - 34 * s) / 2, cx = box.x + box.w / 2, cy = box.y + r;
+    const float size = theme.textSize * s;
+    const float r = std::min(box.w, box.h - 3 * size) / 2, cx = box.x + box.w / 2, cy = box.y + r;
     const bool dragging = control(params, *p, cx - r, cy - r, 2 * r, 2 * r, true, 200 * s, log);
-    // 270 degrees of travel, from 7:30 to 4:30.
+    // 270 degrees of travel, from 7:30 to 4:30; the ring a tenth of the dial (as compost's knob).
     const float from = 3.927f, sweep = 4.712f, u = float(toUnit(*p, p->value, log));
-    const float width = std::max(3.0f * s, r * 0.14f);
-    if (focusShown(p)) draw.circle(cx, cy, r + 2 * s, {0, 0, 0, 0}, 1.5f * s, theme.accent);
+    const float width = std::max(2.0f * s, r * 0.19f);
+    if (focusShown(p)) draw.circle(cx, cy, r + 2 * s, {0, 0, 0, 0}, 1 * s, theme.accent);
     draw.arc(cx, cy, r - width, width, from, from + sweep, theme.track);
     if (u > 0) draw.arc(cx, cy, r - width, width, from, from + sweep * u, theme.accent);
-    const float angle = from + sweep * u, inner = r - 2.6f * width;
-    draw.circle(cx, cy, inner, theme.panel, 1 * s, dragging ? theme.accent : theme.edge);
-    draw.line(cx + std::sin(angle) * inner * 0.35f, cy - std::cos(angle) * inner * 0.35f,
-              cx + std::sin(angle) * inner * 0.85f, cy - std::cos(angle) * inner * 0.85f, 2 * s, theme.text);
+    const float angle = from + sweep * u, inner = r - 1.6f * width;
+    draw.circle(cx, cy, inner, theme.background, 1 * s, theme.edge);
+    draw.line(cx + std::sin(angle) * inner * 0.3f, cy - std::cos(angle) * inner * 0.3f,
+              cx + std::sin(angle) * inner * 0.9f, cy - std::cos(angle) * inner * 0.9f, (dragging ? 2.0f : 1.4f) * s,
+              dragging ? theme.accent : theme.text);
     char value[32];
     std::snprintf(value, sizeof(value), format, p->value);
-    draw.text(cx, cy + r + 13 * s, 11 * s, value, theme.text, Draw2D::Align::center);
-    draw.text(cx, cy + r + 28 * s, 11 * s, p->name, theme.dim, Draw2D::Align::center);
+    draw.text(cx, cy + r + 1.3f * size, size, value, theme.text, Draw2D::Align::center, theme.valueFont);
+    draw.text(cx, cy + r + 2.6f * size, size, p->name, theme.dim, Draw2D::Align::center, theme.labelFont);
 }
 
+// As compost's slider: the name on the left and the value on the right above
+// a 3-point track, filled with the accent up to the value, and a 2-point
+// thumb line across it.
 void Ui::slider(Params &params, Param *p, Rect box, const char *format, bool log)
 {
     if (!p) return;
-    const float px = box.x, py = box.y, w = box.w, h = box.h;
+    const float px = box.x, py = box.y, w = box.w, h = box.h, size = theme.textSize * s;
     const bool dragging = control(params, *p, px, py, w, h, false, w, log);
-    const float u = float(toUnit(*p, p->value, log)), track = py + 16 * s;
-    if (focusShown(p)) draw.rect(px - 3 * s, py - 3 * s, w + 6 * s, h + 6 * s, 4 * s, {0, 0, 0, 0}, 1.5f * s, theme.accent);
-    draw.text(px, py + 8 * s, 11 * s, p->name, theme.dim);
+    const bool hot = dragging || (!active && over(px, py, w, h));
+    const float u = float(toUnit(*p, p->value, log)), thumb = 1.125f * size, track = py + h - thumb / 2;
+    if (focusShown(p)) draw.rect(px - 3 * s, py - 2 * s, w + 6 * s, h + 4 * s, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
+    draw.text(px, py + size, size, p->name, theme.dim, Draw2D::Align::left, theme.labelFont);
     char value[32];
     std::snprintf(value, sizeof(value), format, p->value);
-    draw.text(px + w, py + 8 * s, 10 * s, value, theme.text, Draw2D::Align::right);
-    draw.rect(px, track - 2 * s, w, 4 * s, 2 * s, theme.track);
-    draw.rect(px, track - 2 * s, w * u, 4 * s, 2 * s, theme.accent);
-    draw.circle(px + w * u, track, (dragging ? 7.0f : 6.0f) * s, theme.text);
+    draw.text(px + w, py + size, size, value, theme.dim, Draw2D::Align::right, theme.valueFont);
+    draw.rect(px, track - 1.5f * s, w, 3 * s, 0, theme.track);
+    draw.rect(px, track - 1.5f * s, w * u, 3 * s, 0, theme.accent);
+    const float x = px + w * u, thumbWidth = (hot ? 3.0f : 2.0f) * s;
+    draw.rect(x - thumbWidth / 2, track - thumb / 2, thumbWidth, thumb, 0, theme.text);
 }
 
 void Ui::resizeGrip(float width, float height)
 {
-    if (!resizeTo) return;
-    const float size = 14 * s;
-    const auto grip = area(&gripOffsetX, width - size, height - size, size, size);
-    if (grip.pressed) gripOffsetX = width - grip.x, gripOffsetY = height - grip.y;
-    if (grip.held) resizeTo(grip.x + gripOffsetX, grip.y + gripOffsetY);
+    grip = {width, height}; // drawn in end(), on top of the layout
+}
+
+void Ui::drawGrip()
+{
+    if (!resizeTo || grip.w <= 0) return;
+    const float width = grip.w, height = grip.h, size = 14 * s;
+    const auto a = area(&gripOffsetX, width - size, height - size, size, size);
+    if (a.pressed) gripOffsetX = width - a.x, gripOffsetY = height - a.y;
+    if (a.held) resizeTo(a.x + gripOffsetX, a.y + gripOffsetY);
     // Three short diagonal lines, as windows' resize corners have.
-    const Color color = grip.held ? theme.accent : theme.dim;
+    const Color color = a.held ? theme.accent : theme.dim;
     for (float d : {4.0f, 8.0f, 12.0f})
         draw.line(width - 3 * s - d * s, height - 3 * s, width - 3 * s, height - 3 * s - d * s, 1.2f * s, color);
 }
 
 Ui::Area Ui::area(const void *id, float x, float y, float w, float h)
 {
+    return press(id, over(x, y, w, h));
+}
+
+Ui::Area Ui::element(Clay_ElementId id)
+{
+    // Clay ids are hashes, so they serve as the control's identity too.
+    return press(reinterpret_cast<const void *>(uintptr_t(id.id)), Clay_PointerOver(id));
+}
+
+Ui::Area Ui::press(const void *id, bool isOver)
+{
     Area result;
     result.modifiers = mouse.modifiers;
-    if (!active && over(x, y, w, h))
+    if (!active && isOver)
     {
         if (mouse.pressed && mouse.doubleClicked) result.doubleClicked = true;
         else if (mouse.pressed) active = id, result.pressed = true;
@@ -205,8 +278,285 @@ Ui::Area Ui::area(const void *id, float x, float y, float w, float h)
     }
     if (active != id) return result;
     result.held = true, result.x = mouse.x, result.y = mouse.y;
-    if (!mouse.down) result.released = true, active = nullptr;
+    if (!mouse.down) result.released = true, result.clicked = isOver, active = nullptr;
     return result;
 }
 
 }
+
+namespace gpu {
+
+Clay_ElementId Ui::id(const char *kind, int index)
+{
+    return Clay_GetElementIdWithIndex({false, int32_t(std::strlen(kind)), kind}, uint32_t(index));
+}
+
+Clay_TextElementConfig *Ui::textConfig(Color color, int font)
+{
+    return Clay__StoreTextElementConfig({.textColor = clayColor(color), .fontId = uint16_t(font < 0 ? theme.labelFont : font),
+                                         .fontSize = uint16_t(theme.textSize), .wrapMode = CLAY_TEXT_WRAP_NONE});
+}
+
+bool Ui::button(const char *label, int index)
+{
+    const Clay_ElementId bid = id(label, index);
+    const Area a = element(bid);
+    const bool hot = Clay_PointerOver(bid);
+    CLAY({.id = bid, .layout = {.padding = {10, 10, 4, 4}, .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
+          .backgroundColor = clayColor(a.held ? theme.text : hot ? theme.panel : Color{0, 0, 0, 0}),
+          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+          .border = {.color = clayColor(hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+    {
+        CLAY_TEXT(layout.text(label), textConfig(a.held ? theme.background : theme.text));
+    }
+    lastElement = bid.id;
+    return a.clicked;
+}
+
+// Off: an outline. On: filled with the text colour, its label in the
+// background's (Slide's Sync button).
+bool Ui::toggle(const char *label, bool &on, int index)
+{
+    const Clay_ElementId tid = id(label, index);
+    const Area a = element(tid);
+    if (a.clicked) on = !on;
+    const bool hot = Clay_PointerOver(tid);
+    CLAY({.id = tid, .layout = {.padding = {7, 7, 3, 3}, .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
+          .backgroundColor = clayColor(on ? theme.text : hot ? theme.panel : Color{0, 0, 0, 0}),
+          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+          .border = {.color = clayColor(on || a.held ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+    {
+        CLAY_TEXT(layout.text(label), textConfig(on ? theme.background : theme.text));
+    }
+    lastElement = tid.id;
+    return a.clicked;
+}
+
+bool Ui::segmented(const char *const *items, int count, int &selected, int index)
+{
+    bool changed = false;
+    const Clay_ElementId sid = id("Segmented", index);
+    CLAY({.id = sid, .border = {.color = clayColor(theme.edge), .width = CLAY_BORDER_ALL(1)}})
+    {
+        for (int i = 0; i < count; ++i) // clicks first, so every cell draws the new choice
+            if (element(id("Segment", index * 64 + i)).clicked && selected != i) selected = i, changed = true;
+        for (int i = 0; i < count; ++i)
+        {
+            const Clay_ElementId cell = id("Segment", index * 64 + i);
+            const bool on = selected == i, hot = Clay_PointerOver(cell);
+            CLAY({.id = cell, .layout = {.padding = {8, 8, 3, 3}},
+                  .backgroundColor = clayColor(on ? theme.text : hot ? theme.panel : Color{0, 0, 0, 0})})
+            {
+                CLAY_TEXT(layout.text(items[i]), textConfig(on ? theme.background : hot ? theme.text : theme.dim));
+            }
+        }
+    }
+    lastElement = sid.id;
+    return changed;
+}
+
+bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
+{
+    bool changed = false;
+    const Clay_ElementId did = id("Dropdown", index), menu = id("DropdownMenu", index);
+    const bool open = openMenu == menu.id;
+    const Area a = element(did);
+    if (a.pressed) openMenu = open ? 0 : menu.id;
+    // A press anywhere else closes it.
+    if (open && mouse.pressed && !Clay_PointerOver(menu) && !Clay_PointerOver(did)) openMenu = 0;
+    const bool hot = Clay_PointerOver(did);
+    // The menu opens below, or above where there's no room below (sizes from
+    // the last frame, in points).
+    const Clay_BoundingBox box = Clay_GetElementData(did).boundingBox;
+    const float menuHeight = float(count) * (theme.textSize * 1.25f + 6) + 4;
+    const bool up = box.y + box.height + menuHeight > heightPoints && box.y - menuHeight >= 0;
+    CLAY({.id = did, .layout = {.padding = {7, 7, 3, 3}, .childGap = 8, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
+          .backgroundColor = clayColor(hot || open ? theme.panel : Color{0, 0, 0, 0}),
+          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+          .border = {.color = clayColor(open || hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+    {
+        CLAY_TEXT(layout.text(selected >= 0 && selected < count ? items[selected] : ""), textConfig(theme.text));
+        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(7), CLAY_SIZING_FIXED(7)}}, .custom = {.customData = layout.custom(chevronBox)}}) {}
+        if (openMenu == menu.id)
+        {
+            menuSeen = true;
+            CLAY({.id = menu, .layout = {.sizing = {.width = CLAY_SIZING_FIT(box.width)}, .padding = CLAY_PADDING_ALL(1),
+                                         .layoutDirection = CLAY_TOP_TO_BOTTOM},
+                  .backgroundColor = clayColor(theme.background), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+                  .floating = {.offset = {0, up ? -2.0f : 2.0f}, .zIndex = 100,
+                               .attachPoints = {up ? CLAY_ATTACH_POINT_LEFT_BOTTOM : CLAY_ATTACH_POINT_LEFT_TOP,
+                                                up ? CLAY_ATTACH_POINT_LEFT_TOP : CLAY_ATTACH_POINT_LEFT_BOTTOM},
+                               .attachTo = CLAY_ATTACH_TO_PARENT},
+                  .border = {.color = clayColor(theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+            {
+                for (int i = 0; i < count; ++i)
+                {
+                    const Clay_ElementId item = id("DropdownItem", index * 1024 + i);
+                    if (element(item).clicked) selected = i, changed = true, openMenu = 0;
+                    const bool itemHot = Clay_PointerOver(item);
+                    CLAY({.id = item, .layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {7, 7, 3, 3}},
+                          .backgroundColor = clayColor(itemHot ? theme.panel : Color{0, 0, 0, 0})})
+                    {
+                        CLAY_TEXT(layout.text(items[i]), textConfig(i == selected ? theme.accent : theme.text));
+                    }
+                }
+            }
+        }
+    }
+    lastElement = did.id;
+    return changed;
+}
+
+void Ui::tooltip(const char *text)
+{
+    if (!lastElement) return;
+    const Clay_ElementId target{lastElement, 0, 0, {}};
+    if (!Clay_PointerOver(target) || mouse.down || active)
+    {
+        if (hovered == lastElement) hovered = 0;
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (hovered != lastElement) hovered = lastElement, hoveredSince = now;
+    if (now - hoveredSince < std::chrono::milliseconds(500))
+    {
+        tooltipWaiting = true; // the presenter keeps drawing until it shows
+        return;
+    }
+    // Below the control, left-aligned with it; flipped where that would leave the view.
+    const Clay_BoundingBox box = Clay_GetElementData(target).boundingBox;
+    const float tipWidth = draw.measure(theme.textSize, text, theme.labelFont) + 12;
+    const float tipHeight = theme.textSize * 1.25f + 6;
+    const bool left = box.x + tipWidth > widthPoints, up = box.y + box.height + 4 + tipHeight > heightPoints;
+    const Clay_FloatingAttachPointType element = up ? (left ? CLAY_ATTACH_POINT_RIGHT_BOTTOM : CLAY_ATTACH_POINT_LEFT_BOTTOM)
+                                                    : (left ? CLAY_ATTACH_POINT_RIGHT_TOP : CLAY_ATTACH_POINT_LEFT_TOP);
+    const Clay_FloatingAttachPointType parent = up ? (left ? CLAY_ATTACH_POINT_RIGHT_TOP : CLAY_ATTACH_POINT_LEFT_TOP)
+                                                   : (left ? CLAY_ATTACH_POINT_RIGHT_BOTTOM : CLAY_ATTACH_POINT_LEFT_BOTTOM);
+    CLAY({.layout = {.padding = {6, 6, 3, 3}}, .backgroundColor = clayColor(theme.text),
+          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+          .floating = {.offset = {0, up ? -4.0f : 4.0f}, .parentId = lastElement, .zIndex = 200,
+                       .attachPoints = {element, parent},
+                       .pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH,
+                       .attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID}})
+    {
+        CLAY_TEXT(layout.text(text), textConfig(theme.background));
+    }
+}
+
+// Steps over one UTF-8 character before or after byte offset i.
+static size_t previousCharacter(const std::string &text, size_t i)
+{
+    if (i == 0) return 0;
+    do --i; while (i > 0 && (text[i] & 0xC0) == 0x80);
+    return i;
+}
+static size_t nextCharacter(const std::string &text, size_t i)
+{
+    if (i >= text.size()) return text.size();
+    do ++i; while (i < text.size() && (text[i] & 0xC0) == 0x80);
+    return i;
+}
+
+// Applies this frame's typing to the field being edited, if it's this one.
+// Returns true when the edit is committed with a changed value.
+bool Ui::editKeys(uint32_t field, std::string &value)
+{
+    if (editing != field) return false;
+    bool committed = false;
+    auto finish = [&](bool keep) {
+        if (keep && draft != value) value = draft, committed = true;
+        editing = 0;
+    };
+    if (mouse.pressed && !Clay_PointerOver({field, 0, 0, {}})) finish(true);
+    for (const auto &[text, key] : edits) // in the order they came
+    {
+        if (editing != field) break;
+        if (!text.empty())
+        {
+            draft.insert(caret, text);
+            caret += text.size();
+            continue;
+        }
+        switch (key)
+        {
+        case View::Key::left: caret = previousCharacter(draft, caret); break;
+        case View::Key::right: caret = nextCharacter(draft, caret); break;
+        case View::Key::home: caret = 0; break;
+        case View::Key::end: caret = draft.size(); break;
+        case View::Key::backspace:
+            if (caret) { const size_t from = previousCharacter(draft, caret); draft.erase(from, caret - from); caret = from; }
+            break;
+        case View::Key::deleteForward: draft.erase(caret, nextCharacter(draft, caret) - caret); break;
+        case View::Key::enter: finish(true); break;
+        case View::Key::escape: finish(false); break;
+        default: break;
+        }
+    }
+    return committed;
+}
+
+void Ui::startEditing(uint32_t field, std::string text)
+{
+    if (editing && editing != field) pendingField = editing, pendingDraft = draft; // see textField
+    editing = field, draft = std::move(text), caret = draft.size(), focus = nullptr;
+}
+
+// The text inside a field: the draft and its caret while editing, else shown.
+void Ui::fieldText(const std::string &shown, bool edit)
+{
+    const std::string &text = edit ? draft : shown;
+    const size_t split = edit ? caret : text.size();
+    const float lineHeight = theme.textSize * 1.25f;
+    if (split) CLAY_TEXT(layout.text(text.substr(0, split)), textConfig(theme.text, theme.valueFont));
+    if (edit) CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(1), CLAY_SIZING_FIXED(lineHeight)}}, .backgroundColor = clayColor(theme.accent)}) {}
+    if (split < text.size()) CLAY_TEXT(layout.text(text.substr(split)), textConfig(theme.text, theme.valueFont));
+    if (text.empty() && !edit) CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(1), CLAY_SIZING_FIXED(lineHeight)}}}) {}
+}
+
+bool Ui::textField(std::string &value, float widthPoints, int index)
+{
+    const Clay_ElementId fid = id("TextField", index);
+    const Area a = element(fid);
+    bool committed = false;
+    // Clicking from one field to another keeps the first one's edit, which
+    // it picks up the next time it's declared.
+    if (pendingField == fid.id)
+    {
+        committed = value != pendingDraft;
+        value = std::move(pendingDraft);
+        pendingField = 0;
+    }
+    if (a.pressed && editing != fid.id) startEditing(fid.id, value);
+    committed |= editKeys(fid.id, value);
+    const bool edit = editing == fid.id, hot = Clay_PointerOver(fid);
+    CLAY({.id = fid, .layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_FIT(0)}, .padding = {5, 5, 2, 2},
+                                .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
+          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius), .clip = {.horizontal = true},
+          .border = {.color = clayColor(edit ? theme.accent : hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+    {
+        fieldText(value, edit);
+    }
+    lastElement = fid.id;
+    return committed;
+}
+
+void Ui::knob(Params &params, Param *p, const char *format, bool log, float diameter)
+{
+    if (!p) return;
+    const Clay_ElementId kid = id("Knob", p->id);
+    CLAY({.id = kid, .layout = {.sizing = {CLAY_SIZING_FIXED(std::max(diameter, 56.0f)), CLAY_SIZING_FIXED(diameter + 3.2f * theme.textSize)}},
+          .custom = {.customData = layout.custom(knobBox, &placed.emplace_back(Placed{&params, p, format, log}))}}) {}
+    lastElement = kid.id;
+}
+
+void Ui::slider(Params &params, Param *p, const char *format, bool log)
+{
+    if (!p) return;
+    const Clay_ElementId sid = id("Slider", p->id);
+    CLAY({.id = sid, .layout = {.sizing = {CLAY_SIZING_GROW(80), CLAY_SIZING_FIXED(theme.textSize * 2.6f + 6)}},
+          .custom = {.customData = layout.custom(sliderBox, &placed.emplace_back(Placed{&params, p, format, log}))}}) {}
+    lastElement = sid.id;
+}
+
+}
+

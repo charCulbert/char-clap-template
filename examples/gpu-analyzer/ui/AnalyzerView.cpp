@@ -209,11 +209,10 @@ public:
 
         // The layout, in points: the plot fills the height on the left; a side
         // bar on the right holds the knobs.
-        layout.begin(ui.draw, width, height, scale);
         CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
         {
             CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
-                  .custom = {.customData = layout.custom(plotBox)}}) {}
+                  .custom = {.customData = ui.layout.custom(plotBox)}}) {}
             CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(112), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(12),
                              .childGap = 10, .childAlignment = {.x = CLAY_ALIGN_X_CENTER}, .layoutDirection = CLAY_TOP_TO_BOTTOM},
                   .backgroundColor = gpu::clayColor(ui.theme.panel)})
@@ -225,35 +224,32 @@ public:
                     // 74 points keeps each dial 40 across above its two lines of text.
                     for (gpu::Param *p : {smoothing, colour, tilt})
                         CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(80), CLAY_SIZING_GROW(74, 108)}},
-                              .custom = {.customData = layout.custom(knobBox, p)}}) {}
+                              .custom = {.customData = ui.layout.custom(knobBox, p)}}) {}
                 }
             }
         }
 
         // Draw what the layout placed: knobs, and the plot.
-        gpu::Rect plot{};
-        layout.end([&](int kind, void *data, gpu::Rect r) {
+        ui.resizeGrip(width, height);
+        ui.end(pass, [&](int kind, void *data, gpu::Rect r) {
             if (kind == knobBox)
             {
                 auto *p = static_cast<gpu::Param *>(data);
                 ui.knob(params, p, r, p == tilt ? "%.1f dB/oct" : "%.0f");
             }
-            if (kind == plotBox) plot = r;
+            if (kind == plotBox) drawPlot(width, height, r, ui.theme.accent);
         });
-        drawPlot(pass, width, height, plot, ui.theme.accent);
-        ui.resizeGrip(width, height);
-        ui.end(pass);
     }
 
 private:
     enum { plotBox, knobBox };
 
     // The plot: the spectrum inside, frequencies below, levels on the left.
-    void drawPlot(const wgpu::RenderPassEncoder &pass, float width, float height, gpu::Rect box, gpu::Color color)
+    void drawPlot(float width, float height, gpu::Rect box, gpu::Color color)
     {
         const float s = ui.s;
         const float plot[4] = {box.x + 34 * s, box.y + 10 * s, box.x + box.w - 10 * s, box.y + box.h - 22 * s};
-        drawSpectrum(pass, width, height, color, plot);
+        drawSpectrum(width, height, color, plot);
         auto xOf = [&](float hz) { return plot[0] + (plot[2] - plot[0]) * hzToUnit(hz); };
         // Frequency labels, skipping any that would overlap the previous one.
         float lastRight = -1e9f;
@@ -320,7 +316,8 @@ private:
         bindGroup = device.CreateBindGroup(&groupDescriptor);
     }
 
-    void drawSpectrum(const wgpu::RenderPassEncoder &pass, float width, float height, gpu::Color color, const float plot[4])
+    // In order with the labels and knobs: Draw2D runs it during its flush.
+    void drawSpectrum(float width, float height, gpu::Color color, const float plot[4])
     {
         const Uniforms data{{width, height, ui.s, 0},
                             {color.r, color.g, color.b, 1},
@@ -328,9 +325,11 @@ private:
                             {plot[0], plot[1], plot[2], plot[3]}};
         device.GetQueue().WriteBuffer(uniforms, 0, &data, sizeof(data));
         device.GetQueue().WriteBuffer(spectrumBuffer, 0, shown.data(), sizeof(float) * shown.size());
-        pass.SetPipeline(pipeline);
-        pass.SetBindGroup(0, bindGroup);
-        pass.Draw(3);
+        ui.draw.custom([this](const wgpu::RenderPassEncoder &pass) {
+            pass.SetPipeline(pipeline);
+            pass.SetBindGroup(0, bindGroup);
+            pass.Draw(3);
+        });
     }
 
     wgpu::Device device;
@@ -342,7 +341,6 @@ private:
     std::vector<float> shown = std::vector<float>(512, -120.0f);    // and across neighbours: what's drawn
     gpu::Params params; // the plugin's settings (not CLAP parameters; see plugin.cpp)
     gpu::Ui ui;
-    gpu::Layout layout;
 };
 
 }
