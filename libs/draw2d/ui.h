@@ -76,6 +76,11 @@ public:
     // Lays out and draws the frame. onCustom gets your own custom boxes
     // (Layout::custom) as they come up in drawing order.
     void end(const wgpu::RenderPassEncoder &pass, const std::function<void(int kind, void *data, Rect pixels)> &onCustom = {});
+    // end() in two halves, for View::record and View::draw: record lays out
+    // and records the frame, returning false if it looks like the last one
+    // drawn; flush draws it.
+    bool record(const std::function<void(int kind, void *data, Rect pixels)> &onCustom = {});
+    void flush(const wgpu::RenderPassEncoder &pass) { draw.flush(pass); }
 
     // In the layout. Each returns true when the user changed something.
     bool button(const char *label, int index = 0);

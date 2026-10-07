@@ -197,6 +197,25 @@ int main(int argc, char **argv)
     });
     CHECK(calls == 1 && is(px, 4, 4, red));
 
+    // changed(): the same drawing again is unchanged, a different one isn't,
+    // and a custom draw is judged by its version.
+    {
+        auto scene = [&](float x, uint64_t version) {
+            draw.begin(size, size);
+            draw.rect(x, 8, 16, 16, 4, red);
+            draw.custom([](const wgpu::RenderPassEncoder &) {}, version);
+        };
+        gpu.render(draw, [&] { scene(8, 1); });
+        scene(8, 1);
+        CHECK(!draw.changed());
+        scene(9, 1);
+        CHECK(draw.changed());
+        scene(8, 2);
+        CHECK(draw.changed());
+        scene(8, 0);
+        CHECK(draw.changed()); // version 0: always
+    }
+
     // Text: ink where the letters are; widths that follow UTF-8 characters,
     // not bytes; a visible box for a character the font lacks.
     if (!font.empty())

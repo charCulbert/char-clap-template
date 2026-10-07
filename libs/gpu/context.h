@@ -17,7 +17,8 @@ struct Context
     bool createDevice();
     // Picks a format for the surface and configures it at width x height pixels.
     void configure(uint32_t width, uint32_t height);
-    // Clears, lets the view draw, and presents. Reconfigures a lost surface.
+    // Unless the view says nothing changed (View::record): clears, lets the
+    // view draw, and presents. Reconfigures a lost surface.
     void frame(View &view, float scale);
 };
 

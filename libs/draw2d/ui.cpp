@@ -83,6 +83,12 @@ void Ui::begin(float width, float height, float scale)
 
 void Ui::end(const wgpu::RenderPassEncoder &pass, const std::function<void(int, void *, Rect)> &onCustom)
 {
+    record(onCustom);
+    draw.flush(pass);
+}
+
+bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
+{
     layout.end([&](int kind, void *data, Rect r) {
         const auto *c = static_cast<const Placed *>(data);
         if (kind == knobBox) knob(*c->params, c->p, r, c->format, c->log);
@@ -114,12 +120,12 @@ void Ui::end(const wgpu::RenderPassEncoder &pass, const std::function<void(int, 
         else if (back) focus = at == order.begin() ? order.back() : *(at - 1);
         else focus = at + 1 == order.end() ? order.front() : *(at + 1);
     }
-    draw.flush(pass);
     // Each press, release, wheel turn and key is seen by one frame.
     mouse.pressed = mouse.released = mouse.doubleClicked = false;
     mouse.wheel = 0;
     keys.clear();
     edits.clear();
+    return draw.changed();
 }
 
 double Ui::toUnit(const Param &p, double v, bool log)

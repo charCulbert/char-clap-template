@@ -97,7 +97,7 @@ void Context::configure(uint32_t newWidth, uint32_t newHeight)
 
 void Context::frame(View &view, float scale)
 {
-    if (!surface || !device) return;
+    if (!surface || !device || !view.record(float(width), float(height), scale)) return;
     wgpu::SurfaceTexture current;
     surface.GetCurrentTexture(&current);
     if (current.status == wgpu::SurfaceGetCurrentTextureStatus::Outdated ||

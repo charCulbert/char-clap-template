@@ -167,6 +167,7 @@ fn roundedBox(p: vec2f, b: vec2f, r4: vec4f) -> f32 {
 bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, std::string fontData)
 {
     device = newDevice;
+    drawn = 0;
     fonts.clear();
     glyphs.clear();
     penX = penY = 4, rowHeight = 0;
@@ -342,7 +343,7 @@ Draw2D::Run &Draw2D::run(Run::Kind kind, int image)
         || !std::equal(clip.begin(), clip.end(), runs.back().clip))
     {
         const uint32_t first = uint32_t(kind == Run::lines ? points.size() : batch.size());
-        runs.push_back({kind, first, 0, {clip[0], clip[1], clip[2], clip[3]}, 0, image});
+        runs.push_back({kind, first, 0, {clip[0], clip[1], clip[2], clip[3]}, 0, image, 0});
     }
     return runs.back();
 }
@@ -511,9 +512,11 @@ void Draw2D::popClip()
     if (clips.size() > 1) clips.pop_back();
 }
 
-void Draw2D::custom(std::function<void(const wgpu::RenderPassEncoder &)> draw)
+void Draw2D::custom(std::function<void(const wgpu::RenderPassEncoder &)> draw, uint64_t version)
 {
-    run(Run::custom).callback = callbacks.size();
+    Run &r = run(Run::custom);
+    r.callback = callbacks.size();
+    r.version = version;
     callbacks.push_back(std::move(draw));
 }
 
@@ -528,9 +531,34 @@ static void reserve(const wgpu::Device &device, wgpu::Buffer &buffer, size_t &ca
     buffer = device.CreateBuffer(&descriptor);
 }
 
+// FNV-1a over the recorded draws, runs and canvas size.
+uint64_t Draw2D::signature() const
+{
+    uint64_t hash = 14695981039346656037ull;
+    auto add = [&](const void *data, size_t bytes) {
+        for (size_t i = 0; i < bytes; ++i) hash = (hash ^ static_cast<const uint8_t *>(data)[i]) * 1099511628211ull;
+    };
+    add(size, sizeof(size));
+    add(batch.data(), batch.size() * sizeof(Instance));
+    add(styles.data(), styles.size() * sizeof(LineStyle));
+    add(points.data(), points.size() * sizeof(LinePoint));
+    for (const Run &r : runs)
+        add(&r.kind, sizeof(r.kind)), add(&r.first, 2 * sizeof(uint32_t)), add(r.clip, sizeof(r.clip)), add(&r.image, sizeof(r.image)),
+            add(&r.version, sizeof(r.version));
+    return hash;
+}
+
+bool Draw2D::changed() const
+{
+    for (const Run &r : runs)
+        if (r.kind == Run::custom && r.version == 0) return true;
+    return signature() != drawn;
+}
+
 void Draw2D::flush(const wgpu::RenderPassEncoder &pass)
 {
     if (!pipeline) return;
+    drawn = signature();
     const float data[4] = {size[0], size[1], 0, 0};
     device.GetQueue().WriteBuffer(uniforms, 0, data, sizeof(data));
 

@@ -177,6 +177,7 @@ public:
         const float fallSeconds = 0.01f * std::pow(500.0f, float(smoothing->value) / 100);
         const float fall = 1 - std::exp(-1 / (60 * fallSeconds));
         const float rise = 1 - std::exp(-8 / (60 * fallSeconds));
+        ++spectrumVersion; // what drawSpectrum shows has changed
         for (size_t i = 0; i < spectrum.size() && i < db->size(); ++i)
         {
             const float level = float((*db)[i].number(-120));
@@ -198,12 +199,15 @@ public:
     void pointer(const PointerEvent &event) override { ui.pointer(event); }
     bool key(Key key, unsigned modifiers) override { return ui.key(key, modifiers); }
 
-    void draw(const wgpu::RenderPassEncoder &pass, float width, float height, float scale) override
+    // The frame is built in record, so the presenter can skip one that looks
+    // like the last; draw only flushes it.
+    void draw(const wgpu::RenderPassEncoder &pass, float, float, float) override { ui.flush(pass); }
+    bool record(float width, float height, float scale) override
     {
         auto *smoothing = params.find("Smoothing");
         auto *colour = params.find("Colour");
         auto *tilt = params.find("Tilt");
-        if (!smoothing || !colour || !tilt) return; // until the plugin has sent its settings
+        if (!smoothing || !colour || !tilt) return false; // until the plugin has sent its settings
         ui.theme.accent = hueColor(float(colour->value)); // the knobs take the spectrum's colour too
         ui.begin(width, height, scale);
 
@@ -231,7 +235,7 @@ public:
 
         // Draw what the layout placed: knobs, and the plot.
         ui.resizeGrip(width, height);
-        ui.end(pass, [&](int kind, void *data, gpu::Rect r) {
+        return ui.record([&](int kind, void *data, gpu::Rect r) {
             if (kind == knobBox)
             {
                 auto *p = static_cast<gpu::Param *>(data);
@@ -329,7 +333,7 @@ private:
             pass.SetPipeline(pipeline);
             pass.SetBindGroup(0, bindGroup);
             pass.Draw(3);
-        });
+        }, spectrumVersion);
     }
 
     wgpu::Device device;
@@ -341,6 +345,7 @@ private:
     std::vector<float> shown = std::vector<float>(512, -120.0f);    // and across neighbours: what's drawn
     gpu::Params params; // the plugin's settings (not CLAP parameters; see plugin.cpp)
     gpu::Ui ui;
+    uint64_t spectrumVersion = 1; // Draw2D::custom's version: one more per spectrum received
 };
 
 }

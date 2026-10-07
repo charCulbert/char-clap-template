@@ -27,6 +27,10 @@ public:
 
     virtual ~View() = default;
     virtual void prepare(const wgpu::Device &device, wgpu::TextureFormat format) = 0;
+    // Optional: builds the frame without the GPU and returns false if it
+    // would look just like the one on screen, which the presenter then leaves
+    // there (no acquire, submit or present). draw() follows only after true.
+    virtual bool record(float /*width*/, float /*height*/, float /*scale*/) { return true; }
     // Sizes are in pixels; scale is pixels per logical point (for line widths).
     virtual void draw(const wgpu::RenderPassEncoder &pass, float width, float height, float scale) = 0;
     virtual void pointer(const PointerEvent &event) = 0;

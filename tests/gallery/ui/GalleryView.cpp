@@ -61,7 +61,10 @@ public:
     bool text(const char *utf8) override { return ui.text(utf8); }
     bool animating() const override { return ui.animating() || page == 4; } // the meters move
 
-    void draw(const wgpu::RenderPassEncoder &pass, float width, float height, float scale) override
+    // The frame is built in record, so the presenter can skip one that looks
+    // like the last (most pointer moves); draw only flushes it.
+    void draw(const wgpu::RenderPassEncoder &pass, float, float, float) override { ui.flush(pass); }
+    bool record(float width, float height, float scale) override
     {
         gpu::Theme theme = ui.theme.withColors(themeMode == 0 ? darkMode : themeMode == 1);
         theme.valueFont = mono > 0 ? mono : 0;
@@ -91,7 +94,7 @@ public:
             }
         }
         ui.resizeGrip(width, height);
-        ui.end(pass, [&](int kind, void *data, gpu::Rect r) { drawCell(kind, data, r); });
+        return ui.record([&](int kind, void *data, gpu::Rect r) { drawCell(kind, data, r); });
     }
 
 private:
@@ -412,7 +415,8 @@ private:
             d.custom([this](const wgpu::RenderPassEncoder &pass) {
                 pass.SetPipeline(stripePipeline);
                 pass.Draw(3);
-            });
+            }, 1); // version 1 for good: the stripes never change
+
             d.popClip();
             d.circle(cx, cy, std::min(r.w, r.h) / 4, a);
             break;

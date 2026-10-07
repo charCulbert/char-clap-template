@@ -67,9 +67,14 @@ public:
     void popClip();
     // Records a draw of your own (another pipeline, e.g. a plot shader) in
     // order with the rest; it runs during flush, clipped like the shapes.
-    void custom(std::function<void(const wgpu::RenderPassEncoder &)> draw);
+    // version: change it whenever what it draws changes, so changed() can
+    // tell; 0 means it may change every frame.
+    void custom(std::function<void(const wgpu::RenderPassEncoder &)> draw, uint64_t version = 0);
 
     void flush(const wgpu::RenderPassEncoder &pass);
+    // True if what's recorded since begin differs from what the last flush
+    // drew, custom draws' versions included (a version 0 always differs).
+    bool changed() const;
 
 private:
     struct Instance
@@ -108,8 +113,11 @@ private:
         uint32_t clip[4];      // scissor rectangle, pixels
         size_t callback;       // for custom: index into callbacks
         int image;             // for shapes: the image bound, or -1 for the glyph atlas
+        uint64_t version;      // for custom: see custom()
     };
     Run &run(Run::Kind kind, int image = -1);
+    uint64_t signature() const; // a hash of everything recorded
+    uint64_t drawn = 0;         // the signature the last flush drew
     // pixelSize 0: a distance field; else rasterized at that size, shifted
     // right by phase quarters of a pixel.
     const Glyph &glyph(int font, uint32_t codepoint, int pixelSize = 0, int phase = 0);
