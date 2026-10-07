@@ -45,12 +45,23 @@ bool Context::createDevice()
     if (!adapter) return false;
 
     wgpu::DeviceDescriptor deviceDescriptor;
+#if defined(_WIN32)
+    // Dawn prefers the DXC shader compiler, but Windows does not ship its
+    // dxcompiler.dll and without it the device fails. FXC, d3dcompiler_47.dll
+    // above, needs nothing bundled.
+    const char *disabledToggles[] = {"use_dxc"};
+    wgpu::DawnTogglesDescriptor toggles;
+    toggles.disabledToggles = disabledToggles;
+    toggles.disabledToggleCount = 1;
+    deviceDescriptor.nextInChain = &toggles;
+#endif
     deviceDescriptor.SetUncapturedErrorCallback([](const wgpu::Device &, wgpu::ErrorType, wgpu::StringView message) {
         std::fprintf(stderr, "WebGPU error: %.*s\n", int(message.length), message.data);
     });
     instance.WaitAny(adapter.RequestDevice(&deviceDescriptor, wgpu::CallbackMode::WaitAnyOnly,
-        [](wgpu::RequestDeviceStatus status, wgpu::Device result, wgpu::StringView, Context *self) {
+        [](wgpu::RequestDeviceStatus status, wgpu::Device result, wgpu::StringView message, Context *self) {
             if (status == wgpu::RequestDeviceStatus::Success) self->device = std::move(result);
+            else std::fprintf(stderr, "WebGPU device failed: %.*s\n", int(message.length), message.data);
         }, this), UINT64_MAX);
     if (device)
     {
