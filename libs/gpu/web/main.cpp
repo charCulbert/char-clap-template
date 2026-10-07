@@ -21,6 +21,8 @@ EM_JS(void, postToPlugin, (const unsigned char *data, int size), {
 
 float pixelRatio() { return float(emscripten_get_device_pixel_ratio()); }
 
+EM_JS(bool, prefersDark, (), { return (Module.darkQuery ??= matchMedia('(prefers-color-scheme: dark)')).matches; });
+
 // Pointer lock needs a recent click (it comes from a knob press) and, inside
 // an iframe, the host's sandbox must allow it; if refused, drags stay plain.
 EM_JS(void, setPointerLock, (bool locked), {
@@ -44,6 +46,7 @@ bool frame(double, void *)
         context.configure(width, height);
         dirty = true;
     }
+    if (const bool dark = prefersDark(); dark != view->darkMode) view->darkMode = dark, dirty = true;
     if (dirty || view->animating()) context.frame(*view, pixelRatio());
     dirty = false;
     return true; // keep the requestAnimationFrame loop going

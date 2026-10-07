@@ -2,6 +2,8 @@
 #include <X11/Xlib.h> // after webgpu_cpp.h: Xlib defines macros such as Status and None
 #include <X11/keysym.h>
 #include <X11/Xutil.h> // XLookupString
+#include <cstdlib>
+#include <cstring>
 
 // A child X11 window in the host's window. Dawn draws into it with Vulkan.
 // Linux hosts have no shared event loop, so the host's timer (needsTimer)
@@ -92,6 +94,14 @@ void pixelSize(Window *window, uint32_t &width, uint32_t &height)
     XWindowAttributes attributes = {};
     XGetWindowAttributes(window->display, window->window, &attributes);
     width = uint32_t(attributes.width), height = uint32_t(attributes.height);
+}
+
+// Desktops have no common, cheap way to ask; GTK_THEME=Name:light or
+// Name:dark is the one convention. Dark otherwise, as most audio software is.
+bool darkMode(Window *)
+{
+    const char *theme = std::getenv("GTK_THEME");
+    return !(theme && std::strstr(theme, ":light"));
 }
 
 float scale(Window *) { return 1.0f; }

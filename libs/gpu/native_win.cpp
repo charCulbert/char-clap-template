@@ -204,4 +204,13 @@ void setVisible(Window *window, bool visible) { ShowWindow(window->hwnd, visible
 
 void pumpEvents(Window *) {}
 
+// Settings > Personalization > Colors > "Choose your app mode".
+bool darkMode(Window *)
+{
+    DWORD light = 1, size = sizeof(light);
+    RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                 L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &size);
+    return light == 0;
+}
+
 }

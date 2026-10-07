@@ -29,5 +29,6 @@ float scale(Window *window); // pixels per logical point
 void setVisible(Window *window, bool visible);
 void pumpEvents(Window *window); // only where needsTimer
 void lockPointer(Window *window, bool locked); // see View::lockPointer
+bool darkMode(Window *window); // the system's (or host window's) appearance; polled about once a second
 
 }

@@ -4,6 +4,7 @@
 #include "clap/ext/gui.h"
 #include "clap/ext/timer-support.h"
 #include "../core/messages.h"
+#include <chrono>
 #include <memory>
 
 // clap.gui for a plugin whose interface is a gpu::View, drawn with Dawn straight
@@ -59,6 +60,7 @@ private:
     std::unique_ptr<View> view;
     platform::Window *window = nullptr;
     bool dirty = true; // something changed since the last frame
+    std::chrono::steady_clock::time_point appearanceChecked; // see platform::darkMode
 #endif
 };
 

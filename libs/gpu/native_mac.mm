@@ -197,4 +197,12 @@ void setVisible(Window *window, bool visible) { [window->view setHidden:!visible
 
 void pumpEvents(Window *) {}
 
+// The view's own appearance: the system's, unless the host sets its window's.
+bool darkMode(Window *window)
+{
+    NSAppearanceName name = [window->view.effectiveAppearance
+        bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+    return [name isEqualToString:NSAppearanceNameDarkAqua];
+}
+
 }

@@ -39,6 +39,10 @@ public:
     // frame while this is true (e.g. during an animation).
     virtual bool animating() const { return false; }
 
+    // Set by the presenter: the system's light or dark appearance. It draws
+    // again when this changes.
+    bool darkMode = true;
+
     // Set by the presenter: delivers a message to the plugin.
     std::function<void(const core::Value &)> send;
     // Set by the presenter: while locked, the cursor is hidden and stays put,

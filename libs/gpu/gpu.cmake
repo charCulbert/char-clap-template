@@ -79,6 +79,7 @@ function(gpu_add_to target)
         target_link_libraries(${target} PUBLIC "-framework AppKit" "-framework QuartzCore")
     elseif(WIN32)
         target_sources(${target} PRIVATE "${GPU_DIR}/native_win.cpp")
+        target_link_libraries(${target} PUBLIC advapi32) # RegGetValueW, for darkMode
     else()
         find_package(X11 REQUIRED)
         target_sources(${target} PRIVATE "${GPU_DIR}/native_linux.cpp")

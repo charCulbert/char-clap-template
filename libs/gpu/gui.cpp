@@ -208,6 +208,13 @@ void Gui::frame()
         context->configure(w, h);
         dirty = true;
     }
+    const auto now = std::chrono::steady_clock::now();
+    if (now - appearanceChecked > std::chrono::seconds(1))
+    {
+        appearanceChecked = now;
+        const bool dark = platform::darkMode(window);
+        if (dark != view->darkMode) view->darkMode = dark, dirty = true;
+    }
     if (!(dirty || view->animating())) return;
     dirty = false;
     context->frame(*view, platform::scale(window));
