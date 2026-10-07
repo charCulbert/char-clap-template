@@ -168,6 +168,13 @@ int main(int argc, char **argv)
     px = gpu.render(draw, [&] { draw.arc(32, 32.5f, 20, 6, 0, pi, red); });
     CHECK(is(px, 52, 32, red)); // 90 degrees: in range
     CHECK(is(px, 11, 32, black)); // 270 degrees: not
+    // Its ends are antialiased: an end through a pixel's centre covers half of it.
+    px = gpu.render(draw, [&] { draw.arc(32, 32.5f, 20, 6, std::asin(1.5f / 20), pi, red); });
+    {
+        const int value = px[(size_t(12) * size + 33) * 4];
+        if (value < 70 || value > 190) std::fprintf(stderr, "  arc end pixel is %d\n", value);
+        CHECK(value >= 70 && value <= 190);
+    }
 
     // A custom draw runs in order, under what follows it.
     int calls = 0;

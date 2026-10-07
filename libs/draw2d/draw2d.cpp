@@ -130,14 +130,18 @@ fn roundedBox(p: vec2f, b: vec2f, r4: vec4f) -> f32 {
     let color = mix(in.stroke, in.fill, inner);
     let shape = vec4f(color.rgb, color.a * inside);
 
-    // Arc: distance to the ring, cut to the angle range.
-    // (A tiny offset keeps atan2 off -0, where the centre row of a quad an
-    // even number of pixels tall lands, and which flips its quadrant.)
-    let angle = fract(atan2(in.local.x, 1e-4 - in.local.y) / 6.2831853) * 6.2831853;
-    let ring = abs(length(in.local) - (in.half.x - in.shape.y - 1.0)) - in.shape.y;
-    // Ranges may pass 2π (e.g. a knob track from 7:30 through 12 to 4:30).
-    let inRange = (angle >= in.uv.x && angle <= in.uv.y) || (angle + 6.2831853 >= in.uv.x && angle + 6.2831853 <= in.uv.y);
-    let da = select(1e3, ring, inRange);
+    // Arc: the ring, cut square at both ends. The angle is measured from
+    // the arc's middle, so it's continuous across the arc whatever its range
+    // (one may pass 2π, as a knob's track from 7:30 through 12 to 4:30 does);
+    // past an end, the distance is to the line the cut lies on.
+    let mid = 0.5 * (in.uv.x + in.uv.y);
+    let span = 0.5 * (in.uv.y - in.uv.x);
+    let r = length(in.local);
+    let delta = atan2(dot(in.local, vec2f(cos(mid), sin(mid))), dot(in.local, vec2f(sin(mid), -cos(mid))));
+    let beyond = abs(delta) - span; // radians past the nearer end
+    let ends = select(r * sin(clamp(beyond, -1.5707963, 1.5707963)), -1e3, span >= 3.1415926);
+    let ring = abs(r - (in.half.x - in.shape.y - 1.0)) - in.shape.y;
+    let da = max(ring, ends);
     let arc = vec4f(in.fill.rgb, in.fill.a * clamp(0.5 - da, 0.0, 1.0));
 
     let kind = in.shape.x;
