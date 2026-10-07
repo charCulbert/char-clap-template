@@ -78,6 +78,8 @@ void setVisible(void *view, bool visible)
     });
 }
 
+float scale(void *) { return 1.0f; } // X11 hosts size in pixels, and GTK draws a pixel per point
+
 void pumpEvents()
 {
     // Bounded, so a busy page cannot hold the host's main thread.

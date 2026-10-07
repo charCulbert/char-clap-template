@@ -189,6 +189,15 @@ bool Gui::setParent(const clap_window_t *window)
 #endif
 }
 
+float Gui::pixelsPerPoint() const
+{
+#if WEBVIEW_NATIVE
+    return platform::scale(native ? native->view->getViewHandle() : nullptr);
+#else
+    return 1.0f;
+#endif
+}
+
 void Gui::setSize(uint32_t width, uint32_t height)
 {
 #if WEBVIEW_NATIVE

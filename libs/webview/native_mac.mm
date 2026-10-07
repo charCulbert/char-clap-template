@@ -27,6 +27,8 @@ void setSize(void *view, uint32_t width, uint32_t height)
 
 void setVisible(void *view, bool visible) { [(__bridge NSView *)view setHidden:!visible]; }
 
+float scale(void *) { return 1.0f; } // clap.gui on macOS is in points already
+
 void pumpEvents() {}
 
 }

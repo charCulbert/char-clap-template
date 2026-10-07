@@ -14,6 +14,7 @@ void *attach(void *view, const clap_window_t *parent);
 void detach(void *view, void *attachment);
 void setSize(void *view, uint32_t width, uint32_t height);
 void setVisible(void *view, bool visible);
+float scale(void *view); // pixels per page point (CSS pixel); view may be null
 void pumpEvents();
 
 }

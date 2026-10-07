@@ -36,6 +36,9 @@ void setSize(void *view, uint32_t width, uint32_t height)
 
 void setVisible(void *view, bool visible) { ShowWindow((HWND)view, visible ? SW_SHOW : SW_HIDE); }
 
+// Before the view has a window, the system's scale is the best guess.
+float scale(void *view) { return float(view ? GetDpiForWindow((HWND)view) : GetDpiForSystem()) / 96.0f; }
+
 void pumpEvents() {}
 
 }

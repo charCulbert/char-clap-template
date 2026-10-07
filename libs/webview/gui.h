@@ -30,6 +30,8 @@ public:
     bool isCreated() const { return created; }
     bool setParent(const clap_window_t *window);
     void setSize(uint32_t width, uint32_t height);
+    // clap.gui sizes per page point: 1 on macOS, the window's scale on Windows.
+    float pixelsPerPoint() const;
     bool show();
     bool hide();
 

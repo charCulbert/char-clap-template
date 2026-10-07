@@ -311,10 +311,32 @@ static const clap_plugin_webview_t extensionWebview = {
 };
 
 // clap.gui: size policy is ours; creating and embedding the page is webview::Gui's.
+// The limits, guiWidth and guiHeight are in points (CSS pixels on the page).
 #define GUI_MIN_WIDTH (320)
 #define GUI_MIN_HEIGHT (160)
 #define GUI_MAX_WIDTH (1600)
 #define GUI_MAX_HEIGHT (1200)
+
+// clap.gui sizes are points on macOS and pixels elsewhere, where a display
+// scaled to 150% needs 1.5 pixels per point.
+static double PluginPixelsPerPoint(const MyPlugin *plugin)
+{
+    return plugin->guiSizesInPoints ? 1 : plugin->gui.pixelsPerPoint();
+}
+
+static uint32_t PluginToHost(const MyPlugin *plugin, uint32_t points)
+{
+    return (uint32_t)lround(points * PluginPixelsPerPoint(plugin));
+}
+
+static void PluginClampSize(const MyPlugin *plugin, uint32_t *width, uint32_t *height)
+{
+    const double scale = PluginPixelsPerPoint(plugin);
+    const uint32_t minWidth = (uint32_t)ceil(GUI_MIN_WIDTH * scale), maxWidth = (uint32_t)(GUI_MAX_WIDTH * scale);
+    const uint32_t minHeight = (uint32_t)ceil(GUI_MIN_HEIGHT * scale), maxHeight = (uint32_t)(GUI_MAX_HEIGHT * scale);
+    *width = *width < minWidth ? minWidth : *width > maxWidth ? maxWidth : *width;
+    *height = *height < minHeight ? minHeight : *height > maxHeight ? maxHeight : *height;
+}
 
 static const clap_plugin_gui_t extensionGui = {
     .is_api_supported = [](const clap_plugin_t *_plugin, const char *api, bool isFloating) -> bool
@@ -329,7 +351,7 @@ static const clap_plugin_gui_t extensionGui = {
         if (!plugin->gui.create(api, isFloating))
             return false;
         plugin->guiSizesInPoints = strcmp(api, CLAP_WINDOW_API_WIN32) != 0 && strcmp(api, CLAP_WINDOW_API_X11) != 0;
-        plugin->gui.setSize(plugin->guiWidth, plugin->guiHeight);
+        plugin->gui.setSize(PluginToHost(plugin, plugin->guiWidth), PluginToHost(plugin, plugin->guiHeight));
         return true;
     },
 
@@ -342,8 +364,8 @@ static const clap_plugin_gui_t extensionGui = {
     .get_size = [](const clap_plugin_t *_plugin, uint32_t *width, uint32_t *height) -> bool
     {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-        *width = plugin->guiWidth;
-        *height = plugin->guiHeight;
+        *width = PluginToHost(plugin, plugin->guiWidth);
+        *height = PluginToHost(plugin, plugin->guiHeight);
         return true;
     },
 
@@ -360,18 +382,20 @@ static const clap_plugin_gui_t extensionGui = {
 
     .adjust_size = [](const clap_plugin_t *_plugin, uint32_t *width, uint32_t *height) -> bool
     {
-        *width = *width < GUI_MIN_WIDTH ? GUI_MIN_WIDTH : *width > GUI_MAX_WIDTH ? GUI_MAX_WIDTH : *width;
-        *height = *height < GUI_MIN_HEIGHT ? GUI_MIN_HEIGHT : *height > GUI_MAX_HEIGHT ? GUI_MAX_HEIGHT : *height;
+        PluginClampSize((MyPlugin *)_plugin->plugin_data, width, height);
         return true;
     },
 
     .set_size = [](const clap_plugin_t *_plugin, uint32_t width, uint32_t height) -> bool
     {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-        if (width < GUI_MIN_WIDTH || width > GUI_MAX_WIDTH || height < GUI_MIN_HEIGHT || height > GUI_MAX_HEIGHT)
+        uint32_t allowedWidth = width, allowedHeight = height;
+        PluginClampSize(plugin, &allowedWidth, &allowedHeight);
+        if (allowedWidth != width || allowedHeight != height)
             return false;
-        plugin->guiWidth = width;
-        plugin->guiHeight = height;
+        const double scale = PluginPixelsPerPoint(plugin);
+        plugin->guiWidth = (uint32_t)lround(width / scale);
+        plugin->guiHeight = (uint32_t)lround(height / scale);
         plugin->gui.setSize(width, height);
         return true;
     },
@@ -432,7 +456,7 @@ static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
         uint32_t width = (uint32_t)fmax(1, message["width"].number(0) * perPixel);
         uint32_t height = (uint32_t)fmax(1, message["height"].number(0) * perPixel);
         extensionGui.adjust_size(&plugin->plugin, &width, &height);
-        if (plugin->hostGui && (width != plugin->guiWidth || height != plugin->guiHeight))
+        if (plugin->hostGui && (width != PluginToHost(plugin, plugin->guiWidth) || height != PluginToHost(plugin, plugin->guiHeight)))
             plugin->hostGui->request_resize(plugin->host, width, height);
         return true;
     }
