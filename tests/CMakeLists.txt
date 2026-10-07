@@ -24,7 +24,21 @@ add_executable(spectrum_test spectrum_test.cpp)
 target_include_directories(spectrum_test PRIVATE ${SIGNALSMITH_DSP_INCLUDE})
 add_test(NAME spectrum COMMAND spectrum_test)
 
+# The GPU interface's drawing, layout and controls (libs/draw2d). draw2d_test
+# needs a WebGPU adapter (a software one will do) and skips without one.
+include(../libs/gpu/gpu.cmake)
+include(../libs/draw2d/draw2d.cmake)
+add_executable(ui_test ui_test.cpp ../libs/gpu/params.cpp ../libs/core/messages.cpp)
+draw2d_add_to(ui_test)
+target_link_libraries(ui_test PRIVATE dawn::webgpu_dawn)
+add_test(NAME ui COMMAND ui_test)
+add_executable(draw2d_test draw2d_test.cpp ../libs/gpu/params.cpp ../libs/core/messages.cpp)
+draw2d_add_to(draw2d_test)
+target_link_libraries(draw2d_test PRIVATE dawn::webgpu_dawn)
+add_test(NAME draw2d COMMAND draw2d_test "${CMAKE_CURRENT_SOURCE_DIR}/gallery/resources/fonts/BarlowSemiCondensed-Medium.ttf")
+set_tests_properties(draw2d PROPERTIES SKIP_RETURN_CODE 77)
+
 # The tests are assert()s, so keep them in every build type.
-foreach(test resources_test messages_test spectrum_test)
+foreach(test resources_test messages_test spectrum_test ui_test draw2d_test)
     target_compile_options(${test} PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
 endforeach()

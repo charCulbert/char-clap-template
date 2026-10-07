@@ -1,7 +1,7 @@
 name: Tests
 
-# Unit tests for the shared code (libs/core, libs/webview/js) and the
-# analyzer's DSP. The plugins' own workflows build and validate them.
+# Unit tests for the shared code (libs/core, libs/webview/js, libs/draw2d) and
+# the analyzer's DSP. The plugins' own workflows build and validate them.
 on:
   push:
     paths:
@@ -9,6 +9,8 @@ on:
       - libs/core/messages.*
       - libs/core/resources.*
       - libs/webview/js/**
+      - libs/gpu/**
+      - libs/draw2d/**
       - examples/gpu-analyzer/chardsp_Spectrum.h
       - examples/gpu-analyzer/signalsmith-dsp.cmake
       - .github/workflows/tests.yml
@@ -18,6 +20,8 @@ on:
       - libs/core/messages.*
       - libs/core/resources.*
       - libs/webview/js/**
+      - libs/gpu/**
+      - libs/draw2d/**
       - examples/gpu-analyzer/chardsp_Spectrum.h
       - examples/gpu-analyzer/signalsmith-dsp.cmake
       - .github/workflows/tests.yml
@@ -31,6 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # draw2d_test draws with Mesa's software Vulkan (lavapipe).
+      - name: Install Linux packages
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev mesa-vulkan-drivers
       - name: Build and run
         run: |
           cmake -S tests -B build-tests
