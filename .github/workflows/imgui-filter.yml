@@ -52,6 +52,12 @@ jobs:
           if [ "$RUNNER_OS" = macOS ]; then targets="$targets ${TARGET}_auv2"; fi
           cmake --build build --config Release --parallel 4 --target $targets
 
+      - name: Check the licences ship
+        run: |
+          dir=$(find build \( -path "*/$NAME.clap/Contents/Resources" -o -name "$NAME.clap.resources" \) -type d -print -quit)
+          for f in LICENSE THIRD_PARTY_NOTICES.md; do [ ! -f "$PROJECT/$f" ] || test -f "$dir/$f"; done
+          ls "$dir/THIRD_PARTY_LICENSES/"*.txt
+
       - name: Check out clap-validator
         uses: actions/checkout@v4
         with:
@@ -126,6 +132,8 @@ jobs:
         run: |
           tar tzf "build-wclap/$TARGET.wclap.tar.gz" | tee contents.txt
           grep -qx 'module.wasm' contents.txt
+          for f in LICENSE THIRD_PARTY_NOTICES.md; do [ ! -f "$PROJECT/$f" ] || grep -qx "$f" contents.txt; done
+          grep -q '^THIRD_PARTY_LICENSES/.*\.txt$' contents.txt
           grep -qx 'resources/page/index.html' contents.txt
 
       - name: Upload WCLAP

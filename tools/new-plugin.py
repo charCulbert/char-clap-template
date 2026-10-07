@@ -207,7 +207,7 @@ def main():
     (dest / "THIRD_PARTY_NOTICES.md").write_text(
         "# Third-party software\n\nThis plugin is built with, and its binaries include, the following. "
         "CMake downloads them (pinned in libs/*/*.cmake and CMakeLists.txt); keep their notices with "
-        f"anything you distribute.\n\n{notices}\n", encoding="utf-8")
+        f"anything you distribute. Every build ships their full licence texts in THIRD_PARTY_LICENSES/.\n\n{notices}\n", encoding="utf-8")
 
     print(f"""Made {name} in {dest}
   from the {old['name']} example; ID {plugin_id}; AU codes {subtype} (subtype), {vendor_code} (manufacturer)
