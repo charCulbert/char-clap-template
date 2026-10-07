@@ -87,9 +87,17 @@ public:
     bool textField(std::string &value, float widthPoints = 120, int index = 0);
     // Shows text near the control declared just before, after a moment's hover.
     void tooltip(const char *text);
-    // A knob or slider of its own size, in the layout.
+    // Drag up or down to change, Shift for fine; double-click to type a value.
+    void numberBox(Params &params, Param *p, const char *format, bool log = false, float widthPoints = 64);
+    // A header that opens and closes the section under it: declare the
+    // section while this returns true.
+    bool drawer(const char *title, bool &open, int index = 0);
+    // Controls of their own size, in the layout.
     void knob(Params &params, Param *p, const char *format, bool log = false, float diameter = 44);
     void slider(Params &params, Param *p, const char *format, bool log = false);
+    void vslider(Params &params, Param *p, const char *format, bool log = false, float heightPoints = 140);
+    void xyPad(Params &params, Param *x, Param *y); // fills the space it's given
+    void meter(float level, float peak = -1, float widthPoints = 6); // 0..1, filled from the bottom
 
     // At a rectangle you choose (pixels).
     // A rotary control with its value and name below; drag up/down to change.
@@ -97,6 +105,11 @@ public:
     void knob(Params &params, Param *p, Rect r, const char *format, bool log = false);
     // A horizontal slider, its name and value above it; drag left/right.
     void slider(Params &params, Param *p, Rect r, const char *format, bool log = false);
+    // An upright slider, its value above and name below; drag up/down.
+    void vslider(Params &params, Param *p, Rect r, const char *format, bool log = false);
+    // A point dragged in two dimensions: x and y each a parameter.
+    void xyPad(Params &params, Param *x, Param *y, Rect r);
+    void meter(float level, float peak, Rect r);
 
     // A custom region (pixels): reports press, drag and release on it, plus
     // double-clicks and the wheel over it.
@@ -119,8 +132,16 @@ public:
     float widthPoints = 0, heightPoints = 0; // the view's size, for placing popups
 
 private:
-    enum Builtin { knobBox = -1, sliderBox = -2, chevronBox = -3 };
-    struct Placed { Params *params; Param *p; const char *format; bool log; };
+    enum Builtin { knobBox = -1, sliderBox = -2, chevronBox = -3, chevronRightBox = -4, vsliderBox = -5, xyBox = -6, meterBox = -7 };
+    struct Placed
+    {
+        Params *params;
+        Param *p;
+        const char *format;
+        bool log;
+        Param *second = nullptr; // an XY pad's y
+        float level = 0, peak = -1; // a meter's
+    };
     std::deque<Placed> placed; // knobs and sliders the layout places, until end()
 
     // 0..1 position of a value, and back.

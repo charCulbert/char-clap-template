@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace gpu {
@@ -86,9 +87,17 @@ void Ui::end(const wgpu::RenderPassEncoder &pass, const std::function<void(int, 
         const auto *c = static_cast<const Placed *>(data);
         if (kind == knobBox) knob(*c->params, c->p, r, c->format, c->log);
         else if (kind == sliderBox) slider(*c->params, c->p, r, c->format, c->log);
+        else if (kind == vsliderBox) vslider(*c->params, c->p, r, c->format, c->log);
+        else if (kind == xyBox) xyPad(*c->params, c->p, c->second, r);
+        else if (kind == meterBox) meter(c->level, c->peak, r);
         else if (kind == chevronBox)
         {
             const float xy[] = {r.x, r.y + r.h * 0.3f, r.x + r.w / 2, r.y + r.h * 0.7f, r.x + r.w, r.y + r.h * 0.3f};
+            draw.polyline(xy, 3, 1.2f * s, theme.dim);
+        }
+        else if (kind == chevronRightBox)
+        {
+            const float xy[] = {r.x + r.w * 0.3f, r.y, r.x + r.w * 0.7f, r.y + r.h / 2, r.x + r.w * 0.3f, r.y + r.h};
             draw.polyline(xy, 3, 1.2f * s, theme.dim);
         }
         else if (onCustom) onCustom(kind, data, r);
@@ -540,6 +549,79 @@ bool Ui::textField(std::string &value, float widthPoints, int index)
     return committed;
 }
 
+// Drag up or down for the value (Shift for fine), as ImGui's DragFloat;
+// double-click to type one.
+void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float widthPoints)
+{
+    if (!p) return;
+    const Clay_ElementId nid = id("Number", p->id);
+    char shown[32];
+    std::snprintf(shown, sizeof(shown), format, p->value);
+    std::string typed = std::to_string(p->value);
+    typed.erase(typed.find_last_not_of('0') + 1); // 2.500000 -> 2.5
+    if (!typed.empty() && typed.back() == '.') typed.pop_back();
+    const std::string before = typed;
+    if (pendingField == nid.id) typed = std::move(pendingDraft), pendingField = 0;
+    const Area a = element(nid);
+    const bool fine = mouse.modifiers & View::shift;
+    if (editing != nid.id)
+    {
+        if (a.doubleClicked) startEditing(nid.id, typed);
+        else if (a.pressed)
+        {
+            grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = fine;
+            params.begin(*p);
+            if (lockPointer) lockPointer(true);
+        }
+        else if (a.held)
+        {
+            if (fine != grabFine) grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = fine;
+            const double value = fromUnit(*p, grabUnit + (grabY - mouse.y) / (200 * s * (fine ? 10 : 1)), log);
+            if (value != p->value) params.change(*p, value);
+        }
+        if (a.released)
+        {
+            params.end(*p);
+            if (lockPointer) lockPointer(false);
+        }
+    }
+    if (editKeys(nid.id, typed) || typed != before)
+    {
+        char *end = nullptr;
+        const double value = std::strtod(typed.c_str(), &end);
+        if (end != typed.c_str()) set(params, *p, value);
+    }
+    const bool edit = editing == nid.id, hot = Clay_PointerOver(nid);
+    CLAY({.id = nid, .layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_FIT(0)}, .padding = {5, 5, 2, 2},
+                                .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
+          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius), .clip = {.horizontal = true},
+          .border = {.color = clayColor(edit || a.held ? theme.accent : hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+    {
+        fieldText(shown, edit);
+    }
+    lastElement = nid.id;
+}
+
+// A header that opens and closes the section under it (compost's drawer,
+// ImGui's collapsing header). Declare the section only while it returns true.
+bool Ui::drawer(const char *title, bool &open, int index)
+{
+    const Clay_ElementId did = id("Drawer", index);
+    if (element(did).clicked) open = !open;
+    const bool hot = Clay_PointerOver(did);
+    CLAY({.id = did, .layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {6, 6, 4, 4}, .childGap = 6,
+                                .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
+          .backgroundColor = clayColor(hot ? theme.panel : Color{0, 0, 0, 0}),
+          .border = {.color = clayColor(theme.edge), .width = {.bottom = 1}}})
+    {
+        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(7), CLAY_SIZING_FIXED(7)}},
+              .custom = {.customData = layout.custom(open ? chevronBox : chevronRightBox)}}) {}
+        CLAY_TEXT(layout.text(title), textConfig(theme.text));
+    }
+    lastElement = did.id;
+    return open;
+}
+
 void Ui::knob(Params &params, Param *p, const char *format, bool log, float diameter)
 {
     if (!p) return;
@@ -560,3 +642,83 @@ void Ui::slider(Params &params, Param *p, const char *format, bool log)
 
 }
 
+namespace gpu {
+
+// Upright: the value above, the name below, filled from the bottom.
+void Ui::vslider(Params &params, Param *p, Rect box, const char *format, bool log)
+{
+    if (!p) return;
+    const float size = theme.textSize * s, cx = box.x + box.w / 2;
+    const float top = box.y + 1.6f * size, bottom = box.y + box.h - 1.6f * size, thumb = 1.125f * size;
+    const bool dragging = control(params, *p, box.x, top - thumb / 2, box.w, bottom - top + thumb, true, bottom - top, log);
+    const bool hot = dragging || (!active && over(box.x, top, box.w, bottom - top));
+    const float u = float(toUnit(*p, p->value, log)), y = bottom - (bottom - top) * u;
+    if (focusShown(p)) draw.rect(box.x, box.y, box.w, box.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
+    char value[32];
+    std::snprintf(value, sizeof(value), format, p->value);
+    draw.text(cx, box.y + size, size, value, theme.dim, Draw2D::Align::center, theme.valueFont);
+    draw.text(cx, box.y + box.h - 0.3f * size, size, p->name, theme.dim, Draw2D::Align::center, theme.labelFont);
+    draw.rect(cx - 1.5f * s, top, 3 * s, bottom - top, 0, theme.track);
+    draw.rect(cx - 1.5f * s, y, 3 * s, bottom - y, 0, theme.accent);
+    const float thumbHeight = (hot ? 3.0f : 2.0f) * s;
+    draw.rect(cx - thumb / 2, y - thumbHeight / 2, thumb, thumbHeight, 0, theme.text);
+}
+
+// Two parameters, x and y, set by dragging a point; double-click resets both.
+void Ui::xyPad(Params &params, Param *px, Param *py, Rect r)
+{
+    if (!px || !py) return;
+    // Its own drag id: knobs and sliders of px already use px itself.
+    const auto a = area(&px->dragging, r.x, r.y, r.w, r.h);
+    auto setFrom = [&](float x, float y) {
+        params.change(*px, fromUnit(*px, (x - r.x) / r.w, false));
+        params.change(*py, fromUnit(*py, 1 - (y - r.y) / r.h, false));
+    };
+    if (a.doubleClicked) set(params, *px, px->defaultValue), set(params, *py, py->defaultValue);
+    if (a.pressed) params.begin(*px), params.begin(*py);
+    if (a.held) setFrom(a.x, a.y);
+    if (a.released) params.end(*px), params.end(*py);
+    const float x = r.x + r.w * float(toUnit(*px, px->value, false)), y = r.y + r.h * (1 - float(toUnit(*py, py->value, false)));
+    draw.rect(r.x, r.y, r.w, r.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.edge);
+    draw.line(x, r.y, x, r.y + r.h, 1 * s, theme.edge);
+    draw.line(r.x, y, r.x + r.w, y, 1 * s, theme.edge);
+    draw.circle(x, y, (a.held ? 7.0f : 6.0f) * s, theme.accent, 1.5f * s, theme.text);
+    const float size = theme.textSize * s;
+    draw.text(r.x + 4 * s, r.y + r.h - 4 * s, size, px->name, theme.dim, Draw2D::Align::left, theme.labelFont);
+    draw.text(r.x + 4 * s, r.y + size + 2 * s, size, py->name, theme.dim, Draw2D::Align::left, theme.labelFont);
+}
+
+// A level, 0 to 1, filled from the bottom, with a line at the peak (if 0 to 1).
+void Ui::meter(float level, float peak, Rect r)
+{
+    level = std::clamp(level, 0.0f, 1.0f);
+    draw.rect(r.x, r.y, r.w, r.h, 0, theme.track);
+    draw.rect(r.x, r.y + r.h * (1 - level), r.w, r.h * level, 0, theme.accent);
+    if (peak >= 0 && peak <= 1) draw.rect(r.x, r.y + r.h * (1 - peak) - 0.5f * s, r.w, 1 * s, 0, theme.text);
+}
+
+void Ui::vslider(Params &params, Param *p, const char *format, bool log, float heightPoints)
+{
+    if (!p) return;
+    const Clay_ElementId vid = id("VSlider", p->id);
+    CLAY({.id = vid, .layout = {.sizing = {CLAY_SIZING_FIXED(std::max(40.0f, 4 * theme.textSize)), CLAY_SIZING_FIXED(heightPoints)}},
+          .custom = {.customData = layout.custom(vsliderBox, &placed.emplace_back(Placed{&params, p, format, log}))}}) {}
+    lastElement = vid.id;
+}
+
+void Ui::xyPad(Params &params, Param *px, Param *py)
+{
+    if (!px || !py) return;
+    const Clay_ElementId xid = id("XYPad", px->id * 1024 + py->id);
+    CLAY({.id = xid, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
+          .custom = {.customData = layout.custom(xyBox, &placed.emplace_back(Placed{&params, px, nullptr, false, py}))}}) {}
+    lastElement = xid.id;
+}
+
+void Ui::meter(float level, float peak, float widthPoints)
+{
+    CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_GROW(0)}},
+          .custom = {.customData = layout.custom(meterBox, &placed.emplace_back(Placed{nullptr, nullptr, nullptr, false, nullptr, level, peak}))}}) {}
+}
+
+}
