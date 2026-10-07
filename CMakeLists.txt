@@ -24,4 +24,5 @@ add_subdirectory(examples/imgui-filter)
 if(NOT CMAKE_SYSTEM_NAME MATCHES "WASI|iOS")
     enable_testing()
     add_subdirectory(tests)
+    add_subdirectory(tests/gallery) # a test bench for the GPU interface, not an example
 endif()

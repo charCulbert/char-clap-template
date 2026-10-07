@@ -1,0 +1,64 @@
+name: GUI Gallery
+
+# Builds and validates the GUI Gallery (tests/gallery) on macOS, Windows and
+# Linux, CLAP only. Runs when it or a library it uses changes.
+on:
+  push:
+    paths:
+      - tests/gallery/**
+      - libs/core/**
+      - libs/gpu/**
+      - libs/draw2d/**
+      - .github/workflows/gallery.yml
+  pull_request:
+    paths:
+      - tests/gallery/**
+      - libs/core/**
+      - libs/gpu/**
+      - libs/draw2d/**
+      - .github/workflows/gallery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PROJECT: tests/gallery  # the folder with the plugin's CMakeLists.txt
+  TARGET: GuiGallery      # TARGET_NAME there
+  NAME: "GUI Gallery"     # OUTPUT_NAME there: the plugin files' names
+
+jobs:
+  native:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libx11-dev mesa-vulkan-drivers xvfb xauth
+
+      - name: Build
+        run: |
+          cmake -S "$PROJECT" -B build
+          cmake --build build --config Release --parallel 4 --target ${TARGET}_clap
+
+      - name: Check out clap-validator
+        uses: actions/checkout@v4
+        with:
+          repository: free-audio/clap-validator
+          ref: 0.4.1
+          path: validator
+
+      - name: Validate CLAP
+        run: |
+          plugin=$(find build -name "$NAME.clap" -print -quit)
+          test -n "$plugin"
+          cargo run --release --locked --manifest-path validator/Cargo.toml -- validate "$plugin" --only-failed

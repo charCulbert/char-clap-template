@@ -17,4 +17,4 @@ build*/
 *.p8
 
 # Editor caches
-/.cache/
+.cache/
