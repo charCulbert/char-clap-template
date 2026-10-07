@@ -6,6 +6,7 @@
 #include <stb_image.h>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace gpu {
 
@@ -168,6 +169,7 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
 {
     device = newDevice;
     drawn = 0;
+    uniformSize[0] = uniformSize[1] = -1;
     fonts.clear();
     glyphs.clear();
     penX = penY = 4, rowHeight = 0;
@@ -325,6 +327,7 @@ const Draw2D::Glyph &Draw2D::glyph(int fontNumber, uint32_t c, int pixelSize, in
 
 void Draw2D::begin(float width, float height)
 {
+    recorded = 0;
     size[0] = width, size[1] = height;
     batch.clear();
     styles.clear();
@@ -531,12 +534,20 @@ static void reserve(const wgpu::Device &device, wgpu::Buffer &buffer, size_t &ca
     buffer = device.CreateBuffer(&descriptor);
 }
 
-// FNV-1a over the recorded draws, runs and canvas size.
+// A hash of the recorded draws, runs and canvas size: FNV-1a's mixing, a
+// word at a time (draws are floats, so their sizes are multiples of 4).
 uint64_t Draw2D::signature() const
 {
     uint64_t hash = 14695981039346656037ull;
     auto add = [&](const void *data, size_t bytes) {
-        for (size_t i = 0; i < bytes; ++i) hash = (hash ^ static_cast<const uint8_t *>(data)[i]) * 1099511628211ull;
+        const auto *p = static_cast<const uint8_t *>(data);
+        for (; bytes >= 8; p += 8, bytes -= 8)
+        {
+            uint64_t word;
+            std::memcpy(&word, p, 8);
+            hash = (hash ^ word) * 1099511628211ull;
+        }
+        for (; bytes; ++p, --bytes) hash = (hash ^ *p) * 1099511628211ull;
     };
     add(size, sizeof(size));
     add(batch.data(), batch.size() * sizeof(Instance));
@@ -550,17 +561,23 @@ uint64_t Draw2D::signature() const
 
 bool Draw2D::changed() const
 {
+    recorded = signature(); // flush reuses it
     for (const Run &r : runs)
         if (r.kind == Run::custom && r.version == 0) return true;
-    return signature() != drawn;
+    return recorded != drawn;
 }
 
 void Draw2D::flush(const wgpu::RenderPassEncoder &pass)
 {
     if (!pipeline) return;
-    drawn = signature();
-    const float data[4] = {size[0], size[1], 0, 0};
-    device.GetQueue().WriteBuffer(uniforms, 0, data, sizeof(data));
+    drawn = recorded ? recorded : signature();
+    recorded = 0;
+    if (size[0] != uniformSize[0] || size[1] != uniformSize[1])
+    {
+        const float data[4] = {size[0], size[1], 0, 0};
+        device.GetQueue().WriteBuffer(uniforms, 0, data, sizeof(data));
+        uniformSize[0] = size[0], uniformSize[1] = size[1];
+    }
 
     // Everything goes up in one write per buffer; the runs then draw slices of it.
     if (!batch.empty())

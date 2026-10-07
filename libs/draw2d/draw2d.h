@@ -118,6 +118,8 @@ private:
     Run &run(Run::Kind kind, int image = -1);
     uint64_t signature() const; // a hash of everything recorded
     uint64_t drawn = 0;         // the signature the last flush drew
+    mutable uint64_t recorded = 0; // this frame's, once changed() has worked it out
+    float uniformSize[2] = {-1, -1}; // the canvas size the uniform buffer holds
     // pixelSize 0: a distance field; else rasterized at that size, shifted
     // right by phase quarters of a pixel.
     const Glyph &glyph(int font, uint32_t codepoint, int pixelSize = 0, int phase = 0);
