@@ -83,8 +83,14 @@ function(core_ship_resources name folder)
         if(notices)
             list(APPEND copyLicences COMMAND ${CMAKE_COMMAND} -E copy ${notices} "${destination}")
         endif()
+        # Start from an empty folder, so deleted files don't linger; except in
+        # a macOS standalone app, whose Resources also hold its MainMenu.nib.
+        set(clear COMMAND ${CMAKE_COMMAND} -E rm -rf "${destination}")
+        if(APPLE AND format STREQUAL "standalone")
+            set(clear "")
+        endif()
         add_custom_target(${target}_resources
-            COMMAND ${CMAKE_COMMAND} -E rm -rf "${destination}"
+            ${clear}
             COMMAND ${CMAKE_COMMAND} -E make_directory "${destination}"
             ${copyFolder}
             ${copyLicences}
