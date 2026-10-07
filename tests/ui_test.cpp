@@ -140,6 +140,7 @@ static void knobDragAndKeys()
         ui.begin(400, 300, 1);
         ui.knob(params, a, gpu::Rect{0, 0, 100, 140}, "%.2f");
         ui.knob(params, b, gpu::Rect{200, 0, 100, 140}, "%.2f");
+        ui.slider(params, a, gpu::Rect{0, 200, 300, 40}, "%.2f"); // A again: must not take A's typing
         ui.end(wgpu::RenderPassEncoder{});
     };
     draw();
@@ -167,6 +168,18 @@ static void knobDragAndKeys()
     }
     draw();
     CHECK(std::abs(a->value - 0.5) < 1e-9);
+    // A click on the value (under the dial) types one; Enter sets it.
+    pointer(ui, View::Pointer::down, 50, 110);
+    draw();
+    pointer(ui, View::Pointer::up, 50, 110);
+    draw();
+    ui.key(View::Key::backspace, 0);
+    ui.key(View::Key::backspace, 0);
+    ui.key(View::Key::backspace, 0);
+    ui.text("0.25");
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(std::abs(a->value - 0.25) < 1e-9);
 }
 
 static void textFieldEdits()

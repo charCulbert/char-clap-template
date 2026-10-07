@@ -17,7 +17,7 @@
 // one of your own custom boxes.
 //
 // Knobs and sliders: drag (Shift for fine), scroll, double-click for the
-// default. The last one clicked has keyboard focus: arrows step (Shift for
+// default, click the value to type one. The last one clicked has keyboard focus: arrows step (Shift for
 // fine), Page Up/Down step further, Home/End go to the ends, Tab moves on.
 namespace gpu {
 
@@ -158,7 +158,9 @@ private:
     void drawGrip();
     Rect grip{}; // resizeGrip's view size this frame
     Clay_TextElementConfig *textConfig(Color color, int font = -1);
-    bool editKeys(uint32_t field, std::string &value);
+    bool editKeys(uint32_t field, std::string &value, bool overField);
+    static std::string plainNumber(double value);
+    bool valueEntry(Params &params, Param &p, const void *id, Rect r, Draw2D::Align align);
     void startEditing(uint32_t field, std::string text);
     void fieldText(const std::string &shown, bool edit);
     Clay_ElementId id(const char *kind, int index);

@@ -221,7 +221,8 @@ void Ui::knob(Params &params, Param *p, Rect box, const char *format, bool log)
               dragging ? theme.accent : theme.text);
     char value[32];
     std::snprintf(value, sizeof(value), format, p->value);
-    draw.text(cx, cy + r + 1.3f * size, size, value, theme.text, Draw2D::Align::center, theme.valueFont);
+    if (!valueEntry(params, *p, &p->defaultValue, {box.x, cy + r + 0.3f * size, box.w, 1.3f * size}, Draw2D::Align::center))
+        draw.text(cx, cy + r + 1.3f * size, size, value, theme.text, Draw2D::Align::center, theme.valueFont);
     draw.text(cx, cy + r + 2.6f * size, size, p->name, theme.dim, Draw2D::Align::center, theme.labelFont);
 }
 
@@ -232,14 +233,17 @@ void Ui::slider(Params &params, Param *p, Rect box, const char *format, bool log
 {
     if (!p) return;
     const float px = box.x, py = box.y, w = box.w, h = box.h, size = theme.textSize * s;
+    char value[32];
+    std::snprintf(value, sizeof(value), format, p->value);
+    // The value first: a click on it types, rather than starting a drag.
+    const float valueWidth = std::max(draw.measure(size, value, theme.valueFont), 3 * size) + 4 * s;
+    const bool typing = valueEntry(params, *p, &p->max, {px + w - valueWidth, py, valueWidth, 1.4f * size}, Draw2D::Align::right);
     const bool dragging = control(params, *p, px, py, w, h, false, w, log);
     const bool hot = dragging || (!active && over(px, py, w, h));
     const float u = float(toUnit(*p, p->value, log)), thumb = 1.125f * size, track = py + h - thumb / 2;
     if (focusShown(p)) draw.rect(px - 3 * s, py - 2 * s, w + 6 * s, h + 4 * s, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
     draw.text(px, py + size, size, p->name, theme.dim, Draw2D::Align::left, theme.labelFont);
-    char value[32];
-    std::snprintf(value, sizeof(value), format, p->value);
-    draw.text(px + w, py + size, size, value, theme.dim, Draw2D::Align::right, theme.valueFont);
+    if (!typing) draw.text(px + w, py + size, size, value, theme.dim, Draw2D::Align::right, theme.valueFont);
     draw.rect(px, track - 1.5f * s, w, 3 * s, 0, theme.track);
     draw.rect(px, track - 1.5f * s, w * u, 3 * s, 0, theme.accent);
     const float x = px + w * u, thumbWidth = (hot ? 3.0f : 2.0f) * s;
@@ -468,7 +472,7 @@ static size_t nextCharacter(const std::string &text, size_t i)
 
 // Applies this frame's typing to the field being edited, if it's this one.
 // Returns true when the edit is committed with a changed value.
-bool Ui::editKeys(uint32_t field, std::string &value)
+bool Ui::editKeys(uint32_t field, std::string &value, bool overField)
 {
     if (editing != field) return false;
     bool committed = false;
@@ -476,7 +480,7 @@ bool Ui::editKeys(uint32_t field, std::string &value)
         if (keep && draft != value) value = draft, committed = true;
         editing = 0;
     };
-    if (mouse.pressed && !Clay_PointerOver({field, 0, 0, {}})) finish(true);
+    if (mouse.pressed && !overField) finish(true);
     for (const auto &[text, key] : edits) // in the order they came
     {
         if (editing != field) break;
@@ -510,6 +514,41 @@ void Ui::startEditing(uint32_t field, std::string text)
     editing = field, draft = std::move(text), caret = draft.size(), focus = nullptr;
 }
 
+// A value as it's typed: 2.5, not 2.500000.
+std::string Ui::plainNumber(double value)
+{
+    std::string text = std::to_string(value);
+    text.erase(text.find_last_not_of('0') + 1);
+    if (!text.empty() && text.back() == '.') text.pop_back();
+    return text == "-0" ? "0" : text;
+}
+
+// A knob's or slider's value, which a click opens for typing (as compost's
+// editable values): returns true while it's being edited, drawn here.
+// id tells apart controls of the same parameter (a knob and a slider of it).
+bool Ui::valueEntry(Params &params, Param &p, const void *id, Rect r, Draw2D::Align align)
+{
+    const uint32_t field = uint32_t(reinterpret_cast<uintptr_t>(id)) | 1u;
+    const bool isOver = over(r.x, r.y, r.w, r.h);
+    if (press(id, isOver).pressed && editing != field) startEditing(field, plainNumber(p.value));
+    std::string typed = plainNumber(p.value);
+    if (editKeys(field, typed, isOver))
+    {
+        char *end = nullptr;
+        const double value = std::strtod(typed.c_str(), &end);
+        if (end != typed.c_str()) set(params, p, value);
+    }
+    if (editing != field) return false;
+    const float size = theme.textSize * s, width = draw.measure(size, draft, theme.valueFont);
+    const float x = align == Draw2D::Align::center ? r.x + (r.w - width) / 2 : align == Draw2D::Align::right ? r.x + r.w - width : r.x;
+    draw.rect(std::min(x, r.x + r.w / 2) - 3 * s, r.y, std::max(width, r.w / 2) + 6 * s, r.h, theme.radius * s, theme.background,
+              1 * s, theme.accent);
+    draw.text(x, r.y + r.h / 2 + 0.35f * size, size, draft, theme.text, Draw2D::Align::left, theme.valueFont);
+    const float caretX = x + draw.measure(size, std::string_view(draft).substr(0, caret), theme.valueFont);
+    draw.rect(caretX, r.y + 2 * s, 1 * s, r.h - 4 * s, 0, theme.accent);
+    return true;
+}
+
 // The text inside a field: the draft and its caret while editing, else shown.
 void Ui::fieldText(const std::string &shown, bool edit)
 {
@@ -536,7 +575,7 @@ bool Ui::textField(std::string &value, float widthPoints, int index)
         pendingField = 0;
     }
     if (a.pressed && editing != fid.id) startEditing(fid.id, value);
-    committed |= editKeys(fid.id, value);
+    committed |= editKeys(fid.id, value, Clay_PointerOver(fid));
     const bool edit = editing == fid.id, hot = Clay_PointerOver(fid);
     CLAY({.id = fid, .layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_FIT(0)}, .padding = {5, 5, 2, 2},
                                 .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
@@ -557,9 +596,7 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
     const Clay_ElementId nid = id("Number", p->id);
     char shown[32];
     std::snprintf(shown, sizeof(shown), format, p->value);
-    std::string typed = std::to_string(p->value);
-    typed.erase(typed.find_last_not_of('0') + 1); // 2.500000 -> 2.5
-    if (!typed.empty() && typed.back() == '.') typed.pop_back();
+    std::string typed = plainNumber(p->value);
     const std::string before = typed;
     if (pendingField == nid.id) typed = std::move(pendingDraft), pendingField = 0;
     const Area a = element(nid);
@@ -585,7 +622,7 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
             if (lockPointer) lockPointer(false);
         }
     }
-    if (editKeys(nid.id, typed) || typed != before)
+    if (editKeys(nid.id, typed, Clay_PointerOver(nid)) || typed != before)
     {
         char *end = nullptr;
         const double value = std::strtod(typed.c_str(), &end);
