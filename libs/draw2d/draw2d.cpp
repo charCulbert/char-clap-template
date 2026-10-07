@@ -79,7 +79,8 @@ struct Varyings {
 @group(0) @binding(2) var atlasSampler: sampler;
 
 // Kinds: 0 box   rect = x, y, w, h        uv = corner radii (TL, TR, BR, BL), border = L, R, T, B widths
-//        1 glyph rect = x, y, w, h        uv = atlas rectangle
+//        1 glyph rect = x, y, w, h        uv = atlas rectangle (a distance field)
+//        4 glyph rect = x, y, w, h        uv = atlas rectangle (coverage, drawn 1:1)
 //        2 image rect = x, y, w, h        uv = 0, 0, 1, 1, border = corner radii; the image is bound as atlas
 //        3 arc   rect = x, y, w, h        uv = from, to (radians), shape.y = half width
 
@@ -150,11 +151,14 @@ fn roundedBox(p: vec2f, b: vec2f, r4: vec4f) -> f32 {
     let da = max(ring, ends);
     let arc = vec4f(in.fill.rgb, in.fill.a * clamp(0.5 - da, 0.0, 1.0));
 
+    // Small glyph: the atlas holds coverage, at this very size.
+    let small = vec4f(in.fill.rgb, in.fill.a * g);
+
     // Image: its texel, inside the rounded box.
     let image = vec4f(texel.rgb, texel.a * in.fill.a * clamp(0.5 - roundedBox(in.local, in.half, in.border), 0.0, 1.0));
 
     let kind = in.shape.x;
-    return select(select(select(shape, glyph, kind == 1.0), image, kind == 2.0), arc, kind == 3.0);
+    return select(select(select(select(shape, glyph, kind == 1.0), image, kind == 2.0), arc, kind == 3.0), small, kind == 4.0);
 }
 )";
 
@@ -263,9 +267,9 @@ int Draw2D::addFont(std::string fontData)
 
 // The glyph for a character, baked into the atlas the first time it's asked
 // for. Characters the font lacks get its "missing" glyph, so they show.
-const Draw2D::Glyph &Draw2D::glyph(int fontNumber, uint32_t c)
+const Draw2D::Glyph &Draw2D::glyph(int fontNumber, uint32_t c, int pixelSize, int phase)
 {
-    const uint64_t key = uint64_t(fontNumber) << 32 | c;
+    const uint64_t key = uint64_t(pixelSize) << 48 | uint64_t(phase) << 44 | uint64_t(fontNumber) << 32 | c;
     if (auto found = glyphs.find(key); found != glyphs.end()) return found->second;
     Glyph &g = glyphs[key];
     if (fontNumber < 0 || fontNumber >= int(fonts.size())) return g;
@@ -273,18 +277,35 @@ const Draw2D::Glyph &Draw2D::glyph(int fontNumber, uint32_t c)
     const int index = stbtt_FindGlyphIndex(&font.info, int(c));
     int advance, bearing;
     stbtt_GetGlyphHMetrics(&font.info, index, &advance, &bearing);
-    g.advance = advance * font.scale;
-    constexpr int padding = 4;
-    constexpr unsigned char onEdge = 128;
-    constexpr float distanceScale = onEdge / float(padding);
+    g.advance = advance * font.scale; // at bakeSize for both kinds, so they measure alike
     int w = 0, h = 0, xoff = 0, yoff = 0;
-    unsigned char *sdf = stbtt_GetGlyphSDF(&font.info, font.scale, index, padding, onEdge, distanceScale, &w, &h, &xoff, &yoff);
-    if (!sdf) return g; // nothing to draw, e.g. a space
+    unsigned char *sdf = nullptr;
+    std::vector<unsigned char> coverage;
+    if (pixelSize > 0)
+    {
+        const float scale = stbtt_ScaleForPixelHeight(&font.info, float(pixelSize));
+        const float shift = phase / 4.0f;
+        int x0, y0, x1, y1;
+        stbtt_GetGlyphBitmapBoxSubpixel(&font.info, index, scale, scale, shift, 0, &x0, &y0, &x1, &y1);
+        w = x1 - x0, h = y1 - y0, xoff = x0, yoff = y0;
+        if (w <= 0 || h <= 0) return g;
+        coverage.resize(size_t(w) * h);
+        stbtt_MakeGlyphBitmapSubpixel(&font.info, coverage.data(), w, h, w, scale, scale, shift, 0, index);
+    }
+    else
+    {
+        constexpr int padding = 4;
+        constexpr unsigned char onEdge = 128;
+        constexpr float distanceScale = onEdge / float(padding);
+        sdf = stbtt_GetGlyphSDF(&font.info, font.scale, index, padding, onEdge, distanceScale, &w, &h, &xoff, &yoff);
+        if (!sdf) return g; // nothing to draw, e.g. a space
+    }
+    const unsigned char *pixels = sdf ? sdf : coverage.data();
     // A few texels between glyphs, so small text sampled from the big atlas
     // never picks up a neighbour. A full atlas draws nothing for new glyphs.
     constexpr int gap = 4;
     if (penX + w + gap > atlasSize) penX = gap, penY += rowHeight + gap, rowHeight = 0;
-    if (penY + h + gap > atlasSize) { stbtt_FreeSDF(sdf, nullptr); return g; }
+    if (penY + h + gap > atlasSize) { if (sdf) stbtt_FreeSDF(sdf, nullptr); return g; }
     wgpu::TexelCopyTextureInfo destination;
     destination.texture = atlasTexture;
     destination.origin = {uint32_t(penX), uint32_t(penY), 0};
@@ -292,8 +313,8 @@ const Draw2D::Glyph &Draw2D::glyph(int fontNumber, uint32_t c)
     layout.bytesPerRow = uint32_t(w);
     layout.rowsPerImage = uint32_t(h);
     const wgpu::Extent3D extent = {uint32_t(w), uint32_t(h), 1};
-    device.GetQueue().WriteTexture(&destination, sdf, size_t(w) * h, &layout, &extent);
-    stbtt_FreeSDF(sdf, nullptr);
+    device.GetQueue().WriteTexture(&destination, pixels, size_t(w) * h, &layout, &extent);
+    if (sdf) stbtt_FreeSDF(sdf, nullptr);
     g = {float(penX) / atlasSize, float(penY) / atlasSize, float(penX + w) / atlasSize, float(penY + h) / atlasSize,
          float(xoff), float(yoff), float(w), float(h), g.advance};
     penX += w + gap;
@@ -399,18 +420,31 @@ float Draw2D::text(float x, float y, float textSize, std::string_view text, Colo
     if (align == Align::center) x -= width / 2;
     if (align == Align::right) x -= width;
     const float k = textSize / bakeSize;
+    // Small text: glyphs made at this size, each drawn on a whole pixel from
+    // the bitmap shifted nearest the pen's fraction of one; the pen still
+    // advances by the exact widths, so layout doesn't change.
+    const int pixelSize = textSize < smallText ? int(std::lround(textSize)) : 0;
+    const float baseline = pixelSize ? std::round(y) : y;
     for (size_t i = 0; i < text.size();)
     {
         const uint32_t c = nextCodepoint(text, i);
         if (c < ' ') continue;
-        const Glyph &g = glyph(font, c);
+        const float advance = glyph(font, c).advance; // a copy: the next lookup may rehash the map
+        float whole = std::floor(x);
+        int phase = int(std::lround((x - whole) * 4));
+        if (phase == 4) whole += 1, phase = 0;
+        const Glyph &g = glyph(font, c, pixelSize, pixelSize ? phase : 0);
         if (g.w > 0)
         {
             run(Run::shapes).count++;
-            batch.push_back({{x + g.x * k, y + g.y * k, g.w * k, g.h * k}, {g.u0, g.v0, g.u1, g.v1},
-                             {color.r, color.g, color.b, color.a}, {}, {1, 0, 0, 0}, {}});
+            if (pixelSize)
+                batch.push_back({{whole + g.x, baseline + g.y, g.w, g.h}, {g.u0, g.v0, g.u1, g.v1},
+                                 {color.r, color.g, color.b, color.a}, {}, {4, 0, 0, 0}, {}});
+            else
+                batch.push_back({{x + g.x * k, y + g.y * k, g.w * k, g.h * k}, {g.u0, g.v0, g.u1, g.v1},
+                                 {color.r, color.g, color.b, color.a}, {}, {1, 0, 0, 0}, {}});
         }
-        x += g.advance * k;
+        x += advance * k;
     }
     return width;
 }

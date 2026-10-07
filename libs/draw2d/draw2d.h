@@ -12,9 +12,13 @@
 
 // Small 2D drawing on WebGPU: rounded rectangles, circles, arcs, lines and
 // text. Every shape is one instanced quad; a signed-distance shader gives
-// antialiased edges at any scale. Text uses a distance-field atlas from a
-// TrueType font (stb_truetype): ASCII is baked up front, any other character
-// the first time it is drawn. Everything draws in call order.
+// antialiased edges at any scale. Text comes from a TrueType font
+// (stb_truetype) through one atlas: as distance fields that scale, and below
+// smallText pixels as glyphs rasterized at their exact size (at four
+// quarter-pixel offsets, for even spacing), which stay sharp where a scaled
+// field loses strokes. ASCII is baked
+// up front, anything else the first time it is drawn. Everything draws in
+// call order.
 namespace gpu {
 
 struct Color { float r, g, b, a = 1; };
@@ -46,7 +50,6 @@ public:
     // A ring sector: angles in radians, 0 pointing up, increasing clockwise.
     void arc(float cx, float cy, float radius, float width, float from, float to, Color color);
     // y is the text's baseline; text is UTF-8; returns the text's width.
-    // Distance-field text without hinting: keep it at 11 px or more on 1x screens.
     float text(float x, float y, float size, std::string_view text, Color color, Align align = Align::left, int font = 0);
     float measure(float size, std::string_view text, int font = 0);
 
@@ -84,7 +87,8 @@ private:
         float x, y, w, h;     // quad relative to the pen, at bakeSize
         float advance;        // at bakeSize
     };
-    static constexpr float bakeSize = 24; // pixels the atlas is rendered at; distance fields scale up well
+    static constexpr float bakeSize = 24; // pixels distance fields are rendered at; they scale up well
+    static constexpr float smallText = 18; // pixels: below this, glyphs are rasterized at their size
     static constexpr int atlasSize = 1024;
 
     struct LineStyle
@@ -106,7 +110,9 @@ private:
         int image;             // for shapes: the image bound, or -1 for the glyph atlas
     };
     Run &run(Run::Kind kind, int image = -1);
-    const Glyph &glyph(int font, uint32_t codepoint);
+    // pixelSize 0: a distance field; else rasterized at that size, shifted
+    // right by phase quarters of a pixel.
+    const Glyph &glyph(int font, uint32_t codepoint, int pixelSize = 0, int phase = 0);
 
     wgpu::Device device;
     wgpu::RenderPipeline pipeline, linePipeline;
@@ -131,7 +137,7 @@ private:
         float scale = 1;
     };
     std::deque<Font> fonts; // a deque, so each info's pointer into data stays put
-    std::unordered_map<uint64_t, Glyph> glyphs; // font << 32 | codepoint
+    std::unordered_map<uint64_t, Glyph> glyphs; // pixel size << 48 | phase << 44 | font << 32 | codepoint
     int penX = 4, penY = 4, rowHeight = 0; // where the next glyph goes in the atlas
 };
 

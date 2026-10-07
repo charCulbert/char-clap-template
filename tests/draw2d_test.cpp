@@ -205,6 +205,12 @@ int main(int argc, char **argv)
         int ink = 0;
         for (size_t i = 0; i < px.size(); i += 4) ink += px[i] > 128;
         CHECK(ink > 40);
+        // Small text is rasterized at its size: still ink, and the same width as the field's.
+        px = gpu.render(draw, [&] { draw.text(4, 40, 12, "Hello", white); });
+        ink = 0;
+        for (size_t i = 0; i < px.size(); i += 4) ink += px[i] > 128;
+        CHECK(ink > 20);
+        CHECK(draw.measure(12, "Hello") * 2 == draw.measure(24, "Hello"));
         CHECK(draw.measure(20, "\xC3\xA9") > 0 && draw.measure(20, "\xC3\xA9") < draw.measure(20, "ee")); // é is one character, not two
         CHECK(draw.measure(20, "\xE2\x86\x92") > 0); // → (Barlow lacks it): its missing glyph still takes space
     }
