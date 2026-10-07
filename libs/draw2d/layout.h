@@ -10,8 +10,8 @@
 // Flexbox-style layout with Clay (github.com/nicbarker/clay). Each frame,
 // declare the interface as nested CLAY(...) boxes, sized in points. Layout
 // draws what Clay asks for with Draw2D: boxes (each corner its own radius),
-// borders (each side its own width), text (.fontId is a Draw2D font) and
-// clipping (.clip, also for scrolling). Custom boxes (knobs, plots) come back
+// borders (each side its own width), text (.fontId is a Draw2D font),
+// images (Layout::image) and clipping (.clip, also for scrolling). Custom boxes (knobs, plots) come back
 // with their rectangle in pixels, in drawing order. Clay does the rest:
 // hit-testing (Clay_PointerOver), floating boxes for popups and tooltips,
 // scroll containers (scroll with .clip = {.vertical = true,
@@ -41,6 +41,9 @@ public:
     Clay_String text(std::string characters);
     // Marks a box as custom: pass the result as .custom = {.customData = ...}.
     void *custom(int kind, void *data = nullptr);
+    // A Draw2D image for a box: pass the result as .image = {.imageData = ...}.
+    // The box's backgroundColor alpha, if set, fades it.
+    static void *image(int number) { return reinterpret_cast<void *>(intptr_t(number) + 1); }
     // Computes the layout, draws it, and calls onCustom for each custom box.
     void end(const std::function<void(int kind, void *data, Rect pixels)> &onCustom);
 

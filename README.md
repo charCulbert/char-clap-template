@@ -72,7 +72,7 @@ libs/
                    (clap.webview), otherwise a WebView in the host's window
   gpu/             shows a WebGPU view: Dawn draws into the host's window
                    natively; in WCLAP the same view is compiled to a web page
-  draw2d/          our own drawing for a GPU view: shapes, text, clipping;
+  draw2d/          our own drawing for a GPU view: shapes, text, images, clipping;
                    Clay for layout, hit-testing, popups and scrolling; knobs,
                    sliders, buttons, menus, text fields; light and dark themes
 tests/             tests for the libraries and the analyzer's DSP

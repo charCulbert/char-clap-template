@@ -33,6 +33,7 @@ public:
     {
         ui.draw.prepare(device, format, gpu::loadAsset("/fonts/BarlowSemiCondensed-Medium.ttf"));
         mono = ui.draw.addFont(gpu::loadAsset("/fonts/IBMPlexMono-Regular.ttf"));
+        wheel = ui.draw.addImage(gpu::loadAsset("/images/colour-wheel.png"));
         wgpu::ShaderSourceWGSL source;
         source.code = stripes;
         wgpu::ShaderModuleDescriptor moduleDescriptor;
@@ -250,6 +251,15 @@ private:
                     }
                 }
             });
+            cell("Images (PNG): square, rounded by Clay, faded to half", [&] {
+                CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(64), CLAY_SIZING_FIXED(64)}}, .image = {.imageData = gpu::Layout::image(wheel)}}) {}
+                CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(64), CLAY_SIZING_FIXED(64)}}, .cornerRadius = CLAY_CORNER_RADIUS(32),
+                      .image = {.imageData = gpu::Layout::image(wheel)}}) {}
+                CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(64), CLAY_SIZING_FIXED(64)}}, .backgroundColor = {255, 255, 255, 128},
+                      .cornerRadius = CLAY_CORNER_RADIUS(10), .image = {.imageData = gpu::Layout::image(wheel)}}) {}
+            });
+        });
+        row([&] {
             cell("Grow, fit and fixed sizes share a row", [&] {
                 CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(40), CLAY_SIZING_FIXED(40)}}, .backgroundColor = gpu::clayColor(ui.theme.accent)}) {}
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(40)}}, .backgroundColor = gpu::clayColor(ui.theme.edge)}) {}
@@ -409,7 +419,7 @@ private:
         }
     }
 
-    int page = 0, themeMode = 0, mode = 0, shape = 0, clicks = 0, edits = 0, mono = 0;
+    int page = 0, themeMode = 0, mode = 0, shape = 0, clicks = 0, edits = 0, mono = 0, wheel = -1;
     bool sync = false, advancedOpen = true, oversample = false, linearPhase = true;
     float peaks[6] = {};
     std::string name = "Preset 1";

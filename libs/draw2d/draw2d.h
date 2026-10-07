@@ -50,6 +50,14 @@ public:
     float text(float x, float y, float size, std::string_view text, Color color, Align align = Align::left, int font = 0);
     float measure(float size, std::string_view text, int font = 0);
 
+    // Images: RGBA pixels (straight alpha, rows top down), or the bytes of a
+    // PNG or JPEG file. Returns the image's number, or -1 if unusable.
+    int addImage(const uint8_t *rgba, int width, int height);
+    int addImage(std::string_view fileBytes);
+    // Draws an image stretched over the rectangle, its corners rounded,
+    // faded by alpha.
+    void image(int image, float x, float y, float w, float h, Corners radius = {}, float alpha = 1);
+
     // Clips what follows to a rectangle, inside any clip already set, until
     // the matching popClip.
     void pushClip(float x, float y, float w, float h);
@@ -67,8 +75,8 @@ private:
         float uv[4];     // glyphs: atlas rectangle; boxes: corner radii; arcs: angles
         float fill[4];
         float stroke[4]; // border color
-        float shape[4];  // kind (0 box, 1 glyph, 3 arc), then per kind: see draw2d.cpp
-        float border[4]; // boxes: left, right, top, bottom border widths
+        float shape[4];  // kind (0 box, 1 glyph, 2 image, 3 arc), then per kind: see draw2d.cpp
+        float border[4]; // boxes: left, right, top, bottom border widths; images: corner radii
     };
     struct Glyph
     {
@@ -95,8 +103,9 @@ private:
         uint32_t first, count; // instances or points
         uint32_t clip[4];      // scissor rectangle, pixels
         size_t callback;       // for custom: index into callbacks
+        int image;             // for shapes: the image bound, or -1 for the glyph atlas
     };
-    Run &run(Run::Kind kind);
+    Run &run(Run::Kind kind, int image = -1);
     const Glyph &glyph(int font, uint32_t codepoint);
 
     wgpu::Device device;
@@ -104,6 +113,8 @@ private:
     wgpu::Buffer uniforms, instances, lineStyles, linePoints;
     wgpu::BindGroup bindGroup, lineBindGroup;
     wgpu::Texture atlasTexture;
+    wgpu::Sampler sampler;
+    std::vector<wgpu::BindGroup> images; // each image's textures, bound in place of the atlas
     size_t capacity = 0, styleCapacity = 0, pointCapacity = 0;
     std::vector<LineStyle> styles;
     std::vector<LinePoint> points;

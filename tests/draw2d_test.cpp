@@ -176,6 +176,19 @@ int main(int argc, char **argv)
         CHECK(value >= 70 && value <= 190);
     }
 
+    // An image stretches over its rectangle, clamped at its edges, and its
+    // corners round like a box's.
+    {
+        const uint8_t pixels[] = {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255};
+        const int picture = draw.addImage(pixels, 2, 2);
+        CHECK(picture == 0);
+        px = gpu.render(draw, [&] { draw.image(picture, 0, 0, 32, 32); });
+        CHECK(is(px, 2, 2, red) && is(px, 29, 2, green) && is(px, 2, 29, blue) && is(px, 29, 29, white) && is(px, 40, 40, black));
+        px = gpu.render(draw, [&] { draw.image(picture, 0, 0, 32, 32, {16, 0, 0, 0}); });
+        CHECK(is(px, 1, 1, black) && is(px, 29, 2, green));
+        CHECK(draw.addImage("not an image") == -1);
+    }
+
     // A custom draw runs in order, under what follows it.
     int calls = 0;
     px = gpu.render(draw, [&] {

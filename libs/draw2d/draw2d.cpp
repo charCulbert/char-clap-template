@@ -1,5 +1,9 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "draw2d.h"
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#define STBI_ONLY_JPEG
+#include <stb_image.h>
 #include <algorithm>
 #include <cmath>
 
@@ -76,6 +80,7 @@ struct Varyings {
 
 // Kinds: 0 box   rect = x, y, w, h        uv = corner radii (TL, TR, BR, BL), border = L, R, T, B widths
 //        1 glyph rect = x, y, w, h        uv = atlas rectangle
+//        2 image rect = x, y, w, h        uv = 0, 0, 1, 1, border = corner radii; the image is bound as atlas
 //        3 arc   rect = x, y, w, h        uv = from, to (radians), shape.y = half width
 
 // Distance to a box of half size b, each corner its own radius r (TL, TR,
@@ -110,7 +115,8 @@ fn roundedBox(p: vec2f, b: vec2f, r4: vec4f) -> f32 {
     // sampling only where all neighbouring pixels take the same branch.
 
     // Glyph: the atlas holds distance to the outline, 0.5 on the edge.
-    let g = textureSample(atlas, atlasSampler, in.uv).r;
+    let texel = textureSample(atlas, atlasSampler, in.uv);
+    let g = texel.r;
     let gw = fwidth(g) * 0.75;
     let glyph = vec4f(in.fill.rgb, in.fill.a * smoothstep(0.5 - gw, 0.5 + gw, g));
 
@@ -144,8 +150,11 @@ fn roundedBox(p: vec2f, b: vec2f, r4: vec4f) -> f32 {
     let da = max(ring, ends);
     let arc = vec4f(in.fill.rgb, in.fill.a * clamp(0.5 - da, 0.0, 1.0));
 
+    // Image: its texel, inside the rounded box.
+    let image = vec4f(texel.rgb, texel.a * in.fill.a * clamp(0.5 - roundedBox(in.local, in.half, in.border), 0.0, 1.0));
+
     let kind = in.shape.x;
-    return select(select(shape, glyph, kind == 1.0), arc, kind == 3.0);
+    return select(select(select(shape, glyph, kind == 1.0), image, kind == 2.0), arc, kind == 3.0);
 }
 )";
 
@@ -168,7 +177,8 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
     wgpu::SamplerDescriptor samplerDescriptor;
     samplerDescriptor.magFilter = wgpu::FilterMode::Linear;
     samplerDescriptor.minFilter = wgpu::FilterMode::Linear;
-    wgpu::Sampler sampler = device.CreateSampler(&samplerDescriptor);
+    sampler = device.CreateSampler(&samplerDescriptor); // clamps to the edge: images don't wrap
+    images.clear();
 
     wgpu::ShaderSourceWGSL source;
     source.code = shader;
@@ -304,14 +314,14 @@ void Draw2D::begin(float width, float height)
 
 // The run the next draw of this kind joins: the last one, unless the kind or
 // the clip changed since.
-Draw2D::Run &Draw2D::run(Run::Kind kind)
+Draw2D::Run &Draw2D::run(Run::Kind kind, int image)
 {
     const auto &clip = clips.back();
-    if (runs.empty() || runs.back().kind != kind || kind == Run::custom
+    if (runs.empty() || runs.back().kind != kind || kind == Run::custom || runs.back().image != image
         || !std::equal(clip.begin(), clip.end(), runs.back().clip))
     {
         const uint32_t first = uint32_t(kind == Run::lines ? points.size() : batch.size());
-        runs.push_back({kind, first, 0, {clip[0], clip[1], clip[2], clip[3]}, 0});
+        runs.push_back({kind, first, 0, {clip[0], clip[1], clip[2], clip[3]}, 0, image});
     }
     return runs.back();
 }
@@ -405,6 +415,54 @@ float Draw2D::text(float x, float y, float textSize, std::string_view text, Colo
     return width;
 }
 
+int Draw2D::addImage(const uint8_t *rgba, int width, int height)
+{
+    if (!device || !rgba || width <= 0 || height <= 0) return -1;
+    wgpu::TextureDescriptor textureDescriptor;
+    textureDescriptor.size = {uint32_t(width), uint32_t(height), 1};
+    textureDescriptor.format = wgpu::TextureFormat::RGBA8Unorm;
+    textureDescriptor.usage = wgpu::TextureUsage::TextureBinding | wgpu::TextureUsage::CopyDst;
+    const wgpu::Texture texture = device.CreateTexture(&textureDescriptor);
+    wgpu::TexelCopyTextureInfo destination;
+    destination.texture = texture;
+    wgpu::TexelCopyBufferLayout layout;
+    layout.bytesPerRow = uint32_t(width) * 4;
+    layout.rowsPerImage = uint32_t(height);
+    device.GetQueue().WriteTexture(&destination, rgba, size_t(width) * height * 4, &layout, &textureDescriptor.size);
+    wgpu::BindGroupEntry entries[3];
+    entries[0].binding = 0;
+    entries[0].buffer = uniforms;
+    entries[1].binding = 1;
+    entries[1].textureView = texture.CreateView();
+    entries[2].binding = 2;
+    entries[2].sampler = sampler;
+    wgpu::BindGroupDescriptor descriptor;
+    descriptor.layout = pipeline.GetBindGroupLayout(0);
+    descriptor.entryCount = 3;
+    descriptor.entries = entries;
+    images.push_back(device.CreateBindGroup(&descriptor));
+    return int(images.size() - 1);
+}
+
+int Draw2D::addImage(std::string_view fileBytes)
+{
+    int width = 0, height = 0, channels = 0;
+    unsigned char *rgba = stbi_load_from_memory(reinterpret_cast<const unsigned char *>(fileBytes.data()),
+                                                int(fileBytes.size()), &width, &height, &channels, 4);
+    if (!rgba) return -1;
+    const int number = addImage(rgba, width, height);
+    stbi_image_free(rgba);
+    return number;
+}
+
+void Draw2D::image(int number, float x, float y, float w, float h, Corners r, float alpha)
+{
+    if (number < 0 || number >= int(images.size())) return;
+    run(Run::shapes, number).count++;
+    batch.push_back({{x, y, w, h}, {0, 0, 1, 1}, {1, 1, 1, alpha}, {}, {2, 0, 0, 0},
+                     {r.topLeft, r.topRight, r.bottomRight, r.bottomLeft}});
+}
+
 void Draw2D::pushClip(float x, float y, float w, float h)
 {
     const auto &outer = clips.back();
@@ -481,7 +539,7 @@ void Draw2D::flush(const wgpu::RenderPassEncoder &pass)
         if (r.kind == Run::shapes && r.count)
         {
             pass.SetPipeline(pipeline);
-            pass.SetBindGroup(0, bindGroup);
+            pass.SetBindGroup(0, r.image >= 0 ? images[size_t(r.image)] : bindGroup);
             pass.SetVertexBuffer(0, instances);
             pass.Draw(4, r.count, 0, r.first);
         }
