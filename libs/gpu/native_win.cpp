@@ -16,6 +16,7 @@ struct Window
     bool locked = false;
     POINT anchor = {};       // screen position the cursor is held at while locked
     float x = 0, y = 0;      // pointer position reported to the view (pixels)
+    bool tracking = false;   // asked for WM_MOUSELEAVE
 };
 
 static HINSTANCE thisModule()
@@ -83,7 +84,18 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
         SetCapture(hwnd);
         pointer(View::Pointer::down);
         return 0;
-    case WM_MOUSEMOVE: if (GetCapture() == hwnd) pointer(View::Pointer::move); return 0;
+    case WM_MOUSEMOVE:
+        if (!window->tracking) // ask to hear when it leaves
+        {
+            TRACKMOUSEEVENT track = {sizeof(track), TME_LEAVE, hwnd, 0};
+            window->tracking = TrackMouseEvent(&track);
+        }
+        pointer(View::Pointer::move);
+        return 0;
+    case WM_MOUSELEAVE:
+        window->tracking = false;
+        if (!window->locked) pointer(View::Pointer::leave);
+        return 0;
     case WM_LBUTTONUP: ReleaseCapture(); pointer(View::Pointer::up); return 0;
     case WM_MOUSEWHEEL:
     {

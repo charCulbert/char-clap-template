@@ -25,6 +25,19 @@
     [super viewDidChangeBackingProperties];
     self.layer.contentsScale = self.window ? self.window.backingScaleFactor : 1.0;
 }
+// Moves without a button held (for hover), and leaving the view. Plugin
+// windows are often not key, so track always.
+- (void)updateTrackingAreas
+{
+    [super updateTrackingAreas];
+    for (NSTrackingArea *area in self.trackingAreas) [self removeTrackingArea:area];
+    [self addTrackingArea:[[NSTrackingArea alloc]
+                              initWithRect:NSZeroRect
+                                   options:NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways
+                                         | NSTrackingInVisibleRect
+                                     owner:self
+                                  userInfo:nil]];
+}
 - (void)viewDidMoveToWindow
 {
     [super viewDidMoveToWindow]; // hosts may add us to a window after creating us
@@ -100,6 +113,11 @@ static unsigned modifiers(NSEvent *event)
     [super keyDown:event]; // up the responder chain, to the host
 }
 - (void)mouseDragged:(NSEvent *)event { [self send:gpu::View::Pointer::move event:event]; }
+- (void)mouseMoved:(NSEvent *)event { [self send:gpu::View::Pointer::move event:event]; }
+- (void)mouseExited:(NSEvent *)event
+{
+    if (_callbacks && !_locked) _callbacks->pointer({gpu::View::Pointer::leave, float(_position.x), float(_position.y), modifiers(event)});
+}
 - (void)mouseUp:(NSEvent *)event { [self send:gpu::View::Pointer::up event:event]; }
 @end
 

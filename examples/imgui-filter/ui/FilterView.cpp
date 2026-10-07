@@ -64,7 +64,8 @@ public:
         if (!context) return;
         ImGuiIO &io = io_();
         modifiers(event.modifiers);
-        io.AddMousePosEvent(event.x / scale, event.y / scale);
+        if (event.type == Pointer::leave) io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); // ImGui's "no mouse"
+        else io.AddMousePosEvent(event.x / scale, event.y / scale);
         if (event.type == Pointer::down) io.AddMouseButtonEvent(0, true);
         if (event.type == Pointer::up) io.AddMouseButtonEvent(0, false);
         if (event.type == Pointer::wheel) io.AddMouseWheelEvent(0, event.wheel);

@@ -13,7 +13,7 @@ namespace gpu {
 class View
 {
 public:
-    enum class Pointer { down, move, up, wheel };
+    enum class Pointer { down, move, up, wheel, leave }; // leave: the pointer left the view
     enum Modifier : unsigned { shift = 1, control = 2, alt = 4, command = 8 };
     struct PointerEvent
     {

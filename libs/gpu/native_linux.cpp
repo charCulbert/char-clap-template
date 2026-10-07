@@ -32,7 +32,7 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     }
     auto *window = new Window{display, 0, std::move(callbacks)};
     window->window = XCreateSimpleWindow(display, ::Window(parent->x11), 0, 0, width, height, 0, 0, 0);
-    XSelectInput(display, window->window, ButtonPressMask | ButtonReleaseMask | Button1MotionMask | KeyPressMask);
+    XSelectInput(display, window->window, ButtonPressMask | ButtonReleaseMask | PointerMotionMask | LeaveWindowMask | KeyPressMask);
     XMapWindow(display, window->window);
     XFlush(display);
     return window;
@@ -114,6 +114,8 @@ void pumpEvents(Window *window)
     {
         XEvent event;
         XNextEvent(window->display, &event);
+        if (event.type == LeaveNotify && !window->locked)
+            window->callbacks.pointer({View::Pointer::leave, window->x, window->y, modifiers(event.xcrossing.state)});
         if (event.type == MotionNotify)
         {
             const int x = event.xmotion.x, y = event.xmotion.y;
