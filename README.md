@@ -72,9 +72,11 @@ libs/
                    (clap.webview), otherwise a WebView in the host's window
   gpu/             shows a WebGPU view: Dawn draws into the host's window
                    natively; in WCLAP the same view is compiled to a web page
-  draw2d/          our own drawing for a GPU view: shapes, text, knobs,
-                   sliders, and Clay for layout
+  draw2d/          our own drawing for a GPU view: shapes, text, clipping;
+                   Clay for layout, hit-testing, popups and scrolling; knobs,
+                   sliders, buttons, menus, text fields; light and dark themes
 tests/             tests for the libraries and the analyzer's DSP
+  gallery/         GUI Gallery: a plugin with a page per draw2d feature
 tools/             new-plugin.py, check-templates.py
 .github/workflows/ one workflow per example, plus tests.yml
 ```
@@ -229,13 +231,23 @@ It makes a project from each example in `build-templates/`, builds it with
 plain CMake, and validates it. It takes a while (every project downloads and
 builds from scratch), so it isn't part of CI.
 
+The GPU interface (`libs/draw2d`) has two kinds of test. `ctest` runs
+`ui_test`, which drives the layout and controls with made-up pointer and key
+events, and `draw2d_test`, which draws into an offscreen texture and checks
+pixels: inside and outside shapes, corners, clips, draw order. The GUI
+Gallery (`tests/gallery`) is for looking: each cell draws one feature and
+says what it should look like. Build it with the rest, or alone with
+`cmake -S tests/gallery -B build-gallery && cmake --build build-gallery`, and
+open `GUI Gallery.app` (or its CLAP in a host).
+
 ## CI
 
 Each example has its own workflow in `.github/workflows/`, which runs only
 when that example, a library it uses, or the workflow itself changes. Editing
 `libs/gpu` runs the analyzer's and the filter's; editing
 `examples/webview-synth` runs only the synth's. `tests.yml` runs the unit
-tests when the libraries they cover change.
+tests when the libraries they cover change, and `gallery.yml` builds and
+validates the GUI Gallery.
 
 A workflow run has two jobs:
 
