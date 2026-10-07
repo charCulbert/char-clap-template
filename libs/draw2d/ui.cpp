@@ -406,7 +406,8 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
                                .attachPoints = {up ? CLAY_ATTACH_POINT_LEFT_BOTTOM : CLAY_ATTACH_POINT_LEFT_TOP,
                                                 up ? CLAY_ATTACH_POINT_LEFT_TOP : CLAY_ATTACH_POINT_LEFT_BOTTOM},
                                .attachTo = CLAY_ATTACH_TO_PARENT},
-                  .border = {.color = clayColor(theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+                  .border = {.color = clayColor(theme.edge), .width = CLAY_BORDER_OUTSIDE(1)},
+                  .userData = layout.shadow(theme.shadow, 10, 0, 3)})
             {
                 for (int i = 0; i < count; ++i)
                 {
@@ -456,7 +457,8 @@ void Ui::tooltip(const char *text)
           .floating = {.offset = {0, up ? -4.0f : 4.0f}, .parentId = lastElement, .zIndex = 200,
                        .attachPoints = {element, parent},
                        .pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH,
-                       .attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID}})
+                       .attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID},
+          .userData = layout.shadow(theme.shadow, 6, 0, 2)})
     {
         CLAY_TEXT(layout.text(text), textConfig(theme.background));
     }

@@ -29,6 +29,7 @@ void Layout::begin(Draw2D &newDraw, float width, float height, float newScale)
     scale = newScale;
     strings.clear();
     customs.clear();
+    shadows.clear();
     Clay_SetCurrentContext(context); // each plugin instance has its own
     Clay_SetMeasureTextFunction([](Clay_StringSlice text, Clay_TextElementConfig *config, void *self) -> Clay_Dimensions {
         const auto *layout = static_cast<Layout *>(self);
@@ -61,6 +62,11 @@ Clay_String Layout::text(std::string characters)
     return {false, int32_t(kept.size()), kept.data()};
 }
 
+void *Layout::shadow(Color color, float blur, float dx, float dy)
+{
+    return &shadows.emplace_back(Shadow{color, blur, dx, dy});
+}
+
 void *Layout::custom(int kind, void *data)
 {
     return &customs.emplace_back(Custom{kind, data});
@@ -83,6 +89,9 @@ void Layout::end(const std::function<void(int, void *, Rect)> &onCustom)
         {
         case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
             const auto &data = command.renderData.rectangle;
+            if (const auto *shadow = static_cast<const Shadow *>(command.userData))
+                draw->shadow(r.x + shadow->dx * s, r.y + shadow->dy * s, r.w, r.h, data.cornerRadius.topLeft * s, shadow->blur * s,
+                             shadow->color);
             draw->rect(r.x, r.y, r.w, r.h, corners(data.cornerRadius), color(data.backgroundColor));
             break;
         }

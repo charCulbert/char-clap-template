@@ -197,6 +197,17 @@ int main(int argc, char **argv)
     });
     CHECK(calls == 1 && is(px, 4, 4, red));
 
+    // A linear gradient runs between its ends; a shadow is solid inside its
+    // box, half at the edge and gone three sigmas out.
+    px = gpu.render(draw, [&] { draw.rect(0, 0, 64, 64, Draw2D::Corners{}, Draw2D::Gradient{red, blue, 0, 0, 64, 0}); });
+    CHECK(is(px, 1, 32, red) && is(px, 62, 32, blue) && is(px, 32, 10, {0.5f, 0, 0.5f}));
+    px = gpu.render(draw, [&] { draw.shadow(16, 16, 32, 32, 0, 8, white); });
+    {
+        const int edge = px[(size_t(32) * size + 16) * 4];
+        if (edge < 90 || edge > 165) std::fprintf(stderr, "  shadow edge is %d\n", edge);
+        CHECK(is(px, 32, 32, white) && is(px, 1, 32, black) && edge >= 90 && edge <= 165);
+    }
+
     // changed(): the same drawing again is unchanged, a different one isn't,
     // and a custom draw is judged by its version.
     {

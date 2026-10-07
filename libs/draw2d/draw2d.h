@@ -29,6 +29,9 @@ public:
     enum class Align { left, center, right };
     struct Corners { float topLeft, topRight, bottomRight, bottomLeft; };
     struct Sides { float left, right, top, bottom; };
+    // From one colour to another along a line (pixels, like the rest), or
+    // outwards from x0, y0 to the distance of x1, y1 if radial.
+    struct Gradient { Color from, to; float x0, y0, x1, y1; bool radial = false; };
 
     // fontData: the bytes of a .ttf file, which becomes font 0. Returns false
     // if the font is unusable.
@@ -43,6 +46,11 @@ public:
     // Each corner its own radius, each side its own border width.
     void rect(float x, float y, float w, float h, Corners radius, Color fill,
               Sides border = {}, Color borderColor = {0, 0, 0, 0});
+    // Filled with a gradient.
+    void rect(float x, float y, float w, float h, Corners radius, const Gradient &fill);
+    // A soft shadow of a rounded box; blur is about its width in pixels.
+    // Draw it before the box it's under.
+    void shadow(float x, float y, float w, float h, float radius, float blur, Color color);
     void circle(float cx, float cy, float radius, Color fill, float border = 0, Color borderColor = {0, 0, 0, 0});
     // Strokes with round ends and joins.
     void line(float x0, float y0, float x1, float y1, float width, Color color);
@@ -83,7 +91,7 @@ private:
         float uv[4];     // glyphs: atlas rectangle; boxes: corner radii; arcs: angles
         float fill[4];
         float stroke[4]; // border color
-        float shape[4];  // kind (0 box, 1 glyph, 2 image, 3 arc), then per kind: see draw2d.cpp
+        float shape[4];  // kind (0 box, 1 glyph, 2 image, 3 arc, 4 small glyph, 5 gradient, 6 shadow): see draw2d.cpp
         float border[4]; // boxes: left, right, top, bottom border widths; images: corner radii
     };
     struct Glyph

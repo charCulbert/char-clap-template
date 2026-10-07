@@ -32,6 +32,7 @@ struct Theme
     Color edge{0.333f, 0.333f, 0.333f};       // #555555: hairlines, outlines
     Color track{0.333f, 0.333f, 0.333f};      // unfilled parts of knobs and sliders
     Color accent{0.867f, 0.753f, 0.494f};     // #ddc07e
+    Color shadow{0, 0, 0, 0.45f};             // under menus and tooltips
     int labelFont = 0, valueFont = 0;         // Draw2D fonts for names and for numbers
     float textSize = 11, radius = 2;          // points
 
@@ -45,6 +46,7 @@ struct Theme
         t.dim = {0.365f, 0.365f, 0.365f};        // #5d5d5d
         t.edge = t.track = {0.663f, 0.663f, 0.663f}; // #a9a9a9
         t.accent = {0.459f, 0.329f, 0.039f};     // #75540a
+        t.shadow = {0, 0, 0, 0.22f};
         return t;
     }
     // The palette for the system's appearance, keeping fonts and sizes.

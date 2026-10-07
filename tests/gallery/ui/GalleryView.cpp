@@ -99,7 +99,7 @@ public:
 
 private:
     // Custom cells: what drawCell draws in each.
-    enum Cell { radii, borders, circles, arcs, widths, polyline, lineUnderBox, alpha, sizes, aligned, clipped, customPass };
+    enum Cell { radii, borders, circles, arcs, widths, polyline, lineUnderBox, alpha, sizes, aligned, clipped, customPass, gradients, shadows };
 
     template <typename F> void row(F &&cells)
     {
@@ -158,6 +158,14 @@ private:
                       .cornerRadius = CLAY_CORNER_RADIUS(12), .border = {.color = gpu::clayColor(a), .width = CLAY_BORDER_ALL(3)}}) {}
             });
             custom("Custom pipeline between shapes: stripes under the dot", customPass);
+        });
+        row([&] {
+            custom("Gradients: linear, radial; even, no banding", gradients);
+            custom("Shadows: soft, offset, under the box", shadows);
+            cell("Clay box with Layout::shadow", [&] {
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .backgroundColor = gpu::clayColor(ui.theme.background),
+                      .cornerRadius = CLAY_CORNER_RADIUS(6), .userData = ui.layout.shadow(ui.theme.shadow, 12, 0, 4)}) {}
+            });
         });
     }
 
@@ -408,6 +416,25 @@ private:
             d.pushClip(cx - side / 2, cy - side / 2, side, side);
             d.circle(cx + side / 2, cy + side / 2, side * 0.6f, a);
             d.popClip();
+            break;
+        }
+        case gradients:
+        {
+            const float half = (r.w - 10 * s) / 2;
+            d.rect(r.x, r.y, half, r.h, gpu::Draw2D::Corners{6 * s, 6 * s, 6 * s, 6 * s},
+                   gpu::Draw2D::Gradient{ui.theme.background, a, r.x, r.y, r.x + half, r.y + r.h});
+            const float cxr = r.x + half + 10 * s + half / 2;
+            d.rect(r.x + half + 10 * s, r.y, half, r.h, gpu::Draw2D::Corners{6 * s, 6 * s, 6 * s, 6 * s},
+                   gpu::Draw2D::Gradient{a, ui.theme.background, cxr, cy, cxr + half / 2, cy, true});
+            break;
+        }
+        case shadows:
+        {
+            const float side = std::min(r.h, r.w / 2) * 0.7f;
+            d.shadow(r.x + r.w * 0.25f - side / 2, cy - side / 2 + 4 * s, side, side, 6 * s, 14 * s, ui.theme.shadow);
+            d.rect(r.x + r.w * 0.25f - side / 2, cy - side / 2, side, side, 6 * s, ui.theme.panel);
+            d.shadow(r.x + r.w * 0.75f - side / 2, cy - side / 2, side, side, side / 2, 6 * s, {0, 0, 0, 0.8f});
+            d.circle(r.x + r.w * 0.75f, cy, side / 2, a);
             break;
         }
         case customPass:

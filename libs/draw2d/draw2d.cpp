@@ -84,6 +84,41 @@ struct Varyings {
 //        4 glyph rect = x, y, w, h        uv = atlas rectangle (coverage, drawn 1:1)
 //        2 image rect = x, y, w, h        uv = 0, 0, 1, 1, border = corner radii; the image is bound as atlas
 //        3 arc   rect = x, y, w, h        uv = from, to (radians), shape.y = half width
+//        5 gradient (a box)               uv = corner radii, fill to stroke along border = x0, y0, x1, y1
+//                                         (from the centre), shape.y = 1 for radial
+//        6 shadow rect = the blur's extent  border = box half width, half height, corner radius, blur sigma
+
+// Error function, approximated (Abramowitz and Stegun 7.1.27).
+fn erf2(x: vec2f) -> vec2f {
+    let s = sign(x);
+    let a = abs(x);
+    var r = 1.0 + (0.278393 + (0.230389 + 0.078108 * (a * a)) * a) * a;
+    r = r * r;
+    return s - s / (r * r);
+}
+// A rounded box blurred by a Gaussian, in closed form along x and summed
+// over a few samples along y: Evan Wallace's "Fast rounded rectangle
+// shadows" (madebyevan.com/shaders/fast-rounded-rectangle-shadows).
+fn shadowX(x: f32, y: f32, sigma: f32, corner: f32, half: vec2f) -> f32 {
+    let delta = min(half.y - corner - abs(y), 0.0);
+    let curved = half.x - corner + sqrt(max(0.0, corner * corner - delta * delta));
+    let integral = 0.5 + 0.5 * erf2((x + vec2f(-curved, curved)) * (0.70710678 / sigma));
+    return integral.y - integral.x;
+}
+fn boxShadow(p: vec2f, half: vec2f, corner: f32, sigma: f32) -> f32 {
+    let low = p.y - half.y;
+    let high = p.y + half.y;
+    let start = clamp(-3.0 * sigma, low, high);
+    let end = clamp(3.0 * sigma, low, high);
+    let step = (end - start) / 4.0;
+    var y = start + step * 0.5;
+    var value = 0.0;
+    for (var i = 0; i < 4; i++) {
+        value += shadowX(p.x, p.y - y, sigma, corner, half) * exp(-(y * y) / (2.0 * sigma * sigma)) / (2.5066283 * sigma) * step;
+        y += step;
+    }
+    return value;
+}
 
 // Distance to a box of half size b, each corner its own radius r (TL, TR,
 // BR, BL; y grows downwards). After Inigo Quilez's sdRoundedBox
@@ -158,8 +193,21 @@ fn roundedBox(p: vec2f, b: vec2f, r4: vec4f) -> f32 {
     // Image: its texel, inside the rounded box.
     let image = vec4f(texel.rgb, texel.a * in.fill.a * clamp(0.5 - roundedBox(in.local, in.half, in.border), 0.0, 1.0));
 
+    // Gradient: from fill to stroke along the line border.xy to border.zw,
+    // or outwards from border.xy to the distance of border.zw.
+    let along = in.border.zw - in.border.xy;
+    let linear = dot(in.local - in.border.xy, along) / max(dot(along, along), 1e-6);
+    let radial = length(in.local - in.border.xy) / max(length(along), 1e-6);
+    let tone = mix(in.fill, in.stroke, clamp(select(linear, radial, in.shape.y > 0.5), 0.0, 1.0));
+    let gradient = vec4f(tone.rgb, tone.a * inside);
+
+    // Shadow: the blurred box, its sigma at least a tenth of a pixel.
+    let shade = boxShadow(in.local, in.border.xy, in.border.z, max(in.border.w, 0.1));
+    let shadow = vec4f(in.fill.rgb, in.fill.a * shade);
+
     let kind = in.shape.x;
-    return select(select(select(select(shape, glyph, kind == 1.0), image, kind == 2.0), arc, kind == 3.0), small, kind == 4.0);
+    let basic = select(select(select(select(shape, glyph, kind == 1.0), image, kind == 2.0), arc, kind == 3.0), small, kind == 4.0);
+    return select(select(basic, gradient, kind == 5.0), shadow, kind == 6.0);
 }
 )";
 
@@ -362,6 +410,24 @@ void Draw2D::rect(float x, float y, float w, float h, Corners r, Color fill, Sid
     batch.push_back({{x, y, w, h}, {r.topLeft, r.topRight, r.bottomRight, r.bottomLeft}, {fill.r, fill.g, fill.b, fill.a},
                      {borderColor.r, borderColor.g, borderColor.b, borderColor.a}, {0, 0, 0, 0},
                      {b.left, b.right, b.top, b.bottom}});
+}
+
+void Draw2D::rect(float x, float y, float w, float h, Corners r, const Gradient &g)
+{
+    run(Run::shapes).count++;
+    const float cx = x + w / 2, cy = y + h / 2;
+    batch.push_back({{x, y, w, h}, {r.topLeft, r.topRight, r.bottomRight, r.bottomLeft},
+                     {g.from.r, g.from.g, g.from.b, g.from.a}, {g.to.r, g.to.g, g.to.b, g.to.a}, {5, g.radial ? 1.0f : 0.0f, 0, 0},
+                     {g.x0 - cx, g.y0 - cy, g.x1 - cx, g.y1 - cy}});
+}
+
+void Draw2D::shadow(float x, float y, float w, float h, float radius, float blur, Color color)
+{
+    // The quad reaches three sigmas past the box, where the blur fades out.
+    const float sigma = std::max(blur, 0.1f) / 2, reach = 3 * sigma;
+    run(Run::shapes).count++;
+    batch.push_back({{x - reach, y - reach, w + 2 * reach, h + 2 * reach}, {}, {color.r, color.g, color.b, color.a}, {},
+                     {6, 0, 0, 0}, {w / 2, h / 2, std::min(radius, std::min(w, h) / 2), sigma}});
 }
 
 void Draw2D::circle(float cx, float cy, float radius, Color fill, float border, Color borderColor)

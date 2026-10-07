@@ -11,7 +11,8 @@
 // declare the interface as nested CLAY(...) boxes, sized in points. Layout
 // draws what Clay asks for with Draw2D: boxes (each corner its own radius),
 // borders (each side its own width), text (.fontId is a Draw2D font),
-// images (Layout::image) and clipping (.clip, also for scrolling). Custom boxes (knobs, plots) come back
+// images (Layout::image), shadows (Layout::shadow) and clipping (.clip, also
+// for scrolling). Custom boxes (knobs, plots) come back
 // with their rectangle in pixels, in drawing order. Clay does the rest:
 // hit-testing (Clay_PointerOver), floating boxes for popups and tooltips,
 // scroll containers (scroll with .clip = {.vertical = true,
@@ -41,6 +42,9 @@ public:
     Clay_String text(std::string characters);
     // Marks a box as custom: pass the result as .custom = {.customData = ...}.
     void *custom(int kind, void *data = nullptr);
+    // A soft shadow under a box with a background: pass the result as
+    // .userData (which Layout keeps for this). Offset and blur in points.
+    void *shadow(Color color, float blur = 8, float dx = 0, float dy = 2);
     // A Draw2D image for a box: pass the result as .image = {.imageData = ...}.
     // The box's backgroundColor alpha, if set, fades it.
     static void *image(int number) { return reinterpret_cast<void *>(intptr_t(number) + 1); }
@@ -49,6 +53,8 @@ public:
 
 private:
     struct Custom { int kind; void *data; };
+    struct Shadow { Color color; float blur, dx, dy; };
+    std::deque<Shadow> shadows;
     std::vector<char> memory;
     Clay_Context *context = nullptr;
     Draw2D *draw = nullptr;
