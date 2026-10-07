@@ -24,6 +24,8 @@ bool Gui::isApiSupported(const char *api, bool floating) const
     return api && !floating && pluginWebview && hostWebview && std::strcmp(api, CLAP_WINDOW_API_WEBVIEW) == 0;
 }
 
+float Gui::pixelsPerPoint() const { return 1.0f; } // clap.webview sizes are logical
+
 bool Gui::getPreferredApi(const char **api, bool *floating) const
 {
     *api = CLAP_WINDOW_API_WEBVIEW;
@@ -88,6 +90,11 @@ bool Gui::isApiSupported(const char *api, bool floating) const
            (!platform::needsTimer || hostTimers);
 }
 
+float Gui::pixelsPerPoint() const
+{
+    return std::strcmp(platform::windowApi, CLAP_WINDOW_API_COCOA) == 0 ? 1.0f : platform::scale(window);
+}
+
 bool Gui::getPreferredApi(const char **api, bool *floating) const
 {
     *api = platform::windowApi;
@@ -115,8 +122,8 @@ bool Gui::create(const char *api, bool floating)
     view->lockPointer = [this](bool locked) { if (window) platform::lockPointer(window, locked); };
     if (hostGui && pluginGui)
         view->resizeTo = [this](float w, float h) {
-            // clap.gui sizes are points on macOS and pixels elsewhere.
-            const float perUnit = std::strcmp(platform::windowApi, CLAP_WINDOW_API_COCOA) == 0 && window ? platform::scale(window) : 1.0f;
+            // The view measures in pixels; clap.gui in points on macOS.
+            const float perUnit = window ? platform::scale(window) / pixelsPerPoint() : 1.0f;
             uint32_t newWidth = uint32_t(std::max(1.0f, w / perUnit)), newHeight = uint32_t(std::max(1.0f, h / perUnit));
             pluginGui->adjust_size(plugin, &newWidth, &newHeight);
             if (newWidth != width || newHeight != height)

@@ -17,7 +17,9 @@
 #include "clap/ext/gui.h"
 #include "clap/ext/timer-support.h"
 #include "clap/ext/draft/webview.h"
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <string.h>
 #include <string>
 #include <vector>
@@ -187,10 +189,22 @@ static const clap_plugin_webview_t extensionWebview = {
 };
 
 // clap.gui: size policy is ours; creating and embedding the view is gpu::Gui's.
+// The limits are in points; the minimum height keeps three knobs readable.
 #define GUI_MIN_WIDTH (360)
-#define GUI_MIN_HEIGHT (200)
+#define GUI_MIN_HEIGHT (270)
 #define GUI_MAX_WIDTH (2000)
 #define GUI_MAX_HEIGHT (1200)
+
+// Clamps a clap.gui size, which is in pixels outside macOS, to the limits.
+static void clampGuiSize(const MyPlugin *plugin, uint32_t &width, uint32_t &height)
+{
+    const float scale = plugin->gui.pixelsPerPoint();
+    const auto clamp = [scale](uint32_t value, float low, float high) {
+        return std::clamp(value, uint32_t(std::ceil(low * scale)), uint32_t(high * scale));
+    };
+    width = clamp(width, GUI_MIN_WIDTH, GUI_MAX_WIDTH);
+    height = clamp(height, GUI_MIN_HEIGHT, GUI_MAX_HEIGHT);
+}
 
 static const clap_plugin_gui_t extensionGui = {
     .is_api_supported = [](const clap_plugin_t *_plugin, const char *api, bool isFloating) -> bool
@@ -204,6 +218,7 @@ static const clap_plugin_gui_t extensionGui = {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
         if (!plugin->gui.create(api, isFloating))
             return false;
+        clampGuiSize(plugin, plugin->guiWidth, plugin->guiHeight); // so get_size never reports a size set_size refuses
         plugin->gui.setSize(plugin->guiWidth, plugin->guiHeight);
         return true;
     },
@@ -238,15 +253,16 @@ static const clap_plugin_gui_t extensionGui = {
 
     .adjust_size = [](const clap_plugin_t *_plugin, uint32_t *width, uint32_t *height) -> bool
     {
-        *width = *width < GUI_MIN_WIDTH ? GUI_MIN_WIDTH : *width > GUI_MAX_WIDTH ? GUI_MAX_WIDTH : *width;
-        *height = *height < GUI_MIN_HEIGHT ? GUI_MIN_HEIGHT : *height > GUI_MAX_HEIGHT ? GUI_MAX_HEIGHT : *height;
+        clampGuiSize((MyPlugin *)_plugin->plugin_data, *width, *height);
         return true;
     },
 
     .set_size = [](const clap_plugin_t *_plugin, uint32_t width, uint32_t height) -> bool
     {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-        if (width < GUI_MIN_WIDTH || width > GUI_MAX_WIDTH || height < GUI_MIN_HEIGHT || height > GUI_MAX_HEIGHT)
+        uint32_t allowedWidth = width, allowedHeight = height;
+        clampGuiSize(plugin, allowedWidth, allowedHeight);
+        if (allowedWidth != width || allowedHeight != height)
             return false;
         plugin->guiWidth = width;
         plugin->guiHeight = height;

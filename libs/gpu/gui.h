@@ -33,6 +33,9 @@ public:
     bool show();
     bool hide();
     void onTimer(clap_id timer);
+    // clap.gui sizes are points on macOS and pixels elsewhere: how many of
+    // them make a point, for limits written in points.
+    float pixelsPerPoint() const;
 
     // Delivers a message to the View. Fails if the interface is not open.
     bool send(const core::Value &message);

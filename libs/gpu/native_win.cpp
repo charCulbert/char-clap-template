@@ -185,7 +185,8 @@ void pixelSize(Window *window, uint32_t &width, uint32_t &height)
     width = uint32_t(area.right), height = uint32_t(area.bottom);
 }
 
-float scale(Window *window) { return float(GetDpiForWindow(window->hwnd)) / 96.0f; }
+// Before the view has a window, the system's scale is the best guess.
+float scale(Window *window) { return float(window ? GetDpiForWindow(window->hwnd) : GetDpiForSystem()) / 96.0f; }
 
 void setVisible(Window *window, bool visible) { ShowWindow(window->hwnd, visible ? SW_SHOW : SW_HIDE); }
 

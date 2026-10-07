@@ -222,8 +222,9 @@ public:
                                  .childAlignment = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_CENTER},
                                  .layoutDirection = CLAY_TOP_TO_BOTTOM}})
                 {
+                    // 74 points keeps each dial 40 across above its two lines of text.
                     for (gpu::Param *p : {smoothing, colour, tilt})
-                        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(80), CLAY_SIZING_GROW(0, 108)}},
+                        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(80), CLAY_SIZING_GROW(74, 108)}},
                               .custom = {.customData = layout.custom(knobBox, p)}}) {}
                 }
             }
