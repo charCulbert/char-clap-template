@@ -210,7 +210,7 @@ bool Ui::animating() const
 {
     // Controls declared before a click was handled drew the old state, and
     // Clay hit-tests against the last layout: one more frame settles both.
-    return tooltipWaiting || settle;
+    return tooltipWaiting || settle || draw.atlasRefilling();
 }
 
 void Ui::begin(float width, float height, float scale)

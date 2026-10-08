@@ -97,6 +97,8 @@ public:
     // True if what's recorded since begin differs from what the last flush
     // drew, custom draws' versions included (a version 0 always differs).
     bool changed() const;
+    // Some glyphs didn't fit this frame: draw another, which has room.
+    bool atlasRefilling() const { return atlasFull; }
 
 private:
     struct Instance
@@ -175,6 +177,7 @@ private:
     std::deque<Font> fonts; // a deque, so each info's pointer into data stays put
     std::unordered_map<uint64_t, Glyph> glyphs; // pixel size << 48 | phase << 44 | font << 32 | codepoint
     int penX = 4, penY = 4, rowHeight = 0; // where the next glyph goes in the atlas
+    bool atlasFull = false;                // some glyphs didn't fit: begin() empties it
 };
 
 }

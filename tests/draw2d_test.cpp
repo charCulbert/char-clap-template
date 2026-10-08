@@ -268,6 +268,17 @@ int main(int argc, char **argv)
         CHECK(draw.measure(12, "Hello") * 2 == draw.measure(24, "Hello"));
         CHECK(draw.measure(20, "\xC3\xA9") > 0 && draw.measure(20, "\xC3\xA9") < draw.measure(20, "ee")); // é is one character, not two
         CHECK(draw.measure(20, "\xE2\x86\x92") > 0); // → (Barlow lacks it): its missing glyph still takes space
+        // Thousands of different glyphs overflow the atlas; the next frame
+        // starts it again and draws its text.
+        std::string many;
+        for (uint32_t c = 0x4E00; c < 0x4E00 + 8000; ++c)
+            many += {char(0xE0 | c >> 12), char(0x80 | (c >> 6 & 0x3F)), char(0x80 | (c & 0x3F))};
+        gpu.render(draw, [&] { draw.text(4, 40, 16, many, white); });
+        CHECK(draw.atlasRefilling());
+        px = gpu.render(draw, [&] { draw.text(4, 40, 13, "Hello", white); }); // a size not baked yet
+        ink = 0;
+        for (size_t i = 0; i < px.size(); i += 4) ink += px[i] > 128;
+        CHECK(ink > 20 && !draw.atlasRefilling());
     }
 
     if (failures) std::fprintf(stderr, "%d failed\n", failures);

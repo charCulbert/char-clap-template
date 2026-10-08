@@ -399,10 +399,16 @@ const Draw2D::Glyph &Draw2D::glyph(int fontNumber, uint32_t c, int pixelSize, in
     }
     const unsigned char *pixels = sdf ? sdf : coverage.data();
     // A few texels between glyphs, so small text sampled from the big atlas
-    // never picks up a neighbour. A full atlas draws nothing for new glyphs.
+    // never picks up a neighbour. A full atlas draws nothing for new glyphs
+    // this frame and starts empty the next (see begin).
     constexpr int gap = 4;
     if (penX + w + gap > atlasSize) penX = gap, penY += rowHeight + gap, rowHeight = 0;
-    if (penY + h + gap > atlasSize) { if (sdf) stbtt_FreeSDF(sdf, nullptr); return g; }
+    if (penY + h + gap > atlasSize)
+    {
+        if (sdf) stbtt_FreeSDF(sdf, nullptr);
+        atlasFull = true;
+        return g;
+    }
     wgpu::TexelCopyTextureInfo destination;
     destination.texture = atlasTexture;
     destination.origin = {uint32_t(penX), uint32_t(penY), 0};
@@ -421,6 +427,9 @@ const Draw2D::Glyph &Draw2D::glyph(int fontNumber, uint32_t c, int pixelSize, in
 
 void Draw2D::begin(float width, float height)
 {
+    // Text at many sizes (scale changes, zooming) filled the atlas: start it
+    // again with just what this frame draws.
+    if (atlasFull) glyphs.clear(), penX = penY = 4, rowHeight = 0, atlasFull = false;
     recorded = 0;
     size[0] = width, size[1] = height;
     batch.clear();
