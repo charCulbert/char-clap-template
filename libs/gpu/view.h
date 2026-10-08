@@ -3,6 +3,8 @@
 #include "../core/messages.h"
 #include <functional>
 #include <memory>
+#include <string>
+#include <vector>
 
 // A plugin's GPU-drawn interface. The same View runs natively (gpu/gui.cpp,
 // Dawn) and in a WCLAP host's page (gpu/web/main.cpp, the browser's WebGPU).
@@ -48,6 +50,11 @@ public:
     // True while a text field has the keys, so a host that acts on keys
     // before the focused window (REAPER: Space plays) leaves them alone.
     virtual bool editingText() const { return false; }
+    // Files dragged in from elsewhere (UTF-8 paths) moving over the view, let
+    // go on it, or taken away again; pixels. Return true where files would be
+    // taken (the presenter shows a copy cursor) and when a drop was used.
+    enum class FileDrag { over, drop, leave };
+    virtual bool files(FileDrag, float /*x*/, float /*y*/, const std::vector<std::string> & /*paths*/) { return false; }
 
     // Set by the presenter: the system's light or dark appearance. It draws
     // again when this changes.
@@ -65,6 +72,10 @@ public:
     std::function<void(float width, float height)> resizeTo;
     // Set by the presenter: puts text on the clipboard (Key::copy and cut).
     std::function<void(const std::string &utf8)> copyText;
+    // Set by the presenter where it can (natively): drags files out of the
+    // view, to the desktop or a host's track. Call while the pointer is held;
+    // the drag has the pointer until it's let go.
+    std::function<void(const std::vector<std::string> &paths)> dragFiles;
 };
 
 // Implemented by the plugin's interface code (e.g. ui/AnalyzerView.cpp).

@@ -81,6 +81,7 @@ public:
     std::function<void(bool)> lockPointer;      // View::lockPointer: knob and slider drags lock the pointer
     std::function<void(float, float)> resizeTo; // View::resizeTo: for resizeGrip
     std::function<void(const std::string &)> copyText; // View::copyText: for copy and cut in text fields
+    std::function<void(const std::vector<std::string> &)> dragFiles; // View::dragFiles: for dragSource
 
     void pointer(const View::PointerEvent &event);
     bool key(View::Key key, unsigned modifiers);
@@ -90,6 +91,8 @@ public:
     // True while a control is held: an edit isn't finished until it's let go.
     bool dragging() const { return active != nullptr; }
     bool editingText() const { return editing != 0; }
+    // View::files: true over a dropTarget declared last frame.
+    bool files(View::FileDrag type, float x, float y, const std::vector<std::string> &paths);
 
     // Starts a frame of controls and its layout; the canvas in pixels.
     void begin(float width, float height, float scale);
@@ -115,6 +118,14 @@ public:
     // Edits text; returns true when the edit is committed (Enter, or a click
     // elsewhere). Escape abandons it.
     bool textField(std::string &value, float widthPoints = 120, int index = 0);
+    // Takes files dropped on the element: true when some land on it, with
+    // their paths in `files`. fileOver: files are being dragged over it.
+    bool dropTarget(Clay_ElementId id, std::vector<std::string> &files);
+    bool fileOver(Clay_ElementId id) const;
+    // Drags files out of the element: once a press on it moves 4 points,
+    // `make` is called for the files (so it can write them then) and the
+    // presenter drags them. Natively only; elsewhere nothing happens.
+    void dragSource(Clay_ElementId id, const std::function<std::vector<std::string>()> &make);
     // Shows text near the control declared just before, after a moment's hover.
     void tooltip(const char *text);
     // Drag up or down to change, Shift for fine; double-click to type a value.
@@ -267,6 +278,16 @@ private:
     uint32_t numberDrag = 0;    // the number box being dragged
     int lastStep = -1;          // the step painted last in a drag
     std::vector<const void *> changedNow, changedLast; // envelopes and steps (by their data) changed in this end() and the last
+    struct
+    {
+        bool over = false, dropped = false; // being dragged over us, or let go this frame
+        float x = 0, y = 0;                 // pixels
+        std::vector<std::string> paths;
+    } incoming;                                    // files dragged in from elsewhere
+    std::vector<uint32_t> dropTargets, dropTargetsNow; // declared last frame, and this one
+    bool dragArmed = false;                        // a press on a dragSource that hasn't moved far yet
+    float dragFromX = 0, dragFromY = 0;
+    bool inside(Clay_ElementId id, float x, float y) const; // in last frame's box; pixels
     uint32_t editing = 0;       // the text field being edited, or 0
     std::string draft;          // its text while editing
     size_t caret = 0;           // byte offsets in draft: the caret, and the selection

@@ -456,6 +456,52 @@ static void textFieldShortcuts()
     CHECK(value == "abc");
 }
 
+// Files dragged in land on the box under them; a press on a source that
+// moves past 4 points drags its files out, once.
+static void fileDrags()
+{
+    Ui ui;
+    std::vector<std::string> dropped, out;
+    int made = 0;
+    ui.dragFiles = [&](const std::vector<std::string> &paths) { out = paths; };
+    auto draw = [&] {
+        frame(ui, [&] {
+            const Clay_ElementId target = CLAY_ID("Target"), source = CLAY_ID("Source");
+            ui.dropTarget(target, dropped);
+            CLAY({.id = target, .layout = {.sizing = {CLAY_SIZING_FIXED(100), CLAY_SIZING_FIXED(40)}}}) {}
+            ui.dragSource(source, [&] { ++made; return std::vector<std::string>{"/tmp/a.wav"}; });
+            CLAY({.id = source, .layout = {.sizing = {CLAY_SIZING_FIXED(40), CLAY_SIZING_FIXED(40)}}}) {}
+        });
+    };
+    draw();
+    draw(); // the target is known from the frame before
+    const Clay_BoundingBox t = box("Target"), src = box("Source");
+    CHECK(!ui.files(View::FileDrag::over, t.x + t.width + 50, 300, {"/x.txt"})); // over nothing
+    CHECK(ui.files(View::FileDrag::over, t.x + 10, t.y + 10, {"/x.txt"}));
+    draw();
+    CHECK(dropped.empty() && ui.fileOver(CLAY_ID("Target")));
+    CHECK(ui.files(View::FileDrag::drop, t.x + 10, t.y + 10, {"/x.txt", "/y.txt"}));
+    draw();
+    CHECK(dropped.size() == 2 && dropped[1] == "/y.txt");
+    dropped.clear();
+    draw();
+    CHECK(dropped.empty()); // a drop is seen by one frame
+    pointer(ui, View::Pointer::move, src.x + 5, src.y + 5);
+    draw();
+    pointer(ui, View::Pointer::down, src.x + 5, src.y + 5);
+    draw();
+    pointer(ui, View::Pointer::move, src.x + 7, src.y + 5);
+    draw();
+    CHECK(out.empty()); // not far enough yet
+    pointer(ui, View::Pointer::move, src.x + 30, src.y + 5);
+    draw();
+    pointer(ui, View::Pointer::move, src.x + 60, src.y + 5);
+    draw();
+    CHECK(out.size() == 1 && made == 1);
+    pointer(ui, View::Pointer::up, src.x + 60, src.y + 5);
+    draw();
+}
+
 int main()
 {
     layoutSizes();
@@ -466,6 +512,7 @@ int main()
     knobDragAndKeys();
     textFieldEdits();
     textFieldShortcuts();
+    fileDrags();
     pianoNotes();
     editors();
     for (uint32_t seed = 1; seed <= 4 && !failures; ++seed) randomInput(seed);

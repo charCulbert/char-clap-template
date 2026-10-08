@@ -5,12 +5,13 @@
 
 // An NSView backed by a CAMetalLayer, added to the host's view. It forwards the
 // mouse and keys and runs a 60 Hz timer on the main run loop to draw frames.
-@interface GpuView : NSView
+@interface GpuView : NSView <NSDraggingSource>
 @property(nonatomic) gpu::platform::Callbacks *callbacks;
 @property(nonatomic) BOOL locked;
 - (BOOL)handleKey:(NSEvent *)event;
 - (void)edit:(gpu::View::Key)key;
 - (void)paste;
+- (void)dragFiles:(const std::vector<std::string> &)paths;
 @end
 
 // Takes the keys while a text field is edited (see textInput) and gives them
@@ -34,6 +35,7 @@
 @implementation GpuView
 {
     NSPoint _position; // pixels; keeps moving while the pointer is locked
+    NSEvent *_lastMouse; // the press or drag a drag of files out starts from
 }
 - (BOOL)isFlipped { return YES; } // top-left origin, like the shader
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
@@ -74,6 +76,7 @@ static unsigned modifiers(NSEvent *event)
 
 - (void)send:(gpu::View::Pointer)type event:(NSEvent *)event
 {
+    if (type == gpu::View::Pointer::down || type == gpu::View::Pointer::move) _lastMouse = event;
     const CGFloat scale = self.layer.contentsScale;
     if (_locked && type == gpu::View::Pointer::move)
     {
@@ -87,6 +90,53 @@ static unsigned modifiers(NSEvent *event)
         _position = NSMakePoint(p.x * scale, p.y * scale);
     }
     if (_callbacks) _callbacks->pointer({type, float(_position.x), float(_position.y), modifiers(event)});
+}
+// Files dragged in: their paths, and where they are in pixels.
+- (NSDragOperation)files:(gpu::View::FileDrag)type info:(id<NSDraggingInfo>)info
+{
+    if (!_callbacks) return NSDragOperationNone;
+    std::vector<std::string> paths;
+    for (NSURL *url in [info.draggingPasteboard readObjectsForClasses:@[ NSURL.class ]
+                                                              options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}])
+        paths.push_back(url.fileSystemRepresentation);
+    const NSPoint p = [self convertPoint:info.draggingLocation fromView:nil];
+    const CGFloat scale = self.layer.contentsScale;
+    return _callbacks->files(type, float(p.x * scale), float(p.y * scale), paths) ? NSDragOperationCopy : NSDragOperationNone;
+}
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info { return [self files:gpu::View::FileDrag::over info:info]; }
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info { return [self files:gpu::View::FileDrag::over info:info]; }
+- (void)draggingExited:(id<NSDraggingInfo>)info
+{
+    if (_callbacks) _callbacks->files(gpu::View::FileDrag::leave, 0, 0, {});
+}
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)info
+{
+    return [self files:gpu::View::FileDrag::drop info:info] != NSDragOperationNone;
+}
+// Files dragged out, each with its Finder icon under the pointer.
+- (void)dragFiles:(const std::vector<std::string> &)paths
+{
+    if (!_lastMouse) return;
+    const NSPoint at = [self convertPoint:_lastMouse.locationInWindow fromView:nil];
+    NSMutableArray<NSDraggingItem *> *items = [NSMutableArray array];
+    for (const std::string &path : paths)
+    {
+        NSString *file = [NSString stringWithUTF8String:path.c_str()];
+        if (!file) continue;
+        NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:[NSURL fileURLWithPath:file]];
+        [item setDraggingFrame:NSMakeRect(at.x - 16, at.y - 16, 32, 32) contents:[NSWorkspace.sharedWorkspace iconForFile:file]];
+        [items addObject:item];
+    }
+    if (items.count) [self beginDraggingSessionWithItems:items event:_lastMouse source:self];
+}
+- (NSDragOperation)draggingSession:(NSDraggingSession *)session sourceOperationMaskForDraggingContext:(NSDraggingContext)context
+{
+    return NSDragOperationCopy;
+}
+// The drag had the mouse, so the view never saw it let go.
+- (void)draggingSession:(NSDraggingSession *)session endedAtPoint:(NSPoint)point operation:(NSDragOperation)operation
+{
+    if (_callbacks) _callbacks->pointer({gpu::View::Pointer::up, float(_position.x), float(_position.y), 0});
 }
 - (void)mouseDown:(NSEvent *)event
 {
@@ -203,6 +253,7 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     window->view.wantsLayer = YES;
     window->view.callbacks = &window->callbacks;
     window->view.layer.contentsScale = host.window ? host.window.backingScaleFactor : 1.0;
+    [window->view registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
     [host addSubview:window->view];
     window->keys = [[GpuKeys alloc] initWithFrame:NSMakeRect(0, 0, 1, 1)];
     window->keys.target = window->view;
@@ -261,6 +312,8 @@ float scale(Window *window) { return float(window ? window->view.layer.contentsS
 void setVisible(Window *window, bool visible) { [window->view setHidden:!visible]; }
 
 void pumpEvents(Window *) {}
+
+void dragFiles(Window *window, const std::vector<std::string> &paths) { [window->view dragFiles:paths]; }
 
 // While a field is edited, an invisible NSTextView holds the keyboard: hosts
 // that act on keys before the focused view (REAPER plays on Space) leave a

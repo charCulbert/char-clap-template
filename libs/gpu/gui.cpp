@@ -124,6 +124,7 @@ bool Gui::create(const char *api, bool floating)
     };
     view->lockPointer = [this](bool locked) { if (window) platform::lockPointer(window, locked); };
     view->copyText = [this](const std::string &utf8) { if (window) platform::copyText(window, utf8); };
+    view->dragFiles = [this](const std::vector<std::string> &paths) { if (window) platform::dragFiles(window, paths); };
     if (hostGui && pluginGui)
         view->resizeTo = [this](float w, float h) {
             // The view measures in pixels; clap.gui in points on macOS.
@@ -157,6 +158,10 @@ bool Gui::setParent(const clap_window_t *parent)
         [this](const View::PointerEvent &event) { if (view) view->pointer(event), dirty = true; },
         [this](View::Key key, unsigned modifiers) { dirty = true; return view && view->key(key, modifiers); },
         [this](const char *utf8) { dirty = true; return view && view->text(utf8); },
+        [this](View::FileDrag type, float x, float y, const std::vector<std::string> &paths) {
+            dirty = true;
+            return view && view->files(type, x, y, paths);
+        },
     });
     if (!window) return false;
     context->surface = platform::createSurface(context->instance, window);

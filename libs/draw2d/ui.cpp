@@ -164,6 +164,48 @@ bool Ui::text(const char *utf8)
     return true;
 }
 
+bool Ui::files(View::FileDrag type, float x, float y, const std::vector<std::string> &paths)
+{
+    if (type == View::FileDrag::leave)
+    {
+        incoming = {};
+        return false;
+    }
+    incoming = {type == View::FileDrag::over, type == View::FileDrag::drop, x, y, paths};
+    return std::any_of(dropTargets.begin(), dropTargets.end(),
+                       [&](uint32_t id) { return inside({id, 0, 0, {}}, x, y); });
+}
+
+bool Ui::inside(Clay_ElementId id, float x, float y) const
+{
+    const Clay_ElementData data = Clay_GetElementData(id);
+    const Clay_BoundingBox &b = data.boundingBox;
+    return data.found && x / s >= b.x && x / s < b.x + b.width && y / s >= b.y && y / s < b.y + b.height;
+}
+
+bool Ui::dropTarget(Clay_ElementId id, std::vector<std::string> &files)
+{
+    dropTargetsNow.push_back(id.id);
+    if (!incoming.dropped || !inside(id, incoming.x, incoming.y)) return false;
+    files = incoming.paths;
+    return true;
+}
+
+bool Ui::fileOver(Clay_ElementId id) const { return incoming.over && inside(id, incoming.x, incoming.y); }
+
+void Ui::dragSource(Clay_ElementId id, const std::function<std::vector<std::string>()> &make)
+{
+    const Area a = element(id);
+    if (a.pressed) dragArmed = true, dragFromX = mouse.x, dragFromY = mouse.y;
+    if (a.held && dragArmed && dragFiles && std::hypot(mouse.x - dragFromX, mouse.y - dragFromY) > 4 * s)
+    {
+        dragArmed = false;
+        const std::vector<std::string> paths = make();
+        if (!paths.empty()) dragFiles(paths);
+    }
+    if (!a.held) dragArmed = false;
+}
+
 bool Ui::animating() const
 {
     // Controls declared before a click was handled drew the old state, and
@@ -221,6 +263,9 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
     grip = {};
     changedLast.swap(changedNow);
     changedNow.clear();
+    dropTargets.swap(dropTargetsNow);
+    dropTargetsNow.clear();
+    incoming.dropped = false; // seen by this frame's dropTarget
     if (!menuSeen) openMenu = 0; // its dropdown is gone
     for (auto [key, modifiers] : keys)
     {

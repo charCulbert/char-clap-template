@@ -5,7 +5,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -60,6 +63,7 @@ public:
         params.send = send;
         ui.lockPointer = lockPointer;
         ui.copyText = copyText;
+        ui.dragFiles = dragFiles;
         ui.resizeTo = resizeTo;
         send(core::Value::Map{{"type", "ready"}});
     }
@@ -74,6 +78,7 @@ public:
     bool text(const char *utf8) override { return ui.text(utf8); }
     bool animating() const override { return ui.animating() || page == 4; } // the meters move
     bool editingText() const override { return ui.editingText(); }
+    bool files(FileDrag type, float x, float y, const std::vector<std::string> &paths) override { return ui.files(type, x, y, paths); }
 
     // The frame is built in record, so the presenter can skip one that looks
     // like the last (most pointer moves); draw only flushes it.
@@ -312,6 +317,22 @@ private:
         });
     }
 
+    // A second of 440 Hz at -18 dB, as a 16-bit WAV in the temp folder: what
+    // the chip drags out.
+    static std::string writeTone()
+    {
+        const uint32_t rate = 48000, bytes = rate * 2;
+        std::vector<int16_t> samples(rate);
+        for (uint32_t i = 0; i < rate; ++i) samples[i] = int16_t(std::lround(4096 * std::sin(6.283185307179586 * 440 * i / rate)));
+        const std::filesystem::path path = std::filesystem::temp_directory_path() / "GUI Gallery tone.wav";
+        std::ofstream out(path, std::ios::binary);
+        auto u32 = [&](uint32_t v) { out.write(reinterpret_cast<const char *>(&v), 4); }; // little-endian hosts
+        auto u16 = [&](uint16_t v) { out.write(reinterpret_cast<const char *>(&v), 2); };
+        out.write("RIFF", 4), u32(36 + bytes), out.write("WAVEfmt ", 8), u32(16), u16(1), u16(1), u32(rate), u32(rate * 2), u16(2), u16(16);
+        out.write("data", 4), u32(bytes), out.write(reinterpret_cast<const char *>(samples.data()), bytes);
+        return out ? path.string() : std::string();
+    }
+
     void layoutPage()
     {
         row([&] {
@@ -348,6 +369,32 @@ private:
                 const auto notes = ui.piano(48, 83, 56, [&](int n) { return n == 60 || n == held; });
                 if (notes.on >= 0) held = notes.on;
                 if (notes.off >= 0 && notes.off == held) held = -1;
+            });
+            cell("Files: drop some on the box; drag the chip out (a 1 s tone)", [&] {
+                const Clay_ElementId box = CLAY_ID("DropBox"), chip = CLAY_ID("ToneChip");
+                std::vector<std::string> paths;
+                if (ui.dropTarget(box, paths))
+                {
+                    dropped.clear();
+                    for (const std::string &path : paths) dropped += (dropped.empty() ? "" : ", ") + std::filesystem::path(path).filename().string();
+                }
+                CLAY({.id = box, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(40)}, .padding = {8, 8, 0, 0},
+                                            .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
+                      .backgroundColor = gpu::clayColor(ui.theme.background), .cornerRadius = CLAY_CORNER_RADIUS(ui.theme.radius),
+                      .clip = {.horizontal = true},
+                      .border = {.color = gpu::clayColor(ui.fileOver(box) ? ui.theme.accent : ui.theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+                {
+                    label(dropped.empty() ? "Drop files here" : dropped.c_str(), dropped.empty() ? ui.theme.dim : ui.theme.text);
+                }
+                ui.dragSource(chip, [] {
+                    const std::string tone = writeTone();
+                    return tone.empty() ? std::vector<std::string>{} : std::vector<std::string>{tone};
+                });
+                CLAY({.id = chip, .layout = {.padding = {8, 8, 6, 6}}, .backgroundColor = gpu::clayColor(ui.theme.accent),
+                      .cornerRadius = CLAY_CORNER_RADIUS(ui.theme.radius)})
+                {
+                    label("tone.wav", ui.theme.background);
+                }
             });
             cell("Grow, fit and fixed sizes share a row", [&] {
                 CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(40), CLAY_SIZING_FIXED(40)}}, .backgroundColor = gpu::clayColor(ui.theme.accent)}) {}
@@ -556,6 +603,7 @@ private:
         }
     }
 
+    std::string dropped; // names of the files last dropped on the box
     int page = 0, themeMode = 0, keys = 0, mode = 0, shape = 0, clicks = 0, edits = 0, mono = 0, wheel = -1, strip = -1, speaker = -1;
     int held = -1; // the piano note held down
     std::vector<gpu::Ui::Point> envelope = {{0, 0}, {0.08f, 1}, {0.3f, 0.6f}, {0.8f, 0.6f}, {1, 0}};

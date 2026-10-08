@@ -19,6 +19,7 @@ struct Callbacks
     std::function<void(const View::PointerEvent &)> pointer;
     std::function<bool(View::Key, unsigned modifiers)> key; // true if used
     std::function<bool(const char *utf8)> text;             // true if used
+    std::function<bool(View::FileDrag, float x, float y, const std::vector<std::string> &paths)> files; // View::files
 };
 
 Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Callbacks callbacks);
@@ -33,5 +34,6 @@ void lockPointer(Window *window, bool locked); // see View::lockPointer
 bool darkMode(Window *window); // the system's (or host window's) appearance; polled about once a second
 void copyText(Window *window, const std::string &utf8); // to the clipboard: View::copyText
 void textInput(Window *window, bool editing); // a text field has the keys: see View::editingText
+void dragFiles(Window *window, const std::vector<std::string> &paths); // View::dragFiles, during a press
 
 }

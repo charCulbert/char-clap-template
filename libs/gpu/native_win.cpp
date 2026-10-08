@@ -77,6 +77,8 @@ static std::string clipboardText(HWND hwnd)
 
 void textInput(Window *, bool) {}
 
+void dragFiles(Window *, const std::vector<std::string> &) {}
+
 void copyText(Window *window, const std::string &utf8)
 {
     const int size = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);

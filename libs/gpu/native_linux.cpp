@@ -155,6 +155,8 @@ static unsigned modifiers(unsigned state)
 // X11's clipboard is a conversation: the owner answers each request for it.
 void textInput(Window *, bool) {}
 
+void dragFiles(Window *, const std::vector<std::string> &) {}
+
 void copyText(Window *window, const std::string &utf8)
 {
     window->clipboard = utf8;
