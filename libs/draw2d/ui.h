@@ -4,7 +4,9 @@
 #include "../gpu/params.h"
 #include "../gpu/view.h"
 #include <chrono>
+#include <cmath>
 #include <deque>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -63,14 +65,19 @@ struct Theme
     }
 };
 
+struct TextEdit; // stb_textedit's state, in ui.cpp
+
 class Ui
 {
 public:
+    Ui();
+    ~Ui();
     Draw2D draw;
     Layout layout;
     Theme theme;
     std::function<void(bool)> lockPointer;      // View::lockPointer: knob and slider drags lock the pointer
     std::function<void(float, float)> resizeTo; // View::resizeTo: for resizeGrip
+    std::function<void(const std::string &)> copyText; // View::copyText: for copy and cut in text fields
 
     void pointer(const View::PointerEvent &event);
     bool key(View::Key key, unsigned modifiers);
@@ -210,10 +217,12 @@ private:
     void drawGrip();
     Rect grip{}; // resizeGrip's view size this frame
     Clay_TextElementConfig *textConfig(Color color, int font = -1);
-    bool editKeys(uint32_t field, std::string &value, bool overField);
+    // textX: where the field's text starts, in points, for placing the caret
+    // with the pointer; NaN where the text isn't left-aligned.
+    bool editKeys(uint32_t field, std::string &value, bool overField, float textX = NAN);
     static std::string plainNumber(double value);
     bool valueEntry(Params &params, Param &p, const void *id, Rect r, Draw2D::Align align);
-    void startEditing(uint32_t field, std::string text);
+    void startEditing(uint32_t field, std::string text, bool selectAll = false);
     void fieldText(const std::string &shown, bool edit);
     Clay_ElementId id(const char *kind, int index);
 
@@ -235,7 +244,7 @@ private:
     const void *focus = nullptr; // the control keys go to
     bool focusVisible = false;   // after a key, until the next click
     std::vector<std::pair<View::Key, unsigned>> keys; // this frame's
-    struct Edit { std::string text; View::Key key; };  // typed text, or else a key
+    struct Edit { std::string text; View::Key key; unsigned modifiers; }; // typed text, or else a key
     std::vector<Edit> edits;                          // this frame's, for the text field
     std::vector<const void *> order;                  // controls in drawing order, for Tab
 
@@ -256,7 +265,9 @@ private:
     std::vector<const void *> changedNow, changedLast; // envelopes and steps (by their data) changed in this end() and the last
     uint32_t editing = 0;       // the text field being edited, or 0
     std::string draft;          // its text while editing
-    size_t caret = 0;           // byte offset in draft
+    size_t caret = 0;           // byte offsets in draft: the caret, and the selection
+    size_t selectFrom = 0, selectTo = 0;
+    std::unique_ptr<TextEdit> textEdit;
     uint32_t pendingField = 0;  // a field left by clicking another, and its edit
     std::string pendingDraft;
 };

@@ -23,7 +23,10 @@ public:
         float wheel = 0;        // for Pointer::wheel: notches, positive away from the user
     };
     // The keys controls and text fields use; other keys go back to the host.
-    enum class Key { left, right, up, down, pageUp, pageDown, home, end, tab, enter, escape, backspace, deleteForward };
+    // The last five are the platform's shortcuts for them (Cmd or Ctrl + Z,
+    // Shift+Z or Y, A, X, C). Paste comes as text().
+    enum class Key { left, right, up, down, pageUp, pageDown, home, end, tab, enter, escape, backspace, deleteForward,
+                     undo, redo, selectAll, cut, copy };
 
     virtual ~View() = default;
     virtual void prepare(const wgpu::Device &device, wgpu::TextureFormat format) = 0;
@@ -57,6 +60,8 @@ public:
     // not in WCLAP pages): pixels, as draw() gets them. The plugin's
     // clap.gui.adjust_size limits it, and the host resizes the window.
     std::function<void(float width, float height)> resizeTo;
+    // Set by the presenter: puts text on the clipboard (Key::copy and cut).
+    std::function<void(const std::string &utf8)> copyText;
 };
 
 // Implemented by the plugin's interface code (e.g. ui/AnalyzerView.cpp).

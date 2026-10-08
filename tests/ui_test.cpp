@@ -239,7 +239,8 @@ static void textFieldEdits()
     CHECK(value == "xy" && commits == 1);
     // Text and keys apply in the order they came, and Backspace removes a
     // whole character (two bytes here).
-    clickAt(ui, box("TextField"), draw);
+    clickAt(ui, box("TextField"), draw); // soon after the last click: a double-click, which selects all
+    ui.key(View::Key::end, 0);
     ui.text("é");
     ui.key(View::Key::backspace, 0);
     ui.key(View::Key::enter, 0);
@@ -247,6 +248,7 @@ static void textFieldEdits()
     CHECK(value == "xy" && commits == 1); // unchanged, so not a commit
     // Escape drops the edit.
     clickAt(ui, box("TextField"), draw);
+    ui.key(View::Key::end, 0);
     ui.text("q");
     ui.key(View::Key::escape, 0);
     draw();
@@ -391,7 +393,7 @@ static void randomInput(uint32_t seed)
         else if (kind < 10 && down) down = false, ui.pointer({View::Pointer::up, x, y});
         else if (kind == 10) ui.pointer({View::Pointer::wheel, x, y, 0, float(int(next() % 7) - 3)});
         else if (kind == 11) ui.pointer({View::Pointer::leave, x, y});
-        else if (kind < 14) ui.key(View::Key(next() % 13), next() % 2 ? View::shift : 0u);
+        else if (kind < 14) ui.key(View::Key(next() % (int(View::Key::copy) + 1)), next() % 4);
         else ui.text(texts[next() % std::size(texts)]);
         if (next() % 3 == 0) draw();
 
@@ -415,6 +417,37 @@ static void randomInput(uint32_t seed)
     for (int n : open) CHECK(n == 0);
 }
 
+// Selection, word moves, undo and the clipboard inside a field (stb_textedit).
+// With no fonts in this test, text has no width, so only keys move the caret.
+static void textFieldShortcuts()
+{
+    Ui ui;
+    std::string value = "hello world", copied;
+    ui.copyText = [&](const std::string &text) { copied = text; };
+    auto draw = [&] { frame(ui, [&] { ui.textField(value, 100); }); };
+    draw();
+    CHECK(!ui.key(View::Key::undo, View::command)); // not editing: the host's undo
+    clickAt(ui, box("TextField"), draw);
+    ui.key(View::Key::end, 0);
+    ui.key(View::Key::left, View::shift | View::alt); // select the last word
+    ui.key(View::Key::copy, View::command);
+    ui.text("there"); // replaces the selection
+    draw();
+    CHECK(copied == "world");
+    ui.key(View::Key::undo, View::command); // the typing
+    ui.key(View::Key::undo, View::command); // the selection it replaced
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(value == "hello world");
+    clickAt(ui, box("TextField"), draw);
+    ui.key(View::Key::selectAll, View::command);
+    ui.key(View::Key::cut, View::command);
+    ui.text("a\nb"); // pasted: one line
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(copied == "hello world" && value == "ab");
+}
+
 int main()
 {
     layoutSizes();
@@ -424,6 +457,7 @@ int main()
     keyboardFocus();
     knobDragAndKeys();
     textFieldEdits();
+    textFieldShortcuts();
     pianoNotes();
     editors();
     for (uint32_t seed = 1; seed <= 4 && !failures; ++seed) randomInput(seed);
