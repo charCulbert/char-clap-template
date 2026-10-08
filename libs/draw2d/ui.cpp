@@ -65,7 +65,20 @@ struct TextEdit
     TextBuffer buffer;
     STB_TexteditState state;
     bool selecting = false; // a press in the field is dragging out a selection
+    int typing = -1;        // the undo record a run of typing started, so the run undoes as one step
 };
+
+// Folds the undo records from `first` on into one, while each continues where the last ended.
+static void joinUndo(StbUndoState &u, int first)
+{
+    while (first >= 0 && u.undo_point - 1 > first)
+    {
+        StbUndoRecord &a = u.undo_rec[u.undo_point - 2], &b = u.undo_rec[u.undo_point - 1];
+        if (b.insert_length != 0 || a.where + a.delete_length != b.where) return;
+        a.delete_length += b.delete_length;
+        --u.undo_point;
+    }
+}
 
 Ui::Ui() : textEdit(std::make_unique<TextEdit>()) {}
 Ui::~Ui() = default;
@@ -648,6 +661,7 @@ bool Ui::editKeys(uint32_t field, std::string &value, bool overField, float text
         if (mouse.pressed && mouse.doubleClicked) // the whole text, as a word would be one in a short field
             t.state.select_start = 0, t.state.select_end = t.state.cursor = int(b.text.size()), t.selecting = false;
         else if (mouse.pressed) stb_textedit_click(&b, &t.state, x, 0), t.selecting = true;
+        if (mouse.pressed) t.typing = -1;
         else if (mouse.down && t.selecting) stb_textedit_drag(&b, &t.state, x, 0);
         if (!mouse.down) t.selecting = false;
     }
@@ -658,9 +672,14 @@ bool Ui::editKeys(uint32_t field, std::string &value, bool overField, float text
         {
             std::u32string typed = toCodepoints(text);
             std::erase_if(typed, [](char32_t c) { return c < 0x20 || c == 0x7F; }); // one line
-            if (!typed.empty()) stb_textedit_paste(&b, &t.state, typed.data(), int(typed.size()));
+            if (typed.empty()) continue;
+            const int before = t.state.undostate.undo_point;
+            if (t.typing < 0 || t.typing >= before) t.typing = before;
+            stb_textedit_paste(&b, &t.state, typed.data(), int(typed.size()));
+            joinUndo(t.state.undostate, t.typing);
             continue;
         }
+        t.typing = -1;
         const int shift = modifiers & View::shift ? STB_TEXTEDIT_K_SHIFT : 0;
         const bool word = modifiers & (View::alt | View::control), line = modifiers & View::command;
         switch (key)
@@ -703,6 +722,7 @@ void Ui::startEditing(uint32_t field, std::string text, bool selectAll)
     editing = field, draft = std::move(text), focus = nullptr;
     TextEdit &t = *textEdit;
     t.buffer.text = toCodepoints(draft);
+    t.typing = -1;
     stb_textedit_initialize_state(&t.state, 1);
     const int length = int(t.buffer.text.size());
     t.state.cursor = length;

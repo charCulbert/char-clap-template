@@ -431,11 +431,10 @@ static void textFieldShortcuts()
     ui.key(View::Key::end, 0);
     ui.key(View::Key::left, View::shift | View::alt); // select the last word
     ui.key(View::Key::copy, View::command);
-    ui.text("there"); // replaces the selection
+    for (const char *c : {"t", "h", "e", "r", "e"}) ui.text(c); // one key at a time, replacing the selection
     draw();
     CHECK(copied == "world");
-    ui.key(View::Key::undo, View::command); // the typing
-    ui.key(View::Key::undo, View::command); // the selection it replaced
+    ui.key(View::Key::undo, View::command); // the whole run, and the selection it replaced
     ui.key(View::Key::enter, 0);
     draw();
     CHECK(value == "hello world");
@@ -446,6 +445,15 @@ static void textFieldShortcuts()
     ui.key(View::Key::enter, 0);
     draw();
     CHECK(copied == "hello world" && value == "ab");
+    clickAt(ui, box("TextField"), draw);
+    ui.key(View::Key::end, 0);
+    ui.text("c");
+    ui.key(View::Key::left, 0); // moving the caret ends the run
+    ui.text("d");
+    ui.key(View::Key::undo, View::command);
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(value == "abc");
 }
 
 int main()
