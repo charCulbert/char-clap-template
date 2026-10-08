@@ -45,6 +45,9 @@ public:
     // Presenters draw only after input, a message or a resize, plus every
     // frame while this is true (e.g. during an animation).
     virtual bool animating() const { return false; }
+    // True while a text field has the keys, so a host that acts on keys
+    // before the focused window (REAPER: Space plays) leaves them alone.
+    virtual bool editingText() const { return false; }
 
     // Set by the presenter: the system's light or dark appearance. It draws
     // again when this changes.

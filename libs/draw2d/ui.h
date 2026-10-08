@@ -89,6 +89,7 @@ public:
     bool animating() const;
     // True while a control is held: an edit isn't finished until it's let go.
     bool dragging() const { return active != nullptr; }
+    bool editingText() const { return editing != 0; }
 
     // Starts a frame of controls and its layout; the canvas in pixels.
     void begin(float width, float height, float scale);

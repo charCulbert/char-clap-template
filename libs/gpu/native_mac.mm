@@ -8,6 +8,27 @@
 @interface GpuView : NSView
 @property(nonatomic) gpu::platform::Callbacks *callbacks;
 @property(nonatomic) BOOL locked;
+- (BOOL)handleKey:(NSEvent *)event;
+- (void)edit:(gpu::View::Key)key;
+- (void)paste;
+@end
+
+// Takes the keys while a text field is edited (see textInput) and gives them
+// all to the GpuView, so nothing is typed into the text view itself.
+@interface GpuKeys : NSTextView
+@property(nonatomic, weak) GpuView *target;
+@end
+
+@implementation GpuKeys
+- (void)keyDown:(NSEvent *)event { [self.target keyDown:event]; }
+- (BOOL)performKeyEquivalent:(NSEvent *)event { return [self.target handleKey:event]; }
+// The Edit menu's actions, which hosts send a text view for Cmd+C, X, V and A.
+- (void)copy:(id)sender { [self.target edit:gpu::View::Key::copy]; }
+- (void)cut:(id)sender { [self.target edit:gpu::View::Key::cut]; }
+- (void)paste:(id)sender { [self.target paste]; }
+- (void)selectAll:(id)sender { [self.target edit:gpu::View::Key::selectAll]; }
+- (void)undo:(id)sender { [self.target edit:gpu::View::Key::undo]; }
+- (void)redo:(id)sender { [self.target edit:gpu::View::Key::redo]; }
 @end
 
 @implementation GpuView
@@ -83,6 +104,16 @@ static unsigned modifiers(NSEvent *event)
     const CGFloat scale = self.layer.contentsScale;
     _callbacks->pointer({gpu::View::Pointer::wheel, float(p.x * scale), float(p.y * scale), modifiers(event), float(notches)});
 }
+- (BOOL)pasted
+{
+    NSString *text = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString];
+    return _callbacks && text && _callbacks->text(text.UTF8String);
+}
+- (void)paste { [self pasted]; }
+- (void)edit:(gpu::View::Key)key
+{
+    if (_callbacks) _callbacks->key(key, gpu::View::command);
+}
 // Cmd+Z, Shift+Cmd+Z, A, X, C and V, for a text field being edited; false
 // for the rest, which go on to the host (its own undo, for one).
 - (BOOL)shortcut:(NSEvent *)event
@@ -92,11 +123,7 @@ static unsigned modifiers(NSEvent *event)
     const NSEventModifierFlags chords = NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption;
     if (!_callbacks || (flags & chords) != NSEventModifierFlagCommand) return NO;
     NSString *letter = event.charactersIgnoringModifiers.lowercaseString;
-    if ([letter isEqualToString:@"v"])
-    {
-        NSString *text = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString];
-        return text && _callbacks->text(text.UTF8String);
-    }
+    if ([letter isEqualToString:@"v"]) return [self pasted];
     std::optional<Key> key;
     if ([letter isEqualToString:@"z"]) key = flags & NSEventModifierFlagShift ? Key::redo : Key::undo;
     else if ([letter isEqualToString:@"a"]) key = Key::selectAll;
@@ -110,9 +137,11 @@ static unsigned modifiers(NSEvent *event)
     if (self.window.firstResponder == self && [self shortcut:event]) return YES;
     return [super performKeyEquivalent:event];
 }
-- (void)keyDown:(NSEvent *)event
+// Whether the view took the key: the shortcuts above, keys a focused control
+// or text field uses, and typed text while a field is edited.
+- (BOOL)handleKey:(NSEvent *)event
 {
-    if ([self shortcut:event]) return;
+    if ([self shortcut:event]) return YES;
     using Key = gpu::View::Key;
     std::optional<Key> key;
     switch (event.keyCode) // kVK_* from Carbon's Events.h
@@ -131,14 +160,17 @@ static unsigned modifiers(NSEvent *event)
     case 51: key = Key::backspace; break;
     case 117: key = Key::deleteForward; break;
     }
-    if (_callbacks && key && _callbacks->key(*key, modifiers(event))) return;
+    if (_callbacks && key && _callbacks->key(*key, modifiers(event))) return YES;
     // Typed characters, but not shortcuts or function keys (U+F700 and up).
     NSString *characters = event.characters;
     const bool typed = !key && characters.length > 0 && [characters characterAtIndex:0] >= 0x20
                     && [characters characterAtIndex:0] < 0xF700 && [characters characterAtIndex:0] != 0x7F
                     && !(event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl));
-    if (_callbacks && typed && _callbacks->text(characters.UTF8String)) return;
-    [super keyDown:event]; // up the responder chain, to the host
+    return _callbacks && typed && _callbacks->text(characters.UTF8String);
+}
+- (void)keyDown:(NSEvent *)event
+{
+    if (![self handleKey:event]) [super keyDown:event]; // up the responder chain, to the host
 }
 - (void)mouseDragged:(NSEvent *)event { [self send:gpu::View::Pointer::move event:event]; }
 - (void)mouseMoved:(NSEvent *)event { [self send:gpu::View::Pointer::move event:event]; }
@@ -157,6 +189,7 @@ const bool needsTimer = false;
 struct Window
 {
     GpuView *view;
+    GpuKeys *keys;
     NSTimer *timer;
     Callbacks callbacks;
 };
@@ -165,12 +198,16 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
 {
     NSView *host = (__bridge NSView *)parent->cocoa;
     if (!host) return nullptr;
-    auto *window = new Window{nil, nil, std::move(callbacks)};
+    auto *window = new Window{nil, nil, nil, std::move(callbacks)};
     window->view = [[GpuView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     window->view.wantsLayer = YES;
     window->view.callbacks = &window->callbacks;
     window->view.layer.contentsScale = host.window ? host.window.backingScaleFactor : 1.0;
     [host addSubview:window->view];
+    window->keys = [[GpuKeys alloc] initWithFrame:NSMakeRect(0, 0, 1, 1)];
+    window->keys.target = window->view;
+    window->keys.alphaValue = 0;
+    [window->view addSubview:window->keys];
     window->timer = [NSTimer timerWithTimeInterval:1.0 / 60.0 repeats:YES block:^(NSTimer *) {
         window->callbacks.frame();
     }];
@@ -225,7 +262,17 @@ void setVisible(Window *window, bool visible) { [window->view setHidden:!visible
 
 void pumpEvents(Window *) {}
 
-// The view's own appearance: the system's, unless the host sets its window's.
+// While a field is edited, an invisible NSTextView holds the keyboard: hosts
+// that act on keys before the focused view (REAPER plays on Space) leave a
+// system text view alone, as they would VSTGUI's and iPlug2's native fields.
+void textInput(Window *window, bool editing)
+{
+    NSWindow *host = window->view.window;
+    if (!host) return;
+    if (editing && host.firstResponder == window->view) [host makeFirstResponder:window->keys];
+    else if (!editing && host.firstResponder == window->keys) [host makeFirstResponder:window->view];
+}
+
 void copyText(Window *, const std::string &utf8)
 {
     NSString *text = [NSString stringWithUTF8String:utf8.c_str()];
@@ -234,6 +281,7 @@ void copyText(Window *, const std::string &utf8)
     [NSPasteboard.generalPasteboard setString:text forType:NSPasteboardTypeString];
 }
 
+// The view's own appearance: the system's, unless the host sets its window's.
 bool darkMode(Window *window)
 {
     NSAppearanceName name = [window->view.effectiveAppearance

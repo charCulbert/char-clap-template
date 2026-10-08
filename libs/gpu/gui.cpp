@@ -218,6 +218,7 @@ void Gui::frame()
     }
     // One more frame after a change: some swapchains (Fifo on an X server
     // without Present) show an image only once the next one is queued.
+    platform::textInput(window, view->editingText());
     if (!(dirty || trailing || view->animating())) return;
     trailing = dirty;
     dirty = false;

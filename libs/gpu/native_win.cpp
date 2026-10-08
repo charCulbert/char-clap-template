@@ -75,6 +75,8 @@ static std::string clipboardText(HWND hwnd)
     return text;
 }
 
+void textInput(Window *, bool) {}
+
 void copyText(Window *window, const std::string &utf8)
 {
     const int size = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);

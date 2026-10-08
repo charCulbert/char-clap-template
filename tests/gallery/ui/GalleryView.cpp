@@ -73,6 +73,7 @@ public:
     bool key(Key key, unsigned modifiers) override { return ui.key(key, modifiers); }
     bool text(const char *utf8) override { return ui.text(utf8); }
     bool animating() const override { return ui.animating() || page == 4; } // the meters move
+    bool editingText() const override { return ui.editingText(); }
 
     // The frame is built in record, so the presenter can skip one that looks
     // like the last (most pointer moves); draw only flushes it.

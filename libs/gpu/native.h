@@ -32,5 +32,6 @@ void pumpEvents(Window *window); // only where needsTimer
 void lockPointer(Window *window, bool locked); // see View::lockPointer
 bool darkMode(Window *window); // the system's (or host window's) appearance; polled about once a second
 void copyText(Window *window, const std::string &utf8); // to the clipboard: View::copyText
+void textInput(Window *window, bool editing); // a text field has the keys: see View::editingText
 
 }
