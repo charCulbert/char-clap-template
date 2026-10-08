@@ -322,20 +322,41 @@ Clay_TextElementConfig *Ui::textConfig(Color color, int font)
                                          .fontSize = uint16_t(theme.textSize), .wrapMode = CLAY_TEXT_WRAP_NONE});
 }
 
+// Puts a Clay control in the Tab order and gives it focus when clicked;
+// returns the keys it gets this frame, if it has focus.
+std::vector<View::Key> Ui::focusable(Clay_ElementId element, const Area &a)
+{
+    const void *me = reinterpret_cast<const void *>(uintptr_t(element.id));
+    order.push_back(me);
+    if (a.pressed) focus = me;
+    std::vector<View::Key> mine;
+    if (focus == me)
+        for (auto [key, modifiers] : keys)
+            if (key != View::Key::tab) mine.push_back(key);
+    return mine;
+}
+
+bool Ui::focusShown(Clay_ElementId element) const
+{
+    return focusShown(reinterpret_cast<const void *>(uintptr_t(element.id)));
+}
+
 bool Ui::button(const char *label, int index)
 {
     const Clay_ElementId bid = id(label, index);
     const Area a = element(bid);
+    bool clicked = a.clicked;
+    for (View::Key key : focusable(bid, a)) clicked |= key == View::Key::enter;
     const bool hot = Clay_PointerOver(bid);
     CLAY({.id = bid, .layout = {.padding = {10, 10, 4, 4}, .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
           .backgroundColor = clayColor(a.held ? theme.text : hot ? theme.panel : Color{0, 0, 0, 0}),
           .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
-          .border = {.color = clayColor(hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+          .border = {.color = clayColor(focusShown(bid) ? theme.accent : hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
     {
         CLAY_TEXT(layout.text(label), textConfig(a.held ? theme.background : theme.text));
     }
     lastElement = bid.id;
-    return a.clicked;
+    return clicked;
 }
 
 // Off: an outline. On: filled with the text colour, its label in the
@@ -344,27 +365,42 @@ bool Ui::toggle(const char *label, bool &on, int index)
 {
     const Clay_ElementId tid = id(label, index);
     const Area a = element(tid);
-    if (a.clicked) on = !on;
+    bool clicked = a.clicked;
+    for (View::Key key : focusable(tid, a)) clicked |= key == View::Key::enter;
+    if (clicked) on = !on;
     const bool hot = Clay_PointerOver(tid);
     CLAY({.id = tid, .layout = {.padding = {7, 7, 3, 3}, .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
           .backgroundColor = clayColor(on ? theme.text : hot ? theme.panel : Color{0, 0, 0, 0}),
           .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
-          .border = {.color = clayColor(on || a.held ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+          .border = {.color = clayColor(focusShown(tid) ? theme.accent : on || a.held ? theme.text : theme.edge),
+                     .width = CLAY_BORDER_OUTSIDE(1)}})
     {
         CLAY_TEXT(layout.text(label), textConfig(on ? theme.background : theme.text));
     }
     lastElement = tid.id;
-    return a.clicked;
+    return clicked;
 }
 
 bool Ui::segmented(const char *const *items, int count, int &selected, int index)
 {
     bool changed = false;
     const Clay_ElementId sid = id("Segmented", index);
-    CLAY({.id = sid, .border = {.color = clayColor(theme.edge), .width = CLAY_BORDER_ALL(1)}})
+    CLAY({.id = sid, .border = {.color = clayColor(focusShown(sid) ? theme.accent : theme.edge), .width = CLAY_BORDER_ALL(1)}})
     {
-        for (int i = 0; i < count; ++i) // clicks first, so every cell draws the new choice
-            if (element(id("Segment", index * 64 + i)).clicked && selected != i) selected = i, changed = true;
+        // Clicks and keys first, so every cell draws the new choice.
+        Area any;
+        for (int i = 0; i < count; ++i)
+        {
+            const Area a = element(id("Segment", index * 64 + i));
+            if (a.clicked && selected != i) selected = i, changed = true;
+            any.pressed |= a.pressed;
+        }
+        for (View::Key key : focusable(sid, any))
+        {
+            const int step = key == View::Key::right || key == View::Key::down ? 1 : key == View::Key::left || key == View::Key::up ? -1 : 0;
+            const int next = std::clamp(selected + step, 0, count - 1);
+            if (next != selected) selected = next, changed = true;
+        }
         for (int i = 0; i < count; ++i)
         {
             const Clay_ElementId cell = id("Segment", index * 64 + i);
@@ -387,6 +423,15 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
     const bool open = openMenu == menu.id;
     const Area a = element(did);
     if (a.pressed) openMenu = open ? 0 : menu.id;
+    // Keys: Enter opens and closes it, Escape closes it, the arrows choose.
+    for (View::Key key : focusable(did, a))
+    {
+        if (key == View::Key::enter) openMenu = openMenu == menu.id ? 0 : menu.id;
+        if (key == View::Key::escape) openMenu = 0;
+        const int step = key == View::Key::down ? 1 : key == View::Key::up ? -1 : 0;
+        const int next = std::clamp(selected + step, 0, count - 1);
+        if (step && next != selected) selected = next, changed = true;
+    }
     // A press anywhere else closes it.
     if (open && mouse.pressed && !Clay_PointerOver(menu) && !Clay_PointerOver(did)) openMenu = 0;
     const bool hot = Clay_PointerOver(did);
@@ -398,7 +443,8 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
     CLAY({.id = did, .layout = {.padding = {7, 7, 3, 3}, .childGap = 8, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
           .backgroundColor = clayColor(hot || open ? theme.panel : Color{0, 0, 0, 0}),
           .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
-          .border = {.color = clayColor(open || hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+          .border = {.color = clayColor(focusShown(did) ? theme.accent : open || hot ? theme.text : theme.edge),
+                     .width = CLAY_BORDER_OUTSIDE(1)}})
     {
         CLAY_TEXT(layout.text(selected >= 0 && selected < count ? items[selected] : ""), textConfig(theme.text));
         CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(7), CLAY_SIZING_FIXED(7)}}, .custom = {.customData = layout.custom(chevronBox)}}) {}

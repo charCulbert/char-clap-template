@@ -94,6 +94,44 @@ static void toggleAndSegmented()
     CHECK(selected == 2);
 }
 
+static void keyboardFocus()
+{
+    // Tab reaches buttons, toggles, segments and dropdowns, in order.
+    Ui ui;
+    int clicks = 0, selected = 0, shape = 0;
+    bool on = false;
+    static const char *const items[] = {"A", "B", "C"};
+    auto draw = [&] {
+        frame(ui, [&] {
+            if (ui.button("Go")) ++clicks;
+            ui.toggle("Sync", on);
+            ui.segmented(items, 3, selected);
+            ui.dropdown(items, 3, shape);
+        });
+    };
+    draw();
+    clickAt(ui, box("Go"), draw); // focus the button (and press it once)
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(clicks == 2);
+    ui.key(View::Key::tab, 0);
+    draw();
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(on);
+    ui.key(View::Key::tab, 0);
+    draw();
+    ui.key(View::Key::right, 0);
+    ui.key(View::Key::right, 0);
+    draw();
+    CHECK(selected == 2);
+    ui.key(View::Key::tab, 0);
+    draw();
+    ui.key(View::Key::down, 0);
+    draw();
+    CHECK(shape == 1);
+}
+
 static void dropdownSelectsAndBlocks()
 {
     Ui ui;
@@ -291,6 +329,7 @@ int main()
     buttonClicks();
     toggleAndSegmented();
     dropdownSelectsAndBlocks();
+    keyboardFocus();
     knobDragAndKeys();
     textFieldEdits();
     pianoNotes();

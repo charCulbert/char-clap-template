@@ -19,8 +19,11 @@
 // one of your own custom boxes.
 //
 // Knobs and sliders: drag (Shift for fine), scroll, double-click for the
-// default, click the value to type one. The last one clicked has keyboard focus: arrows step (Shift for
-// fine), Page Up/Down step further, Home/End go to the ends, Tab moves on.
+// default, click the value to type one. The last control clicked has
+// keyboard focus, and Tab moves it on. A focused knob or slider steps with
+// the arrows (Shift for fine), Page Up/Down and Home/End; Enter presses a
+// button or toggle; the arrows move a segmented control; Enter opens and
+// closes a dropdown and the arrows choose in it.
 namespace gpu {
 
 // The default look follows Slide: flat greys, hairlines, one warm accent, in
@@ -199,6 +202,8 @@ private:
     bool over(float x, float y, float w, float h) const;
     Area press(const void *id, bool over);
     bool focusShown(const void *id) const { return focus == id && focusVisible; }
+    bool focusShown(Clay_ElementId element) const;
+    std::vector<View::Key> focusable(Clay_ElementId element, const Area &a);
     void drawGrip();
     Rect grip{}; // resizeGrip's view size this frame
     Clay_TextElementConfig *textConfig(Color color, int font = -1);
