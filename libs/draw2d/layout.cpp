@@ -79,6 +79,7 @@ void *Layout::custom(int kind, void *data)
 void Layout::end(const std::function<void(int, void *, Rect)> &onCustom)
 {
     const Clay_RenderCommandArray commands = Clay_EndLayout();
+    drawn.clear();
     const float s = scale;
     auto color = [](Clay_Color c) { return Color{c.r / 255, c.g / 255, c.b / 255, c.a / 255}; };
     auto corners = [s](Clay_CornerRadius r) {
@@ -91,6 +92,13 @@ void Layout::end(const std::function<void(int, void *, Rect)> &onCustom)
         // Edges on whole pixels, so 1-point lines stay crisp at 125% and 150%.
         const float x0 = std::round(b.x * s), y0 = std::round(b.y * s);
         const Rect r{x0, y0, std::round((b.x + b.width) * s) - x0, std::round((b.y + b.height) * s) - y0};
+        if (command.commandType == CLAY_RENDER_COMMAND_TYPE_TEXT)
+        {
+            const Clay_StringSlice &words = command.renderData.text.stringContents;
+            drawn.push_back({command.id, r, true, std::string(words.chars, size_t(words.length))});
+        }
+        else if (command.commandType != CLAY_RENDER_COMMAND_TYPE_SCISSOR_END)
+            drawn.push_back({command.id, r});
         switch (command.commandType)
         {
         case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {

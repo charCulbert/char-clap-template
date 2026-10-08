@@ -21,6 +21,7 @@ struct Callbacks
     std::function<bool(View::Key, unsigned modifiers)> key; // true if used
     std::function<bool(const char *utf8)> text;             // true if used
     std::function<bool(View::FileDrag, float x, float y, const std::vector<std::string> &paths)> files; // View::files
+    std::function<void(uint64_t id, Accessible::Action, double value)> access; // View::accessAction, main thread
 };
 
 Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Callbacks callbacks);
@@ -37,5 +38,6 @@ void copyText(Window *window, const std::string &utf8); // to the clipboard: Vie
 bool onScreen(Window *window); // false while hidden, minimised or covered: frames wait
 void textInput(Window *window, bool editing, View::Caret caret); // a text field has the keys: see View::editingText
 void dragFiles(Window *window, const std::vector<std::string> &paths); // View::dragFiles, during a press
+void accessibility(Window *window, const Accessibility &tree); // the view's tree changed: tell screen readers
 
 }

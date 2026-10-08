@@ -4,6 +4,7 @@
 #include <shellapi.h> // DragQueryFileW
 #include <shlobj.h>   // SHCreateDataObject
 #include "native.h"
+#include "accesskit_tree.h"
 #include <algorithm>
 #include <cstring>
 #include <string>
@@ -31,9 +32,45 @@ struct Window
     bool tracking = false;   // asked for WM_MOUSELEAVE
     bool pressed = false;    // the left button went down here and hasn't come up
     wchar_t highSurrogate = 0; // the first half of a character beyond U+FFFF, typed
+    accesskit_windows_adapter *access = nullptr; // screen readers, through UI Automation
+    Accessibility tree;                          // the view's, as screen readers last had it
+};
+
+// A screen reader's request, carried to the window's thread (AccessKit may
+// call from another).
+struct AccessRequest
+{
+    uint64_t id;
+    Accessible::Action kind;
+    double value;
 };
 
 static const UINT WM_APP_DRAG = WM_APP + 1; // drag `dragging` out, outside any frame (DoDragDrop is modal)
+static const UINT WM_APP_ACCESS = WM_APP + 2; // an AccessRequest *, from accessAction
+
+static accesskit_tree_update *wholeTree(void *window) { return accesskit::update(static_cast<Window *>(window)->tree); }
+
+static void accessAction(accesskit_action_request *request, void *hwnd)
+{
+    AccessRequest r;
+    if (accesskit::action(request, r.id, r.kind, r.value))
+        PostMessageW(static_cast<HWND>(hwnd), WM_APP_ACCESS, 0, reinterpret_cast<LPARAM>(new AccessRequest(r)));
+}
+
+static void accessFocus(Window *window, bool focused)
+{
+    if (!window->access) return;
+    if (accesskit_windows_queued_events *events = accesskit_windows_adapter_update_window_focus_state(window->access, focused))
+        accesskit_windows_queued_events_raise(events);
+}
+
+void accessibility(Window *window, const Accessibility &tree)
+{
+    window->tree = tree;
+    if (!window->access) return;
+    if (accesskit_windows_queued_events *events = accesskit_windows_adapter_update_if_active(window->access, wholeTree, window))
+        accesskit_windows_queued_events_raise(events);
+}
 
 static std::string toUtf8(const wchar_t *text)
 {
@@ -322,6 +359,22 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
     {
     case WM_TIMER: window->callbacks.frame(); return 0;
     case WM_APP_DRAG: dragOut(window); return 0;
+    case WM_APP_ACCESS:
+    {
+        const AccessRequest *request = reinterpret_cast<AccessRequest *>(lParam);
+        window->callbacks.access(request->id, request->kind, request->value);
+        delete request;
+        return 0;
+    }
+    case WM_GETOBJECT:
+        if (window->access)
+        {
+            const accesskit_opt_lresult result = accesskit_windows_adapter_handle_wm_getobject(window->access, wParam, lParam, wholeTree, window);
+            if (result.has_value) return result.value;
+        }
+        break;
+    case WM_SETFOCUS: accessFocus(window, true); break;
+    case WM_KILLFOCUS: accessFocus(window, false); break;
     case WM_LBUTTONDOWN:
         SetFocus(hwnd); // for keys
         SetCapture(hwnd);
@@ -420,6 +473,7 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
         delete window;
         return nullptr;
     }
+    window->access = accesskit_windows_adapter_new(window->hwnd, GetFocus() == window->hwnd, accessAction, window->hwnd);
     SetWindowLongPtrW(window->hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(window));
     SetTimer(window->hwnd, 1, 16, nullptr);
     if (ourWindows.empty()) keyHook = SetWindowsHookExW(WH_GETMESSAGE, keyHookProc, nullptr, GetCurrentThreadId());
@@ -462,7 +516,10 @@ void destroy(Window *window)
     KillTimer(window->hwnd, 1);
     if (window->dropTarget) RevokeDragDrop(window->hwnd), window->dropTarget->Release();
     if (window->ole) OleUninitialize();
-    SetWindowLongPtrW(window->hwnd, GWLP_USERDATA, 0);
+    SetWindowLongPtrW(window->hwnd, GWLP_USERDATA, 0); // WM_GETOBJECT from here on gets the default answer
+    if (window->access) accesskit_windows_adapter_free(window->access);
+    for (MSG m; PeekMessageW(&m, window->hwnd, WM_APP_ACCESS, WM_APP_ACCESS, PM_REMOVE);)
+        delete reinterpret_cast<AccessRequest *>(m.lParam); // requests the window won't live to see
     DestroyWindow(window->hwnd);
     delete window;
 }

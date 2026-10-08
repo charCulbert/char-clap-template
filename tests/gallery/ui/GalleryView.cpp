@@ -79,6 +79,8 @@ public:
     bool animating() const override { return ui.animating() || page == 4; } // the meters move
     bool editingText() const override { return ui.editingText(); }
     Caret textCaret() const override { return ui.textCaret(); }
+    const gpu::Accessibility *accessibility() const override { return ui.accessibility(); }
+    void accessAction(uint64_t id, gpu::Accessible::Action action, double value) override { ui.accessAction(id, action, value); }
     bool files(FileDrag type, float x, float y, const std::vector<std::string> &paths) override { return ui.files(type, x, y, paths); }
 
     // The frame is built in record, so the presenter can skip one that looks
@@ -100,9 +102,11 @@ public:
             {
                 static const char *const pages[] = {"Shapes", "Text", "Controls", "Layout", "More"};
                 ui.segmented(pages, 5, page, 0);
+                ui.label("Page");
                 CLAY({.layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}}}) {}
                 static const char *const themes[] = {"System", "Dark", "Light"};
                 ui.segmented(themes, 3, themeMode, 1);
+                ui.label("Theme");
                 ui.tooltip("System follows the OS's light or dark mode");
             }
             CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 10,
@@ -304,13 +308,16 @@ private:
                 ui.toggle("Sync", sync);
                 static const char *const modes[] = {"Ratio", "Diff"};
                 ui.segmented(modes, 2, mode, 2);
+                ui.label("Mode");
             });
             cell("Dropdown: opens over the knobs, blocks them", [&] {
                 static const char *const shapes[] = {"Sine", "Triangle", "Saw", "Square", "Noise"};
                 ui.dropdown(shapes, 5, shape);
+                ui.label("Waveform");
             });
             cell("Text field: type, arrows, Enter keeps, Esc drops", [&] {
                 if (ui.textField(name, 110)) ++edits;
+                ui.label("Preset name");
                 char count[32];
                 std::snprintf(count, sizeof(count), "%d edits", edits);
                 label(count, ui.theme.dim, 11, ui.theme.valueFont);
@@ -367,6 +374,7 @@ private:
             cell("Piano: press and slide; held notes light (C4 lit); key colours from the theme", [&] {
                 static const char *const styles[] = {"Ivory", "Palette"};
                 ui.segmented(styles, 2, keys, 3);
+                ui.label("Key colours");
                 const auto notes = ui.piano(48, 83, 56, [&](int n) { return n == 60 || n == held; });
                 if (notes.on >= 0) held = notes.on;
                 if (notes.off >= 0 && notes.off == held) held = -1;

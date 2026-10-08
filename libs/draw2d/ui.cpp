@@ -1,5 +1,7 @@
 #include "ui.h"
 #include <algorithm>
+#include <functional>
+#include <string_view>
 #include <clocale>
 #include <cmath>
 #include <cstdint>
@@ -255,6 +257,8 @@ void Ui::begin(float width, float height, float scale)
     draw.begin(width, height);
     order.clear();
     placed.clear();
+    described.clear();
+    said.clear();
     layout.begin(draw, width, height, scale);
     overPopup = openMenu && Clay_PointerOver({openMenu, 0, 0, {}});
     menuSeen = false;
@@ -294,6 +298,7 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
         }
         else if (onCustom) onCustom(kind, data, r);
     });
+    finishDescribing();
     drawGrip();
     grip = {};
     changedLast.swap(changedNow);
@@ -339,6 +344,7 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
     keys.clear();
     edits.clear();
     typedToFocus.clear();
+    accessClick = nullptr; // for a control no longer there
     return draw.changed();
 }
 
@@ -354,6 +360,233 @@ double Ui::fromUnit(const Param &p, double u, bool log)
     u = std::clamp(u, 0.0, 1.0);
     if (log && p.min > 0) return p.min * std::pow(p.max / p.min, u);
     return p.min + u * (p.max - p.min);
+}
+
+static uint64_t accessId(const void *me) { return uint64_t(reinterpret_cast<uintptr_t>(me)); }
+static constexpr uint64_t viewNode = 1; // the root: no control's address
+
+Ui::Described &Ui::describe(const void *me, Accessible::Role role, const char *name, uint64_t parent)
+{
+    Described &d = described.emplace_back();
+    d.node.id = accessId(me), d.node.role = role, d.parent = parent;
+    if (name) d.node.name = name;
+    d.node.actions = Accessible::focus;
+    return d;
+}
+
+Ui::Described &Ui::describeParam(const void *me, Params &params, Param &p, const char *value, Rect r)
+{
+    Described &d = describe(me, Accessible::Role::slider, p.name.c_str());
+    d.node.value = value, d.node.numeric = true, d.node.number = p.value, d.node.min = p.min, d.node.max = p.max;
+    d.node.x = r.x, d.node.y = r.y, d.node.width = r.w, d.node.height = r.h;
+    d.node.actions |= Accessible::increment | Accessible::decrement | Accessible::setValue;
+    d.params = &params, d.param = &p;
+    return d;
+}
+
+void Ui::accessible(Accessible::Role role, const char *name, const char *value, Rect r)
+{
+    // Its id: what it is and where, as stable as its place on the page.
+    const size_t hash = std::hash<std::string_view>{}(name ? name : "") ^ (size_t(r.x) * 31 + size_t(r.y)) << 1;
+    const void *me = reinterpret_cast<const void *>(uintptr_t(hash | 2)); // never the view's id (1) or null
+    Described &d = describe(me, role, name);
+    if (value) d.node.value = value;
+    d.node.x = r.x, d.node.y = r.y, d.node.width = r.w, d.node.height = r.h;
+}
+
+void Ui::label(const char *name)
+{
+    if (lastElement && name) said.push_back({lastElement, name, {}});
+}
+
+void Ui::description(const char *text)
+{
+    if (lastElement && text) said.push_back({lastElement, {}, text});
+}
+
+void Ui::hidden()
+{
+    if (lastElement) said.push_back({lastElement, {}, {}, true});
+}
+
+void Ui::hidden(Clay_ElementId element) { said.push_back({element.id, {}, {}, true, true}); }
+
+void Ui::announce(const char *text) { announcement = text ? text : ""; }
+
+static bool same(const Accessible &a, const Accessible &b)
+{
+    return a.id == b.id && a.role == b.role && a.name == b.name && a.value == b.value && a.description == b.description
+        && a.live == b.live && a.numeric == b.numeric
+        && a.number == b.number && a.min == b.min && a.max == b.max && a.step == b.step && a.checked == b.checked
+        && a.expanded == b.expanded && a.selected == b.selected && a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height
+        && a.actions == b.actions && a.children == b.children;
+}
+
+void Ui::finishDescribing()
+{
+    // Where each element was laid out, and in what order: reading order is
+    // layout order, as a page's is document order.
+    const std::vector<Layout::Drawn> &drawn = layout.drawn;
+    auto inside = [](const Rect &r, float x, float y) { return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h; };
+    auto within = [&](const Accessible &n, const Rect &r) { return inside(r, n.x + n.width / 2, n.y + n.height / 2); };
+    auto contains = [](const Rect &outer, const Rect &r) { // with half a pixel to spare
+        return r.x >= outer.x - 0.5f && r.y >= outer.y - 0.5f && r.x + r.w <= outer.x + outer.w + 0.5f && r.y + r.h <= outer.y + outer.h + 0.5f;
+    };
+    // An element's box (pixels), whether or not it draws anything itself.
+    auto box = [&](uint32_t element) -> std::optional<Rect> {
+        const Clay_ElementData data = Clay_GetElementData({element, 0, 0, {}});
+        if (!data.found) return std::nullopt;
+        const Clay_BoundingBox &b = data.boundingBox;
+        return Rect{b.x * s, b.y * s, b.width * s, b.height * s};
+    };
+    // Its place in reading order: the first thing drawn in it (a button's
+    // label comes before its border).
+    auto place = [&](const Rect &r) {
+        for (size_t i = 0; i < drawn.size(); ++i)
+            if (r.w > 0 && contains(r, drawn[i].pixels)) return float(i);
+        return -1.0f;
+    };
+
+    struct Entry { Accessible node; float order; uint64_t parent; bool hidden; };
+    std::vector<Entry> entries;
+    for (Described &d : described)
+    {
+        float reading = 1e9f + float(entries.size());
+        if (d.element) // laid out by Clay: its box, and its place
+        {
+            if (const std::optional<Rect> r = box(d.element))
+            {
+                d.node.x = r->x, d.node.y = r->y, d.node.width = r->w, d.node.height = r->h;
+                if (const float at = place(*r); at >= 0) reading = at;
+            }
+        }
+        else // drawn at a rectangle: the place of the innermost box around it
+            for (size_t i = 0; i < drawn.size(); ++i)
+                if (!drawn[i].text && within(d.node, drawn[i].pixels)) reading = float(i) + 0.5f;
+        entries.push_back({d.node, reading, d.parent, false});
+    }
+    // What the page says around them: its text runs, those a control doesn't
+    // already say (a button's label, a knob's value), a line's runs as one.
+    for (size_t i = 0; i < drawn.size(); ++i)
+    {
+        if (!drawn[i].text) continue;
+        Accessible text;
+        text.id = 0x7465787400000000ull | drawn[i].id; // "text", above any address
+        text.role = Accessible::Role::label; // its words are its value, as AccessKit reads a label
+        text.value = drawn[i].words;
+        Rect r = drawn[i].pixels;
+        const size_t first = i;
+        auto nextLine = [&](const Layout::Drawn &line, const Layout::Drawn &next) { // of a wrapped paragraph
+            return next.text && (next.id == line.id || (std::abs(next.pixels.x - drawn[first].pixels.x) < 1
+                                                       && std::abs(next.pixels.y - (line.pixels.y + line.pixels.h)) < 1));
+        };
+        while (i + 1 < drawn.size() && nextLine(drawn[i], drawn[i + 1]))
+        {
+            ++i;
+            text.value += " " + drawn[i].words;
+            const float right = std::max(r.x + r.w, drawn[i].pixels.x + drawn[i].pixels.w), bottom = drawn[i].pixels.y + drawn[i].pixels.h;
+            r.x = std::min(r.x, drawn[i].pixels.x), r.w = right - r.x, r.h = bottom - r.y;
+        }
+        text.x = r.x, text.y = r.y, text.width = r.w, text.height = r.h;
+        bool spoken = false;
+        for (const Entry &e : entries) spoken |= e.node.width > 0 && inside({e.node.x, e.node.y, e.node.width, e.node.height}, r.x + r.w / 2, r.y + r.h / 2);
+        if (!spoken) entries.push_back({text, float(first), 0, false});
+    }
+    // label, description, hidden: on the control whose element they name, or
+    // that was drawn inside it (a knob in its box). A tooltip's description
+    // gives way to one set by hand.
+    for (const Said &w : said)
+    {
+        const std::optional<Rect> r = box(w.element);
+        for (Entry &e : entries)
+        {
+            const Rect at{e.node.x, e.node.y, e.node.width, e.node.height};
+            const bool mine = e.node.id == uint64_t(w.element)
+                           || (r && e.parent == 0 && (w.everything ? contains(*r, at) : within(e.node, *r)));
+            if (!mine || (w.everything ? false : e.node.role == Accessible::Role::label)) continue;
+            if (w.hidden) e.hidden = true;
+            if (!w.label.empty()) e.node.name = w.label;
+            if (!w.description.empty() && !(w.fromTooltip && !e.node.description.empty())) e.node.description = w.description;
+            if (!w.everything) break;
+        }
+    }
+
+    Accessibility tree;
+    Accessible &view = tree.nodes.emplace_back();
+    view.id = viewNode, view.role = Accessible::Role::window;
+    view.width = viewWidth * s, view.height = viewHeight * s;
+    std::vector<const Entry *> top;
+    for (const Entry &e : entries)
+    {
+        if (e.hidden) continue;
+        tree.nodes.push_back(e.node);
+        if (!e.parent) top.push_back(&e);
+    }
+    std::stable_sort(top.begin(), top.end(), [](const Entry *a, const Entry *b) { return a->order < b->order; });
+    for (const Entry *e : top) tree.nodes.front().children.push_back(e->node.id);
+    for (const Entry &e : entries)
+        if (e.parent && !e.hidden)
+            for (Accessible &n : tree.nodes)
+                if (n.id == e.parent) { n.children.push_back(e.node.id); break; }
+    if (!announcement.empty()) // a live region: screen readers read it as it changes
+    {
+        Accessible &live = tree.nodes.emplace_back();
+        live.id = 3, live.role = Accessible::Role::label, live.value = announcement, live.live = true;
+        tree.nodes.front().children.push_back(live.id);
+    }
+    tree.focus = viewNode;
+    for (const Accessible &n : tree.nodes)
+        if (n.id == accessId(focus)) tree.focus = n.id;
+    // A focused radio group: its checked radio has the focus, as the
+    // WAI-ARIA radio group pattern has it.
+    for (const Accessible &n : tree.nodes)
+        if (n.id == tree.focus && n.role == Accessible::Role::radioGroup)
+            for (uint64_t child : n.children)
+                for (const Accessible &c : tree.nodes)
+                    if (c.id == child && c.checked == 1) tree.focus = c.id;
+#ifndef NDEBUG
+    // Every control needs a name a screen reader can say (WCAG 4.1.2).
+    for (const Accessible &n : tree.nodes)
+        if (n.name.empty() && n.actions & Accessible::focus && n.role != Accessible::Role::window)
+        {
+            static std::vector<uint64_t> warned;
+            if (std::find(warned.begin(), warned.end(), n.id) != warned.end()) continue;
+            warned.push_back(n.id);
+            static const char *const roles[] = {"window", "group", "button", "check box", "radio group", "radio button", "combo box (dropdown)",
+                                                "slider", "spin button (number box)", "text field", "label", "image", "list box", "option"};
+            std::fprintf(stderr, "draw2d: a %s has no name for screen readers: give it ui.label(\"...\")\n", roles[int(n.role)]);
+        }
+#endif
+    const bool unchanged = tree.focus == accessTree.focus && tree.nodes.size() == accessTree.nodes.size()
+        && std::equal(tree.nodes.begin(), tree.nodes.end(), accessTree.nodes.begin(), same);
+    if (unchanged) return;
+    tree.version = accessTree.version + 1;
+    accessTree = std::move(tree);
+}
+
+void Ui::accessAction(uint64_t id, Accessible::Action action, double value)
+{
+    const auto d = std::find_if(described.begin(), described.end(), [&](const Described &d) { return d.node.id == id; });
+    if (d == described.end()) return;
+    const void *me = reinterpret_cast<const void *>(uintptr_t(id));
+    switch (action)
+    {
+    case Accessible::focus: focus = me, focusVisible = true; break;
+    case Accessible::click: focus = me, accessClick = me; break;
+    case Accessible::increment: // as the arrow keys would, on the focused control
+    case Accessible::decrement:
+        focus = me, focusVisible = true;
+        keys.push_back({action == Accessible::increment ? View::Key::up : View::Key::down, 0});
+        break;
+    case Accessible::setValue:
+        if (d->param) set(*d->params, *d->param, value);
+        break;
+    case Accessible::expand: // a dropdown or drawer, opened by its click when it's closed
+    case Accessible::collapse:
+        focus = me;
+        if (d->node.expanded != (action == Accessible::expand)) accessClick = me;
+        break;
+    }
 }
 
 bool Ui::over(float x, float y, float w, float h) const
@@ -455,6 +688,7 @@ void Ui::knob(Params &params, Param *p, Rect box, const char *format, bool log)
               dragging ? theme.accent : theme.text);
     char value[32];
     std::snprintf(value, sizeof(value), format, p->value);
+    describeParam(me, params, *p, value, box);
     if (!valueEntry(params, *p, &p->defaultValue, {box.x, cy + r + 0.3f * size, box.w, 1.3f * size}, Draw2D::Align::center))
         draw.text(cx, cy + r + 1.3f * size, size, value, theme.text, Draw2D::Align::center, theme.valueFont);
     draw.text(cx, cy + r + 2.6f * size, size, p->name, theme.dim, Draw2D::Align::center, theme.labelFont);
@@ -473,6 +707,7 @@ void Ui::slider(Params &params, Param *p, Rect box, const char *format, bool log
     const float valueWidth = std::max(draw.measure(size, value, theme.valueFont), 3 * size) + 4 * s;
     const bool typing = valueEntry(params, *p, &p->max, {px + w - valueWidth, py, valueWidth, 1.4f * size}, Draw2D::Align::right);
     const void *me = controlId(*p, px, py);
+    describeParam(me, params, *p, value, box);
     const bool dragging = control(params, *p, me, px, py, w, h, false, w, log);
     const bool hot = dragging || (!active && over(px, py, w, h));
     const float u = float(toUnit(*p, p->value, log)), thumb = 1.125f * size, track = py + h - thumb / 2;
@@ -518,6 +753,7 @@ Ui::Area Ui::press(const void *id, bool isOver, Presses presses)
 {
     Area result;
     result.modifiers = mouse.modifiers;
+    if (accessClick == id) result.pressed = result.clicked = true, accessClick = nullptr; // a press and release in one
     if (!active && isOver)
     {
         if (mouse.pressed && mouse.doubleClicked && presses == doubleClicks) result.doubleClicked = true;
@@ -572,6 +808,8 @@ bool Ui::focusShown(Clay_ElementId element) const
 bool Ui::button(const char *label, int index)
 {
     const Clay_ElementId bid = id(label, index);
+    Described &d = describe(reinterpret_cast<const void *>(uintptr_t(bid.id)), Accessible::Role::button, label);
+    d.element = bid.id, d.node.actions |= Accessible::click;
     const Area a = element(bid, eachPress);
     bool clicked = a.clicked;
     for (View::Key key : focusable(bid, a)) clicked |= key == View::Key::enter;
@@ -596,6 +834,8 @@ bool Ui::toggle(const char *label, bool &on, int index)
     bool clicked = a.clicked;
     for (View::Key key : focusable(tid, a)) clicked |= key == View::Key::enter;
     if (clicked) on = !on;
+    Described &d = describe(reinterpret_cast<const void *>(uintptr_t(tid.id)), Accessible::Role::checkBox, label);
+    d.element = tid.id, d.node.checked = on, d.node.actions |= Accessible::click;
     const bool hot = Clay_PointerOver(tid);
     CLAY({.id = tid, .layout = {.padding = {7, 7, 3, 3}, .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
           .backgroundColor = clayColor(on ? theme.text : hot ? theme.panel : Color{0, 0, 0, 0}),
@@ -629,6 +869,14 @@ bool Ui::segmented(const char *const *items, int count, int &selected, int index
             const int next = std::clamp(selected + step, 0, count - 1);
             if (next != selected) selected = next, changed = true;
         }
+        const void *group = reinterpret_cast<const void *>(uintptr_t(sid.id));
+        describe(group, Accessible::Role::radioGroup, nullptr).element = sid.id;
+        for (int i = 0; i < count; ++i)
+        {
+            const Clay_ElementId cell = id("Segment", index * 64 + i);
+            Described &d = describe(reinterpret_cast<const void *>(uintptr_t(cell.id)), Accessible::Role::radioButton, items[i], accessId(group));
+            d.element = cell.id, d.node.checked = selected == i, d.node.actions |= Accessible::click;
+        }
         for (int i = 0; i < count; ++i)
         {
             const Clay_ElementId cell = id("Segment", index * 64 + i);
@@ -651,6 +899,9 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
     const bool open = openMenu == menu.id;
     const Area a = element(did, eachPress);
     if (a.pressed) openMenu = open ? 0 : menu.id;
+    Described &d = describe(reinterpret_cast<const void *>(uintptr_t(did.id)), Accessible::Role::comboBox, nullptr);
+    d.element = did.id, d.node.value = items[std::clamp(selected, 0, count - 1)], d.node.expanded = openMenu == menu.id;
+    d.node.actions |= Accessible::click | Accessible::expand | Accessible::collapse;
     // Keys: Enter opens and closes it, Escape closes it, the arrows choose.
     for (View::Key key : focusable(did, a))
     {
@@ -679,6 +930,16 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
         if (openMenu == menu.id)
         {
             menuSeen = true;
+            // Its list, for screen readers: the options, the chosen one selected.
+            const void *list = reinterpret_cast<const void *>(uintptr_t(menu.id));
+            Described &listBox = describe(list, Accessible::Role::listBox, nullptr, accessId(reinterpret_cast<const void *>(uintptr_t(did.id))));
+            listBox.element = menu.id, listBox.node.actions = 0; // the dropdown names it and has the focus
+            for (int i = 0; i < count; ++i)
+            {
+                const Clay_ElementId item = id("DropdownItem", index * 1024 + i);
+                Described &option = describe(reinterpret_cast<const void *>(uintptr_t(item.id)), Accessible::Role::option, items[i], accessId(list));
+                option.element = item.id, option.node.selected = i == selected, option.node.actions |= Accessible::click;
+            }
             CLAY({.id = menu, .layout = {.sizing = {.width = CLAY_SIZING_FIT(box.width)}, .padding = CLAY_PADDING_ALL(1),
                                          .layoutDirection = CLAY_TOP_TO_BOTTOM},
                   .backgroundColor = clayColor(theme.background), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
@@ -710,6 +971,7 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
 void Ui::tooltip(const char *text)
 {
     if (!lastElement) return;
+    said.push_back({lastElement, {}, text ? text : "", false, false, true}); // as HTML's title: its description
     const Clay_ElementId target{lastElement, 0, 0, {}};
     if (!Clay_PointerOver(target) || mouse.down || active)
     {
@@ -960,6 +1222,8 @@ bool Ui::textField(std::string &value, float widthPoints, int index)
 {
     const Clay_ElementId fid = id("TextField", index);
     const Area a = element(fid);
+    Described &d = describe(reinterpret_cast<const void *>(uintptr_t(fid.id)), Accessible::Role::textInput, nullptr);
+    d.element = fid.id, d.node.value = value;
     bool committed = false;
     // Clicking from one field to another keeps the first one's edit, which
     // it picks up the next time it's declared.
@@ -1005,6 +1269,8 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
     const void *me = reinterpret_cast<const void *>(uintptr_t(nid.id));
     char shown[32];
     std::snprintf(shown, sizeof(shown), format, p->value);
+    Described &self = describeParam(me, params, *p, shown, {});
+    self.node.role = Accessible::Role::spinButton, self.element = nid.id;
     std::string typed = plainNumber(p->value);
     const std::string before = typed;
     if (pendingField == nid.id) typed = std::move(pendingDraft), pendingField = 0;
@@ -1107,6 +1373,8 @@ bool Ui::drawer(const char *title, bool &open, int index)
 {
     const Clay_ElementId did = id("Drawer", index);
     if (element(did, eachPress).clicked) open = !open;
+    Described &d = describe(reinterpret_cast<const void *>(uintptr_t(did.id)), Accessible::Role::button, title);
+    d.element = did.id, d.node.expanded = open, d.node.actions |= Accessible::click | Accessible::expand | Accessible::collapse;
     const bool hot = Clay_PointerOver(did);
     CLAY({.id = did, .layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {6, 6, 4, 4}, .childGap = 6,
                                 .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
@@ -1156,6 +1424,7 @@ void Ui::vslider(Params &params, Param *p, Rect box, const char *format, bool lo
     if (focusShown(me)) draw.rect(box.x, box.y, box.w, box.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
     char value[32];
     std::snprintf(value, sizeof(value), format, p->value);
+    describeParam(me, params, *p, value, box);
     draw.text(cx, box.y + size, size, value, theme.dim, Draw2D::Align::center, theme.valueFont);
     draw.text(cx, box.y + box.h - 0.3f * size, size, p->name, theme.dim, Draw2D::Align::center, theme.labelFont);
     draw.rect(cx - 1.5f * s, top, 3 * s, bottom - top, 0, theme.track);
@@ -1226,6 +1495,7 @@ void Ui::imageKnob(Params &params, Param *p, int image, int frames, Rect r, bool
     if (!p || frames < 1) return;
     const void *me = controlId(*p, r.x, r.y);
     const bool dragging = control(params, *p, me, r.x, r.y, r.w, r.h, true, 200 * s, log);
+    describeParam(me, params, *p, plainNumber(p->value).c_str(), r);
     const int frame = int(std::lround(toUnit(*p, p->value, log) * (frames - 1)));
     const float step = 1.0f / float(frames), a = frame * step, b = a + step;
     draw.image(image, r.x, r.y, r.w, r.h, {}, {1, 1, 1, 1}, across ? Draw2D::Source{a, 0, b, 1} : Draw2D::Source{0, a, 1, b});

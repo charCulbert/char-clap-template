@@ -209,6 +209,25 @@ public:
     float s = 1; // pixels per point for this frame
     float viewWidth = 0, viewHeight = 0; // the view's size in points, for placing popups
 
+    // Screen readers: what this frame's controls described of themselves
+    // (forward it from View::accessibility), and a screen reader's request
+    // (from View::accessAction), done by the next frame.
+    const Accessibility *accessibility() const { return &accessTree; }
+    void accessAction(uint64_t id, Accessible::Action action, double value);
+    // Describes something drawn by hand at r (pixels) for screen readers, as
+    // aria-label does: what it is, its name, and its value if any.
+    void accessible(Accessible::Role role, const char *name, const char *value, Rect r);
+    // For screen readers, about the control declared just before, as the
+    // aria- attributes do. Controls name themselves (a button by its label, a
+    // knob by its parameter); a dropdown, text field or segmented control has
+    // no name of its own, so give it one. A tooltip is its description.
+    void label(const char *name);
+    void description(const char *text);
+    void hidden();                       // leave it out
+    void hidden(Clay_ElementId element); // leave out an element and what's in it: decoration, or text said elsewhere
+    // Read out now, without moving focus (aria-live): "Preset loaded".
+    void announce(const char *text);
+
 private:
     enum Builtin { knobBox = -1, sliderBox = -2, chevronBox = -3, chevronRightBox = -4, vsliderBox = -5, xyBox = -6, meterBox = -7,
                    imageKnobBox = -8, pianoBox = -9, envelopeBox = -10, stepsBox = -11 };
@@ -240,6 +259,31 @@ private:
     void set(Params &params, Param &p, double value);
     bool over(float x, float y, float w, float h) const;
     Area press(const void *id, bool over, Presses presses);
+    // Screen readers: one entry per control this frame, and the tree made of them.
+    struct Described
+    {
+        Accessible node;
+        uint32_t element = 0;  // a Clay element: its box is the bounds, once laid out
+        Params *params = nullptr;
+        Param *param = nullptr; // a parameter's control: set by setValue
+        uint64_t parent = 0;    // 0: the view's
+    };
+    std::vector<Described> described;
+    // label, description and hidden, for a control's element: applied once
+    // the frame is laid out (a knob is described as Clay draws it).
+    struct Said
+    {
+        uint32_t element;
+        std::string label, description;
+        bool hidden = false, everything = false, fromTooltip = false;
+    };
+    std::vector<Said> said;
+    std::string announcement;
+    Accessibility accessTree;
+    const void *accessClick = nullptr; // clicked by a screen reader: press() reports it
+    Described &describe(const void *me, Accessible::Role role, const char *name, uint64_t parent = 0);
+    Described &describeParam(const void *me, Params &params, Param &p, const char *value, Rect r);
+    void finishDescribing();
     bool focusShown(const void *id) const { return focus == id && focusVisible; }
     bool focusShown(Clay_ElementId element) const;
     std::vector<View::Key> focusable(Clay_ElementId element, const Area &a);

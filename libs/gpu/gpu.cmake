@@ -65,6 +65,46 @@ elseif(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")
     endif()
 endif()
 
+# AccessKit: the view's accessibility tree to the system's screen-reader API
+# (NSAccessibility, UI Automation). Its prebuilt static libraries; Linux not
+# yet (its adapter is far larger, and the plugins would have to keep its
+# symbols to themselves).
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR WIN32) # macOS (not iOS) and Windows
+    FetchContent_Declare(accesskit
+        URL https://github.com/AccessKit/accesskit-c/releases/download/0.23.1/accesskit-c-0.23.1.zip
+        URL_HASH SHA256=35b7ca8a6f1e038b5da35e1e9e5a0adaed9bfcf21e1496d29598fbbadcc7043f
+        SOURCE_SUBDIR none) # prebuilt: its CMakeLists builds from Rust source
+    FetchContent_MakeAvailable(accesskit)
+    set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_LICENSES
+        "accesskit=${accesskit_SOURCE_DIR}/LICENSE-MIT" "accesskit-chromium=${accesskit_SOURCE_DIR}/LICENSE.chromium")
+    if(NOT TARGET gpu_accesskit)
+        add_library(gpu_accesskit STATIC IMPORTED GLOBAL)
+        set_target_properties(gpu_accesskit PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${accesskit_SOURCE_DIR}/include")
+        if(APPLE) # arm64 and x86_64 separately, as Dawn
+            set(universal "${CMAKE_BINARY_DIR}/accesskit-universal/libaccesskit.a")
+            if(NOT EXISTS "${universal}")
+                file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/accesskit-universal")
+                execute_process(COMMAND lipo -create -output "${universal}"
+                    "${accesskit_SOURCE_DIR}/lib/macos/arm64/static/libaccesskit.a"
+                    "${accesskit_SOURCE_DIR}/lib/macos/x86_64/static/libaccesskit.a"
+                    COMMAND_ERROR_IS_FATAL ANY)
+            endif()
+            set_target_properties(gpu_accesskit PROPERTIES IMPORTED_LOCATION "${universal}"
+                INTERFACE_LINK_LIBRARIES "-framework AppKit;-framework Foundation;-framework CoreFoundation;objc")
+        else()
+            if(CMAKE_GENERATOR_PLATFORM MATCHES "^(ARM64|arm64)$" OR CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64)$")
+                set(arch arm64)
+            elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+                set(arch x86)
+            else()
+                set(arch x86_64)
+            endif()
+            set_target_properties(gpu_accesskit PROPERTIES IMPORTED_LOCATION "${accesskit_SOURCE_DIR}/lib/windows/${arch}/msvc/static/accesskit.lib"
+                INTERFACE_LINK_LIBRARIES "bcrypt;ntdll;propsys;runtimeobject;uiautomationcore;userenv;ws2_32")
+        endif()
+    endif()
+endif()
+
 # The presenter. In WCLAP it only hands the interface to the host's page.
 function(gpu_add_to target)
     target_sources(${target} PRIVATE "${GPU_DIR}/gui.cpp")
@@ -74,7 +114,8 @@ function(gpu_add_to target)
     target_sources(${target} PRIVATE "${GPU_DIR}/context.cpp" "${GPU_DIR}/params.cpp")
     target_link_libraries(${target} PUBLIC dawn::webgpu_dawn)
     if(APPLE)
-        target_sources(${target} PRIVATE "${GPU_DIR}/native_mac.mm")
+        target_sources(${target} PRIVATE "${GPU_DIR}/native_mac.mm" "${GPU_DIR}/accesskit_tree.cpp")
+        target_link_libraries(${target} PUBLIC gpu_accesskit)
         set_source_files_properties("${GPU_DIR}/native_mac.mm" PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
         # Objective-C classes share one namespace across every plugin a host
         # loads, so each plugin names its own (see native_mac.mm).
@@ -82,7 +123,8 @@ function(gpu_add_to target)
         target_compile_definitions(${target} PRIVATE GPU_OBJC_PREFIX=${prefix})
         target_link_libraries(${target} PUBLIC "-framework AppKit" "-framework QuartzCore")
     elseif(WIN32)
-        target_sources(${target} PRIVATE "${GPU_DIR}/native_win.cpp")
+        target_sources(${target} PRIVATE "${GPU_DIR}/native_win.cpp" "${GPU_DIR}/accesskit_tree.cpp")
+        target_link_libraries(${target} PUBLIC gpu_accesskit)
         target_link_libraries(${target} PUBLIC advapi32 ole32 shell32) # RegGetValueW (darkMode); drag and drop
     else()
         find_package(X11 REQUIRED)

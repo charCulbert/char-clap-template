@@ -216,6 +216,91 @@ static void parameterToggleAndSegmented()
     CHECK(a->value == 0);
 }
 
+// Controls describe themselves for screen readers, and take their requests.
+static void screenReader()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params); // A and B: 0..1
+    gpu::Param *a = params.find("A");
+    bool on = false;
+    int clicks = 0;
+    auto draw = [&] {
+        frame(ui, [&] {
+            ui.knob(params, a, "%.2f");
+            ui.toggle("Sync", on);
+            if (ui.button("Go")) ++clicks;
+        });
+    };
+    draw();
+    const gpu::Accessibility *tree = ui.accessibility();
+    auto find = [&](const char *name) -> const gpu::Accessible * {
+        for (const gpu::Accessible &n : tree->nodes)
+            if (n.name == name) return &n;
+        return nullptr;
+    };
+    const gpu::Accessible *knob = find("A"), *sync = find("Sync"), *go = find("Go");
+    CHECK(knob && knob->role == gpu::Accessible::Role::slider && knob->value == "0.50" && knob->max == 1);
+    CHECK(sync && sync->role == gpu::Accessible::Role::checkBox && sync->checked == 0);
+    CHECK(go && go->role == gpu::Accessible::Role::button && go->width > 0);
+    CHECK(tree->nodes.front().children.size() == 3);
+    const uint64_t knobId = knob->id, syncId = sync->id, goId = go->id;
+    const unsigned version = tree->version;
+    ui.accessAction(knobId, gpu::Accessible::setValue, 0.25);
+    ui.accessAction(syncId, gpu::Accessible::click, 0);
+    draw();
+    CHECK(a->value == 0.25 && on && tree->version != version);
+    ui.accessAction(goId, gpu::Accessible::click, 0);
+    draw();
+    CHECK(clicks == 1);
+    ui.accessAction(knobId, gpu::Accessible::increment, 0);
+    draw();
+    CHECK(a->value > 0.25);
+}
+
+// What a screen reader reads, as a page's: layout order, the captions, and
+// the names, descriptions and omissions set for it.
+static void screenReaderReading()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A");
+    int shape = 0;
+    static const char *const shapes[] = {"Sine", "Saw"};
+    auto draw = [&] {
+        frame(ui, [&] {
+            ui.knob(params, a, "%.2f"); // described as Clay draws it, after the others
+            ui.button("Go");
+            ui.tooltip("Starts it");
+            ui.dropdown(shapes, 2, shape);
+            ui.label("Shape");
+            CLAY_TEXT(CLAY_STRING("Hello caption"), CLAY_TEXT_CONFIG({.fontSize = 13}));
+            const Clay_ElementId deco = CLAY_ID("Decoration");
+            CLAY({.id = deco}) { CLAY_TEXT(CLAY_STRING("ornament"), CLAY_TEXT_CONFIG({.fontSize = 13})); }
+            ui.hidden(deco);
+        });
+    };
+    draw();
+    const gpu::Accessibility *tree = ui.accessibility();
+    std::vector<std::string> read;
+    for (uint64_t id : tree->nodes.front().children)
+        for (const gpu::Accessible &n : tree->nodes)
+            if (n.id == id) read.push_back(n.role == gpu::Accessible::Role::label ? n.value : n.name);
+    CHECK(read.size() == 4 && read[0] == "A" && read[1] == "Go" && read[2] == "Shape" && read[3] == "Hello caption");
+    for (const gpu::Accessible &n : tree->nodes)
+    {
+        if (n.name == "Go") CHECK(n.description == "Starts it");
+        if (n.name == "Shape") CHECK(n.role == gpu::Accessible::Role::comboBox && n.value == "Sine");
+        CHECK(n.value != "ornament");
+    }
+    ui.announce("Preset loaded");
+    draw();
+    bool announced = false;
+    for (const gpu::Accessible &n : tree->nodes) announced |= n.live && n.value == "Preset loaded";
+    CHECK(announced);
+}
+
 static void knobDragAndKeys()
 {
     Ui ui;
@@ -768,6 +853,8 @@ int main()
     dropdownSelectsAndBlocks();
     keyboardFocus();
     knobDragAndKeys();
+    screenReader();
+    screenReaderReading();
     parameterToggleAndSegmented();
     textFieldEdits();
     textFieldShortcuts();

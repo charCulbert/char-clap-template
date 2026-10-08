@@ -269,6 +269,9 @@ bool onScreen(Window *window)
 
 // Files dragged out: we own XdndSelection while the button is down, and
 // pumpEvents tells the window under the pointer (see dragMotion).
+// Screen readers (AT-SPI): not yet.
+void accessibility(Window *, const Accessibility &) {}
+
 void dragFiles(Window *window, const std::vector<std::string> &paths)
 {
     window->dragging = paths;

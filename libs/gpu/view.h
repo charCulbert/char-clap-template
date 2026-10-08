@@ -1,6 +1,7 @@
 #pragma once
 #include <webgpu/webgpu_cpp.h>
 #include "../core/messages.h"
+#include "accessibility.h"
 #include <functional>
 #include <memory>
 #include <string>
@@ -60,6 +61,11 @@ public:
     // taken (the presenter shows a copy cursor) and when a drop was used.
     enum class FileDrag { over, drop, leave };
     virtual bool files(FileDrag, float /*x*/, float /*y*/, const std::vector<std::string> & /*paths*/) { return false; }
+    // What a screen reader sees, as of the last record(); nullptr if the view
+    // offers nothing. A screen reader's request comes back as accessAction,
+    // on the main thread, and the presenter draws again after it.
+    virtual const Accessibility *accessibility() const { return nullptr; }
+    virtual void accessAction(uint64_t /*id*/, Accessible::Action, double /*value*/) {}
 
     // Set by the presenter: the system's light or dark appearance. It draws
     // again when this changes.

@@ -52,6 +52,16 @@ public:
     static void *image(int number) { return reinterpret_cast<void *>(intptr_t(number) + 1); }
     // Computes the layout, draws it, and calls onCustom for each custom box.
     void end(const std::function<void(int kind, void *data, Rect pixels)> &onCustom);
+    // What the last end() laid out, in order: each element's id and box
+    // (pixels), with its words for a line of text. Screen readers read it.
+    struct Drawn
+    {
+        uint32_t id;
+        Rect pixels;
+        bool text = false;
+        std::string words;
+    };
+    std::vector<Drawn> drawn;
 
 private:
     struct Custom { int kind; void *data; };

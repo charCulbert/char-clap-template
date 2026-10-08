@@ -163,6 +163,9 @@ bool Gui::setParent(const clap_window_t *parent)
             dirty = true;
             return view && view->files(type, x, y, paths);
         },
+        [this](uint64_t id, Accessible::Action action, double value) {
+            if (view) view->accessAction(id, action, value), dirty = true;
+        },
     });
     if (!window) return false;
     context->surface = platform::createSurface(context->instance, window);
@@ -278,6 +281,8 @@ void Gui::frame()
     if (!(dirty || damaged || view->animating())) return;
     context->frame(*view, scale(), damaged);
     dirty = damaged = false;
+    if (const Accessibility *tree = view->accessibility(); tree && tree->version != accessVersion)
+        platform::accessibility(window, *tree), accessVersion = tree->version;
 }
 
 bool Gui::send(const core::Value &message)

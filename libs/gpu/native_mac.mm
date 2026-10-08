@@ -1,6 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <QuartzCore/CAMetalLayer.h>
 #include "native.h"
+#include "accesskit_tree.h"
 #include <optional>
 
 // The classes below are global to the host process: two plugins (or two
@@ -14,10 +15,18 @@
 #define GpuView GPU_JOIN(GPU_OBJC_PREFIX, View)
 #define GpuKeys GPU_JOIN(GPU_OBJC_PREFIX, Keys)
 
+namespace gpu::platform { // the view's accessibility, below
+NSArray *accessChildren(Window *window);
+id accessFocus(Window *window);
+id accessHitTest(Window *window, NSPoint point);
+void accessFocused(Window *window, bool focused);
+}
+
 // An NSView backed by a CAMetalLayer, added to the host's view. It forwards the
 // mouse and keys and runs a 60 Hz timer on the main run loop to draw frames.
 @interface GpuView : NSView <NSDraggingSource>
 @property(nonatomic) gpu::platform::Callbacks *callbacks;
+@property(nonatomic) gpu::platform::Window *owner; // for screen readers (accessibility)
 @property(nonatomic) BOOL locked;
 - (BOOL)handleKey:(NSEvent *)event;
 - (BOOL)handleNamedKey:(NSEvent *)event;
@@ -67,6 +76,9 @@
 - (BOOL)isFlipped { return YES; } // top-left origin, like the shader
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
+// Screen readers: the view is a container, and AccessKit answers for what's
+// in it from the tree the view records.
+- (BOOL)isAccessibilityElement { return NO; }
 - (BOOL)wantsUpdateLayer { return YES; }
 - (CALayer *)makeBackingLayer { return [CAMetalLayer layer]; }
 
@@ -266,6 +278,19 @@ static unsigned modifiers(NSEvent *event)
     if (_callbacks && !_locked) _callbacks->pointer({gpu::View::Pointer::leave, float(_position.x), float(_position.y), modifiers(event)});
 }
 - (void)mouseUp:(NSEvent *)event { [self send:gpu::View::Pointer::up event:event]; }
+- (NSArray *)accessibilityChildren { return self.owner ? gpu::platform::accessChildren(self.owner) : @[]; }
+- (id)accessibilityFocusedUIElement { return self.owner ? gpu::platform::accessFocus(self.owner) : nil; }
+- (id)accessibilityHitTest:(NSPoint)point { return self.owner ? gpu::platform::accessHitTest(self.owner, point) : nil; }
+- (BOOL)becomeFirstResponder
+{
+    if (self.owner) gpu::platform::accessFocused(self.owner, true);
+    return YES;
+}
+- (BOOL)resignFirstResponder
+{
+    if (self.owner) gpu::platform::accessFocused(self.owner, false);
+    return YES;
+}
 @end
 
 namespace gpu::platform {
@@ -279,7 +304,38 @@ struct Window
     GpuKeys *keys;
     NSTimer *timer;
     Callbacks callbacks;
+    accesskit_macos_adapter *access = nullptr; // screen readers, through NSAccessibility
+    Accessibility tree;                        // the view's, as screen readers last had it
 };
+
+static accesskit_tree_update *wholeTree(void *window) { return accesskit::update(static_cast<Window *>(window)->tree); }
+
+static void accessAction(accesskit_action_request *request, void *window)
+{
+    uint64_t id;
+    Accessible::Action kind;
+    double value;
+    if (!accesskit::action(request, id, kind, value)) return;
+    dispatch_async(dispatch_get_main_queue(), ^{ // where views are used, should AppKit ever call from elsewhere
+        if (auto *w = static_cast<Window *>(window); w->view.callbacks) w->callbacks.access(id, kind, value);
+    });
+}
+
+static void raise(accesskit_macos_queued_events *events)
+{
+    if (events) accesskit_macos_queued_events_raise(events);
+}
+
+void accessibility(Window *window, const Accessibility &tree)
+{
+    window->tree = tree;
+    raise(accesskit_macos_adapter_update_if_active(window->access, wholeTree, window));
+}
+
+NSArray *accessChildren(Window *window) { return (__bridge NSArray *)accesskit_macos_adapter_view_children(window->access, wholeTree, window); }
+id accessFocus(Window *window) { return (__bridge id)accesskit_macos_adapter_focus(window->access, wholeTree, window); }
+id accessHitTest(Window *window, NSPoint point) { return (__bridge id)accesskit_macos_adapter_hit_test(window->access, point.x, point.y, wholeTree, window); }
+void accessFocused(Window *window, bool focused) { raise(accesskit_macos_adapter_update_view_focus_state(window->access, focused)); }
 
 Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Callbacks callbacks)
 {
@@ -289,6 +345,8 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     window->view = [[GpuView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     window->view.wantsLayer = YES;
     window->view.callbacks = &window->callbacks;
+    window->view.owner = window;
+    window->access = accesskit_macos_adapter_new((__bridge void *)window->view, false, accessAction, window);
     window->view.layer.contentsScale = host.window ? host.window.backingScaleFactor : 1.0;
     [window->view registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
     [host addSubview:window->view];
@@ -328,7 +386,9 @@ void destroy(Window *window)
     lockPointer(window, false);
     [window->timer invalidate];
     window->view.callbacks = nullptr;
+    window->view.owner = nullptr;
     [window->view removeFromSuperview];
+    accesskit_macos_adapter_free(window->access);
     delete window;
 }
 
