@@ -29,6 +29,7 @@ struct Window
     float x = 0, y = 0;      // pointer position reported to the view (pixels)
     bool tracking = false;   // asked for WM_MOUSELEAVE
     bool pressed = false;    // the left button went down here and hasn't come up
+    wchar_t highSurrogate = 0; // the first half of a character beyond U+FFFF, typed
 };
 
 static const UINT WM_APP_DRAG = WM_APP + 1; // drag `dragging` out, outside any frame (DoDragDrop is modal)
@@ -340,15 +341,21 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
     }
     case WM_CHAR:
     {
-        // Typed characters (TranslateMessage makes these from WM_KEYDOWN).
-        // UTF-16 in, UTF-8 out; controls and surrogate halves are skipped.
-        const auto c = unsigned(wParam);
-        char utf8[4] = {};
-        if (c < 0x20 || c == 0x7F || (c >= 0xD800 && c < 0xE000)) return 0;
-        if (c < 0x80) utf8[0] = char(c);
-        else if (c < 0x800) utf8[0] = char(0xC0 | c >> 6), utf8[1] = char(0x80 | (c & 0x3F));
-        else utf8[0] = char(0xE0 | c >> 12), utf8[1] = char(0x80 | (c >> 6 & 0x3F)), utf8[2] = char(0x80 | (c & 0x3F));
-        if (!window->callbacks.text(utf8)) PostMessageW(GetParent(hwnd), message, wParam, lParam);
+        // Typed characters (TranslateMessage makes these from WM_KEYDOWN),
+        // UTF-16 in, UTF-8 out. One beyond U+FFFF (an emoji) comes as two
+        // messages, a surrogate pair; controls are skipped.
+        const wchar_t c = wchar_t(wParam);
+        if (c >= 0xD800 && c < 0xDC00)
+        {
+            window->highSurrogate = c;
+            return 0;
+        }
+        const wchar_t pair[3] = {window->highSurrogate, c, 0};
+        const bool paired = c >= 0xDC00 && c < 0xE000 && window->highSurrogate;
+        window->highSurrogate = 0;
+        if (c < 0x20 || c == 0x7F || (c >= 0xDC00 && c < 0xE000 && !paired)) return 0;
+        const std::string utf8 = toUtf8(paired ? pair : pair + 1);
+        if (!window->callbacks.text(utf8.c_str())) PostMessageW(GetParent(hwnd), message, wParam, lParam);
         return 0;
     }
     case WM_KEYUP: PostMessageW(GetParent(hwnd), message, wParam, lParam); return 0;
