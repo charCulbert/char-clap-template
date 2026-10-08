@@ -256,7 +256,7 @@ void pixelSize(Window *window, uint32_t &width, uint32_t &height)
     height = uint32_t(window->view.bounds.size.height * scale);
 }
 
-float scale(Window *window) { return float(window->view.layer.contentsScale); }
+float scale(Window *window) { return float(window ? window->view.layer.contentsScale : NSScreen.mainScreen.backingScaleFactor); }
 
 void setVisible(Window *window, bool visible) { [window->view setHidden:!visible]; }
 

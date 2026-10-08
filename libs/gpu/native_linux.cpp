@@ -27,7 +27,22 @@ struct Window
     Cursor blank = 0;             // an invisible cursor, made on first lock
     std::string clipboard;        // what we've copied, while we own CLIPBOARD
     Atom clipboardAtom = 0, utf8 = 0, targets = 0, pasted = 0;
+    float scale = 1;              // see desktopScale
 };
+
+// The desktop's scale: Xft.dpi (GNOME and KDE set it from their scaling
+// setting) over 96, times GDK_SCALE where set. X11 has no per-monitor scale
+// to ask; a host that knows better says so with clap.gui.set_scale.
+static float desktopScale(Display *display)
+{
+    float scale = 1;
+    if (const char *resources = XResourceManagerString(display))
+        if (const char *dpi = std::strstr(resources, "Xft.dpi:"))
+            if (const float value = std::strtof(dpi + 8, nullptr); value >= 48 && value <= 480) scale = value / 96;
+    if (const char *gdk = std::getenv("GDK_SCALE"))
+        if (const int factor = std::atoi(gdk); factor >= 1 && factor <= 4) scale *= float(factor);
+    return scale;
+}
 
 Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Callbacks callbacks)
 {
@@ -40,6 +55,7 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     auto *window = new Window;
     window->display = display;
     window->callbacks = std::move(callbacks);
+    window->scale = desktopScale(display);
     window->window = XCreateSimpleWindow(display, ::Window(parent->x11), 0, 0, width, height, 0, 0, 0);
     window->clipboardAtom = XInternAtom(display, "CLIPBOARD", False);
     window->utf8 = XInternAtom(display, "UTF8_STRING", False);
@@ -115,7 +131,14 @@ bool darkMode(Window *)
     return !(theme && std::strstr(theme, ":light"));
 }
 
-float scale(Window *) { return 1.0f; }
+float scale(Window *window)
+{
+    if (window) return window->scale;
+    Display *display = XOpenDisplay(nullptr); // before the view has a window: the default screen's
+    const float scale = display ? desktopScale(display) : 1.0f;
+    if (display) XCloseDisplay(display);
+    return scale;
+}
 
 void setVisible(Window *window, bool visible)
 {

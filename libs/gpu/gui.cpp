@@ -1,5 +1,6 @@
 #include "gui.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #if defined(__wasm__)
@@ -45,6 +46,8 @@ bool Gui::setParent(const clap_window_t *window)
     return created && window && window->api && std::strcmp(window->api, CLAP_WINDOW_API_WEBVIEW) == 0;
 }
 void Gui::setSize(uint32_t, uint32_t) {}
+bool Gui::setScale(double) { return false; } // the browser scales the page
+
 bool Gui::show() { return created; }
 bool Gui::hide() { return created; }
 void Gui::onTimer(clap_id) {}
@@ -92,7 +95,7 @@ bool Gui::isApiSupported(const char *api, bool floating) const
 
 float Gui::pixelsPerPoint() const
 {
-    return std::strcmp(platform::windowApi, CLAP_WINDOW_API_COCOA) == 0 ? 1.0f : platform::scale(window);
+    return std::strcmp(platform::windowApi, CLAP_WINDOW_API_COCOA) == 0 ? 1.0f : scale();
 }
 
 bool Gui::getPreferredApi(const char **api, bool *floating) const
@@ -124,7 +127,7 @@ bool Gui::create(const char *api, bool floating)
     if (hostGui && pluginGui)
         view->resizeTo = [this](float w, float h) {
             // The view measures in pixels; clap.gui in points on macOS.
-            const float perUnit = window ? platform::scale(window) / pixelsPerPoint() : 1.0f;
+            const float perUnit = scale() / pixelsPerPoint();
             uint32_t newWidth = uint32_t(std::max(1.0f, w / perUnit)), newHeight = uint32_t(std::max(1.0f, h / perUnit));
             pluginGui->adjust_size(plugin, &newWidth, &newHeight);
             if (newWidth != width || newHeight != height)
@@ -177,6 +180,20 @@ void Gui::setSize(uint32_t newWidth, uint32_t newHeight)
     dirty = true;
 }
 
+float Gui::scale() const
+{
+    return hostScale > 0 ? hostScale : platform::scale(window); // a guess before there's a window
+}
+
+bool Gui::setScale(double newScale)
+{
+    // Only X11 has no way for us to know: elsewhere the window's own scale wins.
+    if (std::strcmp(platform::windowApi, CLAP_WINDOW_API_X11) != 0 || newScale <= 0) return false;
+    hostScale = float(newScale);
+    dirty = true;
+    return true;
+}
+
 bool Gui::show()
 {
     if (window) platform::setVisible(window, true);
@@ -209,6 +226,16 @@ void Gui::frame()
         context->configure(w, h);
         dirty = true;
     }
+    // Moved to a screen of another scale: ask for the size that keeps the
+    // view the same in points (clap.gui counts pixels outside macOS).
+    const float newScale = scale();
+    if (shownScale > 0 && newScale != shownScale && pixelsPerPoint() != 1.0f && hostGui && pluginGui)
+    {
+        uint32_t w = uint32_t(std::lround(width * newScale / shownScale)), h = uint32_t(std::lround(height * newScale / shownScale));
+        pluginGui->adjust_size(plugin, &w, &h);
+        hostGui->request_resize(host, w, h);
+    }
+    shownScale = newScale;
     const auto now = std::chrono::steady_clock::now();
     if (now - appearanceChecked > std::chrono::seconds(1))
     {
@@ -222,7 +249,7 @@ void Gui::frame()
     if (!(dirty || trailing || view->animating())) return;
     trailing = dirty;
     dirty = false;
-    context->frame(*view, platform::scale(window));
+    context->frame(*view, scale());
 }
 
 bool Gui::send(const core::Value &message)

@@ -311,7 +311,7 @@ static const clap_plugin_gui_t extensionGui = {
     },
 
     .set_scale = [](const clap_plugin_t *_plugin, double scale) -> bool
-    { return false; }, // the view reads the window's scale itself
+    { return ((MyPlugin *)_plugin->plugin_data)->gui.setScale(scale); },
 
     .get_size = [](const clap_plugin_t *_plugin, uint32_t *width, uint32_t *height) -> bool
     {

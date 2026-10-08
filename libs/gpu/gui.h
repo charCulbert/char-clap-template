@@ -37,12 +37,15 @@ public:
     // clap.gui sizes are points on macOS and pixels elsewhere: how many of
     // them make a point, for limits written in points.
     float pixelsPerPoint() const;
+    // clap.gui.set_scale: taken on X11, where the host knows better than we can.
+    bool setScale(double scale);
 
     // Delivers a message to the View. Fails if the interface is not open.
     bool send(const core::Value &message);
 
 private:
     void frame();
+    float scale() const; // pixels per point
 
     const clap_plugin_t *plugin = nullptr;
     const clap_host_t *host = nullptr;
@@ -61,6 +64,8 @@ private:
     platform::Window *window = nullptr;
     bool dirty = true; // something changed since the last frame
     bool trailing = false; // the frame after a change is still to draw
+    float hostScale = 0;   // from set_scale, where taken
+    float shownScale = 0;  // the scale the last frame was drawn at
     std::chrono::steady_clock::time_point appearanceChecked; // see platform::darkMode
 #endif
 };
