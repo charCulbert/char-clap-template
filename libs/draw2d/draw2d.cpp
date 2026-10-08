@@ -4,6 +4,10 @@
 #define STBI_ONLY_PNG
 #define STBI_ONLY_JPEG
 #include <stb_image.h>
+#define NANOSVG_IMPLEMENTATION
+#include <nanosvg.h>
+#define NANOSVGRAST_IMPLEMENTATION
+#include <nanosvgrast.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -559,6 +563,26 @@ int Draw2D::addImage(std::string_view fileBytes)
     const int number = addImage(rgba, width, height);
     stbi_image_free(rgba);
     return number;
+}
+
+int Draw2D::addSvg(std::string_view svg, int width, int height)
+{
+    if (width <= 0 || height <= 0) return -1;
+    std::string text(svg); // nanosvg parses in place
+    NSVGimage *parsed = nsvgParse(text.data(), "px", 96);
+    if (!parsed || parsed->width <= 0 || parsed->height <= 0)
+    {
+        if (parsed) nsvgDelete(parsed);
+        return -1;
+    }
+    const float scale = std::min(width / parsed->width, height / parsed->height);
+    const int w = std::max(1, int(std::lround(parsed->width * scale))), h = std::max(1, int(std::lround(parsed->height * scale)));
+    std::vector<unsigned char> rgba(size_t(w) * h * 4);
+    NSVGrasterizer *rasterizer = nsvgCreateRasterizer();
+    nsvgRasterize(rasterizer, parsed, 0, 0, scale, rgba.data(), w, h, w * 4);
+    nsvgDeleteRasterizer(rasterizer);
+    nsvgDelete(parsed);
+    return addImage(rgba.data(), w, h);
 }
 
 void Draw2D::imageSize(int number, int &width, int &height) const

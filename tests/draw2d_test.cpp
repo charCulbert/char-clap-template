@@ -193,6 +193,14 @@ int main(int argc, char **argv)
         draw.imageSize(picture, w, h);
         CHECK(w == 2 && h == 2);
         CHECK(draw.addImage("not an image") == -1);
+        // SVG: rasterized to fit, keeping its proportions.
+        const int svg = draw.addSvg("<svg xmlns='http://www.w3.org/2000/svg' width='20' height='10'>"
+                                    "<rect width='10' height='10' fill='#ff0000'/><rect x='10' width='10' height='10' fill='#00ff00'/></svg>", 64, 64);
+        draw.imageSize(svg, w, h);
+        CHECK(svg >= 0 && w == 64 && h == 32);
+        px = gpu.render(draw, [&] { draw.image(svg, 0, 0, 64, 32); });
+        CHECK(is(px, 8, 16, red) && is(px, 56, 16, green) && is(px, 32, 48, black));
+        CHECK(draw.addSvg("not svg", 32, 32) == -1);
     }
 
     // A custom draw runs in order, under what follows it.

@@ -65,6 +65,10 @@ public:
     // PNG or JPEG file. Returns the image's number, or -1 if unusable.
     int addImage(const uint8_t *rgba, int width, int height);
     int addImage(std::string_view fileBytes);
+    // An SVG document rasterized (with nanosvg) to fit width x height pixels,
+    // keeping its proportions, as an image. Rasterize at the size it's drawn,
+    // scale included, for sharp edges.
+    int addSvg(std::string_view svg, int width, int height);
     // Draws an image (or the part of it in source, 0..1 across and down)
     // stretched over the rectangle, its corners rounded, faded by alpha.
     struct Source { float u0, v0, u1, v1; };

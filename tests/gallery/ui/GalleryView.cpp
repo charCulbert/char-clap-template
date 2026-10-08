@@ -35,6 +35,11 @@ public:
         mono = ui.draw.addFont(gpu::loadAsset("/fonts/IBMPlexMono-Regular.ttf"));
         wheel = ui.draw.addImage(gpu::loadAsset("/images/colour-wheel.png"));
         strip = ui.draw.addImage(gpu::loadAsset("/images/knob-strip.png"));
+        // An icon, rasterized at 2x its 64-point size (sharp on 2x screens).
+        speaker = ui.draw.addSvg(R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M4 9h4l5-4v14l-5-4H4z" fill="#ddc07e"/>
+            <path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="#dedede" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>)", 128, 128);
         wgpu::ShaderSourceWGSL source;
         source.code = stripes;
         wgpu::ShaderModuleDescriptor moduleDescriptor;
@@ -263,12 +268,13 @@ private:
                     }
                 }
             });
-            cell("Images (PNG): square, rounded by Clay, faded to half", [&] {
+            cell("Images: PNG square, rounded by Clay, faded; SVG icon", [&] {
                 CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(64), CLAY_SIZING_FIXED(64)}}, .image = {.imageData = gpu::Layout::image(wheel)}}) {}
                 CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(64), CLAY_SIZING_FIXED(64)}}, .cornerRadius = CLAY_CORNER_RADIUS(32),
                       .image = {.imageData = gpu::Layout::image(wheel)}}) {}
                 CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(64), CLAY_SIZING_FIXED(64)}}, .backgroundColor = {255, 255, 255, 128},
                       .cornerRadius = CLAY_CORNER_RADIUS(10), .image = {.imageData = gpu::Layout::image(wheel)}}) {}
+                CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(64), CLAY_SIZING_FIXED(64)}}, .image = {.imageData = gpu::Layout::image(speaker)}}) {}
             });
         });
         row([&] {
@@ -458,7 +464,7 @@ private:
         }
     }
 
-    int page = 0, themeMode = 0, mode = 0, shape = 0, clicks = 0, edits = 0, mono = 0, wheel = -1, strip = -1;
+    int page = 0, themeMode = 0, mode = 0, shape = 0, clicks = 0, edits = 0, mono = 0, wheel = -1, strip = -1, speaker = -1;
     bool sync = false, advancedOpen = true, oversample = false, linearPhase = true;
     float peaks[6] = {};
     std::string name = "Preset 1";

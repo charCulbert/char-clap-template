@@ -271,7 +271,7 @@ Every version is pinned in one place:
 | clap-wrapper | `libs/core/core.cmake` | a commit on its `next` branch (needed for the AUv2 fixes in its PR #536) |
 | CHOC | `libs/webview/webview.cmake` | a commit |
 | Dawn | `libs/gpu/gpu.cmake` | release v20260922.191850 |
-| stb_truetype, Clay | `libs/draw2d/draw2d.cmake` | a commit, v0.14 |
+| stb (truetype, image), Clay, nanosvg | `libs/draw2d/draw2d.cmake` | a commit, v0.14, a commit |
 | Dear ImGui | `examples/imgui-filter/CMakeLists.txt` | v1.92.9b |
 | Signalsmith DSP (FFT) | `examples/gpu-analyzer/signalsmith-dsp.cmake` | a commit |
 
