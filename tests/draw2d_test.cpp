@@ -134,6 +134,21 @@ int main(int argc, char **argv)
     Draw2D draw;
     CHECK(draw.prepare(gpu.device, format, font));
 
+    // Without its font (a plugin's resources not found) it still draws, just
+    // no text: images and shapes work, and nothing crashes.
+    {
+        Draw2D bare;
+        CHECK(!bare.prepare(gpu.device, format, ""));
+        const uint8_t pixel[] = {255, 255, 255, 255};
+        CHECK(bare.addImage(pixel, 1, 1) == 0);
+        const auto px = gpu.render(bare, [&] {
+            bare.rect(8, 8, 16, 16, 0, red);
+            bare.text(4, 40, 12, "Hi", white);
+            bare.image(0, 40, 40, 4, 4);
+        });
+        CHECK(is(px, 16, 16, red) && is(px, 41, 41, white));
+    }
+
     // A filled rectangle: inside is its colour, outside the background.
     auto px = gpu.render(draw, [&] { draw.rect(8, 8, 16, 16, 0, red); });
     CHECK(is(px, 16, 16, red) && is(px, 9, 9, red) && is(px, 4, 4, black) && is(px, 26, 16, black));

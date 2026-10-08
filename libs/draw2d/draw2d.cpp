@@ -245,7 +245,6 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
     textureDescriptor.format = wgpu::TextureFormat::R8Unorm;
     textureDescriptor.usage = wgpu::TextureUsage::TextureBinding | wgpu::TextureUsage::CopyDst;
     atlasTexture = device.CreateTexture(&textureDescriptor);
-    if (addFont(std::move(fontData)) != 0) return false;
 
     wgpu::SamplerDescriptor samplerDescriptor;
     samplerDescriptor.magFilter = wgpu::FilterMode::Linear;
@@ -343,7 +342,7 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
     groupDescriptor.entryCount = 3;
     groupDescriptor.entries = entries;
     bindGroup = device.CreateBindGroup(&groupDescriptor);
-    return true;
+    return addFont(std::move(fontData)) == 0; // last: without it the rest still works, drawing no text
 }
 
 int Draw2D::addFont(std::string fontData)

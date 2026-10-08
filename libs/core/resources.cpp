@@ -52,7 +52,11 @@ void initResources(const char *entryPath)
     root() = std::filesystem::path(entryPath ? entryPath : "").relative_path() / "resources";
 #else
     (void)entryPath;
-    const auto binary = thisBinary();
+    // Through any symlinks: a plugin linked into a plugin folder (as while
+    // developing) has its resources next to the real binary.
+    std::error_code error;
+    auto binary = std::filesystem::canonical(thisBinary(), error);
+    if (error) binary = thisBinary();
     const auto folder = binary.parent_path();
     if (folder.parent_path().filename() == "Contents") // <bundle>/Contents/<MacOS|x86_64-win|...>/
         root() = folder.parent_path() / "Resources";

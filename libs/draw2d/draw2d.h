@@ -34,7 +34,8 @@ public:
     struct Gradient { Color from, to; float x0, y0, x1, y1; bool radial = false; };
 
     // fontData: the bytes of a .ttf file, which becomes font 0. Returns false
-    // if the font is unusable.
+    // if the font is unusable; everything else still works, and text draws
+    // nothing.
     bool prepare(const wgpu::Device &device, wgpu::TextureFormat format, std::string fontData);
     // Adds another font after prepare; returns its number, or -1 if unusable.
     int addFont(std::string fontData);
