@@ -43,3 +43,21 @@ jobs:
           cmake -S tests -B build-tests
           cmake --build build-tests --parallel 4
           ctest --test-dir build-tests --output-on-failure
+
+  # The same tests under AddressSanitizer and UndefinedBehaviorSanitizer.
+  # (ASan hangs at startup on recent macOS, so this runs on Linux.)
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux packages
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev mesa-vulkan-drivers
+      - name: Build and run
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: |
+          flags="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
+          cmake -S tests -B build-tests -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="$flags" -DCMAKE_EXE_LINKER_FLAGS="$flags"
+          cmake --build build-tests --parallel 4
+          ctest --test-dir build-tests --output-on-failure

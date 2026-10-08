@@ -3,6 +3,7 @@
 // Draw2D records draws but never flushes them, having no device.
 #include "../libs/draw2d/ui.h"
 #include <cstring>
+#include <iterator>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -323,6 +324,96 @@ static void editors()
     for (float v : values) CHECK(std::abs(v - 0.5f) < 1e-4);
 }
 
+// Seeded random pointer, wheel, key and text input over every control at once.
+// Whatever arrives, values stay in range, editors stay well formed, and every
+// gesture that begins ends.
+static void randomInput(uint32_t seed)
+{
+    Ui ui;
+    gpu::Params params;
+    std::vector<int> open(3, 0);
+    bool unbalanced = false;
+    params.send = [&](const core::Value &m) {
+        const std::string type(m["type"].text());
+        const int id = int(m["id"].number());
+        if (type == "begin") unbalanced |= open[id]++ != 0;
+        if (type == "end") unbalanced |= --open[id] != 0;
+        if (type == "change") unbalanced |= open[id] != 1;
+    };
+    core::Value::Array list;
+    list.push_back(core::Value::Map{{"id", 0.0}, {"name", "A"}, {"min", 0.0}, {"max", 1.0}, {"default", 0.5}});
+    list.push_back(core::Value::Map{{"id", 1.0}, {"name", "B"}, {"min", -24.0}, {"max", 24.0}, {"default", 0.0}});
+    list.push_back(core::Value::Map{{"id", 2.0}, {"name", "C"}, {"min", 20.0}, {"max", 20000.0}, {"default", 1000.0}});
+    params.receive(core::Value::Map{{"type", "params"}, {"params", list}});
+    gpu::Param *a = params.find("A"), *b = params.find("B"), *c = params.find("C");
+
+    std::vector<Ui::Point> points = {{0, 0}, {0.5f, 1}, {1, 0}};
+    std::vector<float> values(8, 0.5f);
+    std::string field = "text";
+    bool on = false, drawerOpen = true;
+    int segment = 0, choice = 0;
+    const char *items[] = {"One", "Two", "Three"};
+    auto draw = [&] {
+        frame(ui, [&] {
+            CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(180), CLAY_SIZING_GROW(0)}, .childGap = 4, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+            {
+                ui.button("Go");
+                ui.toggle("On", on);
+                ui.segmented(items, 3, segment);
+                ui.dropdown(items, 3, choice);
+                ui.textField(field, 100);
+                ui.numberBox(params, b, "%.1f");
+                if (ui.drawer("More", drawerOpen)) ui.knob(params, c, "%.0f", true);
+                ui.slider(params, a, "%.2f");
+            }
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 4, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+            {
+                ui.vslider(params, b, "%.1f", false, 60);
+                ui.xyPad(params, a, c);
+                ui.envelope(points);
+                ui.steps(values);
+                ui.piano(48, 72, 40);
+            }
+        });
+    };
+    uint32_t state = seed;
+    auto next = [&] { state = state * 1664525u + 1013904223u; return state >> 8; };
+    auto coordinate = [&](float size) { return float(next() % 1000) / 1000 * (size + 100) - 50; };
+    const char *texts[] = {"1", "-", ".", "e", "x", "é", "1e9", "-1e9", "nan", "inf", ""};
+    bool down = false;
+    float x = 0, y = 0;
+    for (int i = 0; i < 20000; ++i)
+    {
+        const unsigned kind = next() % 16;
+        if (kind < 6) x = coordinate(400), y = coordinate(300), ui.pointer({View::Pointer::move, x, y, next() % 2 ? View::shift : 0u});
+        else if (kind < 8 && !down) down = true, ui.pointer({View::Pointer::down, x, y});
+        else if (kind < 10 && down) down = false, ui.pointer({View::Pointer::up, x, y});
+        else if (kind == 10) ui.pointer({View::Pointer::wheel, x, y, 0, float(int(next() % 7) - 3)});
+        else if (kind == 11) ui.pointer({View::Pointer::leave, x, y});
+        else if (kind < 14) ui.key(View::Key(next() % 13), next() % 2 ? View::shift : 0u);
+        else ui.text(texts[next() % std::size(texts)]);
+        if (next() % 3 == 0) draw();
+
+        for (gpu::Param *p : {a, b, c}) CHECK(std::isfinite(p->value) && p->value >= p->min && p->value <= p->max);
+        CHECK(points.size() >= 2 && points.front().x == 0 && points.back().x == 1);
+        for (size_t k = 0; k < points.size(); ++k)
+        {
+            CHECK(points[k].y >= 0 && points[k].y <= 1);
+            if (k) CHECK(points[k].x >= points[k - 1].x);
+        }
+        for (float v : values) CHECK(v >= 0 && v <= 1);
+        CHECK(segment >= 0 && segment < 3 && choice >= 0 && choice < 3);
+        CHECK(!unbalanced);
+        if (failures) return (void)std::fprintf(stderr, "random input: seed %u, event %d\n", seed, i); // the first is the useful one
+    }
+    if (down) ui.pointer({View::Pointer::up, x, y});
+    ui.pointer({View::Pointer::leave, x, y});
+    ui.key(View::Key::escape, 0);
+    draw();
+    draw();
+    for (int n : open) CHECK(n == 0);
+}
+
 int main()
 {
     layoutSizes();
@@ -334,6 +425,7 @@ int main()
     textFieldEdits();
     pianoNotes();
     editors();
+    for (uint32_t seed = 1; seed <= 4 && !failures; ++seed) randomInput(seed);
     if (failures) std::fprintf(stderr, "%d failed\n", failures);
     return failures ? 1 : 0;
 }
