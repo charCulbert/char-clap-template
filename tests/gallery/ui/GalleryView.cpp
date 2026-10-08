@@ -80,6 +80,8 @@ public:
     {
         gpu::Theme theme = ui.theme.withColors(themeMode == 0 ? darkMode : themeMode == 1);
         theme.valueFont = mono > 0 ? mono : 0;
+        theme.whiteKey = keys == 0 ? gpu::Theme{}.whiteKey : theme.text; // a piano's, or the palette's inverted
+        theme.blackKey = keys == 0 ? gpu::Theme{}.blackKey : theme.background;
         ui.theme = theme;
         ui.begin(width, height, scale);
         CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(12),
@@ -337,7 +339,9 @@ private:
             });
         });
         row([&] {
-            cell("Piano: press and slide; held notes light (C4 lit)", [&] {
+            cell("Piano: press and slide; held notes light (C4 lit); key colours from the theme", [&] {
+                static const char *const styles[] = {"Ivory", "Palette"};
+                ui.segmented(styles, 2, keys, 3);
                 const auto notes = ui.piano(48, 83, 56, [&](int n) { return n == 60 || n == held; });
                 if (notes.on >= 0) held = notes.on;
                 if (notes.off >= 0 && notes.off == held) held = -1;
@@ -549,7 +553,7 @@ private:
         }
     }
 
-    int page = 0, themeMode = 0, mode = 0, shape = 0, clicks = 0, edits = 0, mono = 0, wheel = -1, strip = -1, speaker = -1;
+    int page = 0, themeMode = 0, keys = 0, mode = 0, shape = 0, clicks = 0, edits = 0, mono = 0, wheel = -1, strip = -1, speaker = -1;
     int held = -1; // the piano note held down
     std::vector<gpu::Ui::Point> envelope = {{0, 0}, {0.08f, 1}, {0.3f, 0.6f}, {0.8f, 0.6f}, {1, 0}};
     std::vector<float> stepValues = {0.8f, 0.2f, 0.5f, 0.2f, 1.0f, 0.2f, 0.5f, 0.3f, 0.7f, 0.2f, 0.5f, 0.2f, 0.9f, 0.4f, 0.6f, 0.3f};

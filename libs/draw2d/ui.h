@@ -40,6 +40,8 @@ struct Theme
     Color track{0.333f, 0.333f, 0.333f};      // unfilled parts of knobs and sliders
     Color accent{0.867f, 0.753f, 0.494f};     // #ddc07e
     Color shadow{0, 0, 0, 0.45f};             // under menus and tooltips
+    Color whiteKey{0.929f, 0.918f, 0.886f};   // #edeae2: a piano's keys, as a piano's in either palette
+    Color blackKey{0.110f, 0.110f, 0.110f};   // #1c1c1c
     int labelFont = 0, valueFont = 0;         // Draw2D fonts for names and for numbers
     float textSize = 11, radius = 2;          // points
 
@@ -56,11 +58,12 @@ struct Theme
         t.shadow = {0, 0, 0, 0.22f};
         return t;
     }
-    // The palette for the system's appearance, keeping fonts and sizes.
+    // The palette for the system's appearance, keeping fonts, sizes and key colours.
     Theme withColors(bool darkMode) const
     {
         Theme t = darkMode ? dark() : light();
         t.labelFont = labelFont, t.valueFont = valueFont, t.textSize = textSize, t.radius = radius;
+        t.whiteKey = whiteKey, t.blackKey = blackKey;
         return t;
     }
 };

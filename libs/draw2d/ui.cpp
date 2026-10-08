@@ -1065,7 +1065,7 @@ Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(in
     auto drawKey = [&](int n) {
         const Rect k = keyRect(n);
         const bool down = n == playing || (lit && lit(n));
-        const Color fill = down ? theme.accent : isBlack(n) ? theme.background : theme.text;
+        const Color fill = down ? theme.accent : isBlack(n) ? theme.blackKey : theme.whiteKey;
         draw.rect(k.x, k.y, k.w, k.h, Draw2D::Corners{0, 0, 2 * s, 2 * s}, fill, Draw2D::Sides{1 * s, 0, 0, 1 * s}, theme.edge);
     };
     for (int n = lowest; n <= highest; ++n)
