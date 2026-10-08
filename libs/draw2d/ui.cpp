@@ -152,6 +152,13 @@ bool Ui::key(View::Key key, unsigned modifiers)
     // act on, and the shortcuts a text field (else they're the host's: its undo).
     if (!focus && !editing && key != View::Key::tab) return false;
     if (!editing && key >= View::Key::undo) return false;
+    // Keys the focused control has no use for are the host's: Space and
+    // Delete, Enter on a knob, Escape with no menu open.
+    using K = View::Key;
+    const bool used = key == K::tab || key == K::left || key == K::right || key == K::up || key == K::down
+                   || key == K::pageUp || key == K::pageDown || key == K::home || key == K::end
+                   || (key == K::enter && focusTakesEnter) || (key == K::escape && openMenu);
+    if (!editing && !used) return false;
     keys.push_back({key, modifiers});
     if (editing) edits.push_back({{}, key, modifiers});
     focusVisible = !editing;
@@ -288,6 +295,10 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
         active = nullptr, numberDrag = 0, held = {};
     }
     activeSeen = false;
+    // A press on nothing that takes focus (empty space, a label) drops it,
+    // so the keys go back to the host.
+    if (mouse.pressed && !pressFocused && !active) focus = nullptr;
+    pressFocused = false;
     // Each press, release, wheel turn and key is seen by one frame.
     mouse.pressed = mouse.released = mouse.doubleClicked = false;
     mouse.wheel = 0;
@@ -338,9 +349,10 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
     const bool fine = mouse.modifiers & View::shift;
     const double unit = toUnit(p, p.value, log);
 
+    if (focus == me) focusTakesEnter = false; // knobs and sliders step; Enter isn't theirs
     if (!active && over(x, y, w, h))
     {
-        if (mouse.pressed) focus = me;
+        if (mouse.pressed) focus = me, pressFocused = true;
         if (mouse.pressed && mouse.doubleClicked)
             set(params, p, p.defaultValue);
         else if (mouse.pressed)
@@ -505,7 +517,8 @@ std::vector<View::Key> Ui::focusable(Clay_ElementId element, const Area &a)
 {
     const void *me = reinterpret_cast<const void *>(uintptr_t(element.id));
     order.push_back(me);
-    if (a.pressed) focus = me;
+    if (a.pressed) focus = me, pressFocused = true;
+    if (focus == me) focusTakesEnter = true; // buttons, toggles, dropdowns
     std::vector<View::Key> mine;
     if (focus == me)
         for (auto [key, modifiers] : keys)

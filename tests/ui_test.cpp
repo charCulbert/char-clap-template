@@ -474,6 +474,67 @@ static void textFieldShortcuts()
     CHECK(value == "abc");
 }
 
+// A focused control takes only the keys it uses; the rest, and every key
+// after a click on empty space, are the host's.
+static void keysBackToHost()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A");
+    int clicks = 0;
+    auto draw = [&] {
+        ui.begin(400, 300, 1);
+        ui.knob(params, a, gpu::Rect{0, 0, 100, 140}, "%.2f");
+        CLAY({.layout = {.padding = {200, 0, 200, 0}}}) { if (ui.button("Go")) ++clicks; }
+        ui.end(wgpu::RenderPassEncoder{});
+    };
+    draw();
+    pointer(ui, View::Pointer::down, 50, 50);
+    draw();
+    pointer(ui, View::Pointer::up, 50, 50);
+    draw();
+    CHECK(ui.key(View::Key::up, 0) && !ui.key(View::Key::enter, 0) && !ui.key(View::Key::escape, 0)
+          && !ui.key(View::Key::backspace, 0));
+    draw();
+    clickAt(ui, box("Go"), draw);
+    CHECK(clicks == 1 && ui.key(View::Key::enter, 0));
+    draw();
+    CHECK(clicks == 2);
+    pointer(ui, View::Pointer::move, 390, 290);
+    draw();
+    pointer(ui, View::Pointer::down, 390, 290); // empty space
+    draw();
+    pointer(ui, View::Pointer::up, 390, 290);
+    draw();
+    CHECK(!ui.key(View::Key::enter, 0) && !ui.key(View::Key::up, 0));
+}
+
+// Long pastes over selections, undone and redone over and over: stb_textedit's
+// undo history fills and discards records (under ASan in CI, an overrun of
+// its record array would show here).
+static void longUndoHistory()
+{
+    Ui ui;
+    std::string value = "start";
+    auto draw = [&] { frame(ui, [&] { ui.textField(value, 100); }); };
+    draw();
+    clickAt(ui, box("TextField"), draw);
+    uint32_t seed = 7;
+    auto next = [&] { return seed = seed * 1664525u + 1013904223u, seed >> 8; };
+    for (int i = 0; i < 400; ++i)
+    {
+        ui.key(View::Key::selectAll, View::command);
+        ui.text(std::string(100 + next() % 300, char('a' + next() % 26)).c_str());
+        for (uint32_t n = next() % 4; n > 0; --n) ui.key(View::Key::undo, View::command);
+        for (uint32_t n = next() % 3; n > 0; --n) ui.key(View::Key::redo, View::command);
+        draw();
+    }
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(!value.empty());
+}
+
 // A knob that goes away mid-drag (a drawer closed, the page changed) lets
 // go: its gesture ends, the pointer unlocks, and other controls work again.
 static void dragOfVanishedControl()
@@ -567,6 +628,8 @@ int main()
     textFieldShortcuts();
     fileDrags();
     dragOfVanishedControl();
+    longUndoHistory();
+    keysBackToHost();
     pianoNotes();
     editors();
     for (uint32_t seed = 1; seed <= 4 && !failures; ++seed) randomInput(seed);

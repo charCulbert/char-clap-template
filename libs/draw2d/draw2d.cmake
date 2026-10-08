@@ -25,7 +25,21 @@ FetchContent_Declare(nanosvg
     SOURCE_SUBDIR none) # headers only
 FetchContent_MakeAvailable(stb clay nanosvg)
 
+# stb_textedit 1.14 discarding a redo record moves one undo record past the
+# end of its array (undoing with a long history). Dear ImGui's copy has the
+# fix: move one record fewer. ui.cpp includes this patched copy.
+file(READ "${stb_SOURCE_DIR}/stb_textedit.h" textedit)
+set(overrun "(size_t) ((STB_TEXTEDIT_UNDOSTATECOUNT - state->redo_point)*sizeof(state->undo_rec[0]))")
+string(FIND "${textedit}" "${overrun}" at)
+if(at EQUAL -1)
+    message(FATAL_ERROR "stb_textedit.h changed: check whether discard_redo still needs the patch in draw2d.cmake")
+endif()
+string(REPLACE "${overrun}" "(size_t) ((STB_TEXTEDIT_UNDOSTATECOUNT - state->redo_point - 1)*sizeof(state->undo_rec[0]))" textedit "${textedit}")
+file(WRITE "${CMAKE_BINARY_DIR}/stb-patched/stb_textedit.h.new" "${textedit}")
+file(COPY_FILE "${CMAKE_BINARY_DIR}/stb-patched/stb_textedit.h.new" "${CMAKE_BINARY_DIR}/stb-patched/stb_textedit.h" ONLY_IF_DIFFERENT)
+set(DRAW2D_PATCHED "${CMAKE_BINARY_DIR}/stb-patched")
+
 function(draw2d_add_to target)
     target_sources(${target} PRIVATE "${DRAW2D_DIR}/draw2d.cpp" "${DRAW2D_DIR}/layout.cpp" "${DRAW2D_DIR}/ui.cpp")
-    target_include_directories(${target} PRIVATE "${stb_SOURCE_DIR}" "${clay_SOURCE_DIR}" "${nanosvg_SOURCE_DIR}/src")
+    target_include_directories(${target} PRIVATE "${DRAW2D_PATCHED}" "${stb_SOURCE_DIR}" "${clay_SOURCE_DIR}" "${nanosvg_SOURCE_DIR}/src")
 endfunction()

@@ -265,6 +265,8 @@ private:
 
     const void *focus = nullptr; // the control keys go to
     bool focusVisible = false;   // after a key, until the next click
+    bool focusTakesEnter = false; // the focused control is a button, toggle or dropdown
+    bool pressFocused = false;   // this frame's press focused a control
     std::vector<std::pair<View::Key, unsigned>> keys; // this frame's
     struct Edit { std::string text; View::Key key; unsigned modifiers; }; // typed text, or else a key
     std::vector<Edit> edits;                          // this frame's, for the text field
