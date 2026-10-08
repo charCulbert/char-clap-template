@@ -303,6 +303,7 @@ private:
     float dragFromX = 0, dragFromY = 0;
     bool inside(Clay_ElementId id, float x, float y) const; // in last frame's box; pixels
     uint32_t editing = 0;       // the text field being edited, or 0
+    float fieldScroll = 0;      // how far its text is scrolled left (points)
     std::string draft;          // its text while editing
     size_t caret = 0;           // byte offsets in draft: the caret, and the selection
     size_t selectFrom = 0, selectTo = 0;

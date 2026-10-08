@@ -813,7 +813,7 @@ bool Ui::editKeys(uint32_t field, std::string &value, bool overField, float text
 void Ui::startEditing(uint32_t field, std::string text, bool selectAll)
 {
     if (editing && editing != field) pendingField = editing, pendingDraft = draft; // see textField
-    editing = field, draft = std::move(text), focus = nullptr;
+    editing = field, draft = std::move(text), focus = nullptr, fieldScroll = 0;
     TextEdit &t = *textEdit;
     t.buffer.text = toCodepoints(draft);
     t.typing = -1;
@@ -924,11 +924,22 @@ bool Ui::textField(std::string &value, float widthPoints, int index)
     }
     if ((a.pressed || a.doubleClicked) && editing != fid.id) startEditing(fid.id, value);
     const Clay_BoundingBox box = Clay_GetElementData(fid).boundingBox; // last frame's
-    committed |= editKeys(fid.id, value, Clay_PointerOver(fid), box.x + 5);
+    committed |= editKeys(fid.id, value, Clay_PointerOver(fid), box.x + 5 - fieldScroll);
     const bool edit = editing == fid.id, hot = Clay_PointerOver(fid);
+    // Text longer than the field scrolls to keep the caret in view, as far
+    // as it must and no further; it shows its start again when not edited.
+    float scroll = 0;
+    if (edit)
+    {
+        const float visible = widthPoints - 10 - 1; // less the padding and the caret
+        const float caretX = draw.measure(theme.textSize, draft.substr(0, caret), theme.valueFont);
+        const float textWidth = draw.measure(theme.textSize, draft, theme.valueFont);
+        fieldScroll = std::clamp(fieldScroll, caretX - visible, caretX);
+        scroll = fieldScroll = std::clamp(fieldScroll, 0.0f, std::max(0.0f, textWidth - visible));
+    }
     CLAY({.id = fid, .layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_FIT(0)}, .padding = {5, 5, 2, 2},
                                 .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
-          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius), .clip = {.horizontal = true},
+          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius), .clip = {.horizontal = true, .childOffset = {-scroll, 0}},
           .border = {.color = clayColor(edit ? theme.accent : hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
     {
         fieldText(value, edit);
