@@ -35,7 +35,7 @@ function(core_add_to target)
     target_link_libraries(${target} PUBLIC clap)
     set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4)
+        target_compile_options(${target} PRIVATE /W4 /wd4100) # CLAP's callbacks take parameters a plugin needn't use, as -Wno-unused-parameter below
         target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS) # keep the portable C string functions
     else()
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wno-unused-parameter)

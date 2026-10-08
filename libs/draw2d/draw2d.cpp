@@ -4,10 +4,17 @@
 #define STBI_ONLY_PNG
 #define STBI_ONLY_JPEG
 #include <stb_image.h>
+#ifdef _MSC_VER // MSVC's optimiser reports unreachable code (C4702) even in system headers
+#pragma warning(push)
+#pragma warning(disable : 4702)
+#endif
 #define NANOSVG_IMPLEMENTATION
 #include <nanosvg.h>
 #define NANOSVGRAST_IMPLEMENTATION
 #include <nanosvgrast.h>
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 #include <algorithm>
 #include <cmath>
 #include <cstring>

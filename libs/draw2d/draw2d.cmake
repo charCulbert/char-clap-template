@@ -41,5 +41,11 @@ set(DRAW2D_PATCHED "${CMAKE_BINARY_DIR}/stb-patched")
 
 function(draw2d_add_to target)
     target_sources(${target} PRIVATE "${DRAW2D_DIR}/draw2d.cpp" "${DRAW2D_DIR}/layout.cpp" "${DRAW2D_DIR}/ui.cpp")
-    target_include_directories(${target} PRIVATE "${DRAW2D_PATCHED}" "${stb_SOURCE_DIR}" "${clay_SOURCE_DIR}" "${nanosvg_SOURCE_DIR}/src")
+    # Third-party headers: their own warnings aren't the plugin's to fix.
+    target_include_directories(${target} SYSTEM PRIVATE "${DRAW2D_PATCHED}" "${stb_SOURCE_DIR}" "${clay_SOURCE_DIR}" "${nanosvg_SOURCE_DIR}/src")
+    # Clay's API is designated initializers that leave the rest of a struct at
+    # zero (CLAY({.layout = ...}), CLAY_SIZING_FIT(0)); every use would warn.
+    if(NOT MSVC)
+        target_compile_options(${target} PRIVATE -Wno-missing-field-initializers)
+    endif()
 endfunction()

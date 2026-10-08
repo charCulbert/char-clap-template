@@ -579,14 +579,14 @@ private:
                                r.x + side * 0.35f, r.y + side, r.x, r.y + side};
             d.fill(l, 6, a);
             std::vector<float> curve;
-            const float x0 = r.x + side + 10 * s, w = r.x + r.w - x0;
+            const float x0 = r.x + side + 10 * s, span = r.x + r.w - x0;
             for (int i = 0; i <= 48; ++i)
             {
-                const float t = i / 48.0f;
-                curve.push_back(x0 + w * t);
-                curve.push_back(r.y + r.h * (0.55f - 0.4f * std::sin(t * 6.2831853f) * std::exp(-2 * t)));
+                const float u = i / 48.0f;
+                curve.push_back(x0 + span * u);
+                curve.push_back(r.y + r.h * (0.55f - 0.4f * std::sin(u * 6.2831853f) * std::exp(-2 * u)));
             }
-            curve.insert(curve.end(), {x0 + w, r.y + r.h, x0, r.y + r.h});
+            curve.insert(curve.end(), {x0 + span, r.y + r.h, x0, r.y + r.h});
             d.fill(curve.data(), curve.size() / 2, {a.r, a.g, a.b, 0.35f});
             d.polyline(curve.data(), 49, 1.5f * s, a);
             break;

@@ -251,7 +251,7 @@ bool Ui::animating() const
 void Ui::begin(float width, float height, float scale)
 {
     s = scale;
-    widthPoints = width / scale, heightPoints = height / scale;
+    viewWidth = width / scale, viewHeight = height / scale;
     draw.begin(width, height);
     order.clear();
     placed.clear();
@@ -667,7 +667,7 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
     // the last frame, in points).
     const Clay_BoundingBox box = Clay_GetElementData(did).boundingBox;
     const float menuHeight = float(count) * (theme.textSize * 1.25f + 6) + 4;
-    const bool up = box.y + box.height + menuHeight > heightPoints && box.y - menuHeight >= 0;
+    const bool up = box.y + box.height + menuHeight > viewHeight && box.y - menuHeight >= 0;
     CLAY({.id = did, .layout = {.padding = {7, 7, 3, 3}, .childGap = 8, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
           .backgroundColor = clayColor(hot || open ? theme.panel : Color{0, 0, 0, 0}),
           .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
@@ -727,7 +727,7 @@ void Ui::tooltip(const char *text)
     const Clay_BoundingBox box = Clay_GetElementData(target).boundingBox;
     const float tipWidth = draw.measure(theme.textSize, text, theme.labelFont) + 12;
     const float tipHeight = theme.textSize * 1.25f + 6;
-    const bool left = box.x + tipWidth > widthPoints, up = box.y + box.height + 4 + tipHeight > heightPoints;
+    const bool left = box.x + tipWidth > viewWidth, up = box.y + box.height + 4 + tipHeight > viewHeight;
     const Clay_FloatingAttachPointType element = up ? (left ? CLAY_ATTACH_POINT_RIGHT_BOTTOM : CLAY_ATTACH_POINT_LEFT_BOTTOM)
                                                     : (left ? CLAY_ATTACH_POINT_RIGHT_TOP : CLAY_ATTACH_POINT_LEFT_TOP);
     const Clay_FloatingAttachPointType parent = up ? (left ? CLAY_ATTACH_POINT_RIGHT_TOP : CLAY_ATTACH_POINT_LEFT_TOP)
@@ -1268,10 +1268,10 @@ Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(in
 
 Ui::Notes Ui::piano(int lowest, int highest, float heightPoints, const std::function<bool(int)> &lit)
 {
-    Placed keys{nullptr, nullptr, nullptr, false};
-    keys.lowest = lowest, keys.highest = highest, keys.lit = lit;
+    Placed board{nullptr, nullptr, nullptr, false};
+    board.lowest = lowest, board.highest = highest, board.lit = lit;
     CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(heightPoints)}},
-          .custom = {.customData = layout.custom(pianoBox, &placed.emplace_back(std::move(keys)))}}) {}
+          .custom = {.customData = layout.custom(pianoBox, &placed.emplace_back(std::move(board)))}}) {}
     const Notes notes = pianoNotes;
     pianoNotes = {};
     return notes;

@@ -262,9 +262,9 @@ void Gui::frame()
     const float newScale = scale();
     if (shownScale > 0 && newScale != shownScale && pixelsPerPoint() != 1.0f && hostGui && pluginGui)
     {
-        uint32_t w = uint32_t(std::lround(width * newScale / shownScale)), h = uint32_t(std::lround(height * newScale / shownScale));
-        pluginGui->adjust_size(plugin, &w, &h);
-        hostGui->request_resize(host, w, h);
+        uint32_t wide = uint32_t(std::lround(width * newScale / shownScale)), tall = uint32_t(std::lround(height * newScale / shownScale));
+        pluginGui->adjust_size(plugin, &wide, &tall);
+        hostGui->request_resize(host, wide, tall);
     }
     shownScale = newScale;
     const auto now = std::chrono::steady_clock::now();

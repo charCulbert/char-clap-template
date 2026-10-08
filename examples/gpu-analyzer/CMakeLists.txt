@@ -42,7 +42,7 @@ endif()
 include(${LIBS}/core/core.cmake)
 
 add_library(GpuAnalyzer_impl STATIC plugin.cpp)
-target_include_directories(GpuAnalyzer_impl PRIVATE ${SIGNALSMITH_DSP_INCLUDE})
+target_include_directories(GpuAnalyzer_impl SYSTEM PRIVATE ${SIGNALSMITH_DSP_INCLUDE})
 core_add_to(GpuAnalyzer_impl)
 gpu_add_to(GpuAnalyzer_impl)
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")

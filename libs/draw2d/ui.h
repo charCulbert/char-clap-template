@@ -195,7 +195,7 @@ public:
     void resizeGrip(float width, float height);
 
     float s = 1; // pixels per point for this frame
-    float widthPoints = 0, heightPoints = 0; // the view's size, for placing popups
+    float viewWidth = 0, viewHeight = 0; // the view's size in points, for placing popups
 
 private:
     enum Builtin { knobBox = -1, sliderBox = -2, chevronBox = -3, chevronRightBox = -4, vsliderBox = -5, xyBox = -6, meterBox = -7,
