@@ -112,11 +112,18 @@ public:
     // An envelope's breakpoint, 0..1 across and up.
     struct Point { float x, y; };
 
-    // In the layout. Each returns true when the user changed something.
+    // ---- In the layout: Clay sizes and places these, so declare them inside
+    // CLAY({...}) blocks. Each returns true when the user changed something.
     bool button(const char *label, int index = 0);
     bool toggle(const char *label, bool &on, int index = 0);
     bool segmented(const char *const *items, int count, int &selected, int index = 0);
     bool dropdown(const char *const *items, int count, int &selected, int index = 0);
+    // The same three for a parameter, sending its gesture (begin, change, end)
+    // when clicked. A toggle is on in the upper half of the range; a segmented
+    // control or dropdown's item i is the value min + i.
+    bool toggle(Params &params, Param *p, const char *label);
+    bool segmented(Params &params, Param *p, const char *const *items, int count);
+    bool dropdown(Params &params, Param *p, const char *const *items, int count);
     // Edits text; returns true when the edit is committed (Enter, or a click
     // elsewhere). Escape abandons it.
     bool textField(std::string &value, float widthPoints = 120, int index = 0);
@@ -151,7 +158,8 @@ public:
     // A filmstrip knob at the size of one frame (in points, at scale 1 a pixel each).
     void imageKnob(Params &params, Param *p, int image, int frames, bool log = false, bool across = false);
 
-    // At a rectangle you choose (pixels).
+    // ---- At a rectangle you choose (pixels): for drawing inside a Layout::custom
+    // box, or anywhere else Clay doesn't place things.
     // A rotary control with its value and name below; drag up/down to change.
     // log: logarithmic mapping (min > 0).
     void knob(Params &params, Param *p, Rect r, const char *format, bool log = false);

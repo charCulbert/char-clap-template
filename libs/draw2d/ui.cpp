@@ -926,6 +926,36 @@ void Ui::fieldText(const std::string &shown, bool edit)
     run(selectTo, draft.size());
 }
 
+// A parameter's value as an item of a segmented control or dropdown.
+static int itemOf(const Param &p, int count) { return std::clamp(int(std::lround(p.value - p.min)), 0, count - 1); }
+
+bool Ui::toggle(Params &params, Param *p, const char *label)
+{
+    if (!p) return false;
+    bool on = p->value >= (p->min + p->max) / 2;
+    if (!toggle(label, on, p->id)) return false;
+    set(params, *p, on ? p->max : p->min);
+    return true;
+}
+
+bool Ui::segmented(Params &params, Param *p, const char *const *items, int count)
+{
+    if (!p || count < 1) return false;
+    int selected = itemOf(*p, count);
+    if (!segmented(items, count, selected, p->id)) return false;
+    set(params, *p, p->min + selected);
+    return true;
+}
+
+bool Ui::dropdown(Params &params, Param *p, const char *const *items, int count)
+{
+    if (!p || count < 1) return false;
+    int selected = itemOf(*p, count);
+    if (!dropdown(items, count, selected, p->id)) return false;
+    set(params, *p, p->min + selected);
+    return true;
+}
+
 bool Ui::textField(std::string &value, float widthPoints, int index)
 {
     const Clay_ElementId fid = id("TextField", index);

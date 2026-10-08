@@ -192,6 +192,30 @@ static void setUpParams(gpu::Params &params)
     params.receive(core::Value::Map{{"type", "params"}, {"params", list}});
 }
 
+// A toggle and segmented control of parameters send a whole gesture per
+// click and follow the parameter's value.
+static void parameterToggleAndSegmented()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params); // A and B: 0..1
+    gpu::Param *a = params.find("A"), *b = params.find("B");
+    static const char *const items[] = {"Off", "On"};
+    auto draw = [&] { frame(ui, [&] { ui.toggle(params, a, "Sync"); ui.segmented(params, b, items, 2); }); };
+    a->value = 0, b->value = 0;
+    draw();
+    sent.clear();
+    clickAt(ui, box("Sync", a->id), draw);
+    CHECK(a->value == 1);
+    CHECK(sent.size() == 3 && sent[0] == "begin" && sent[1] == "change" && sent[2] == "end");
+    clickAt(ui, box("Segment", b->id * 64 + 1), draw);
+    CHECK(b->value == 1);
+    b->value = 0; // the host changed it: the control shows that
+    draw();
+    clickAt(ui, box("Sync", a->id), draw);
+    CHECK(a->value == 0);
+}
+
 static void knobDragAndKeys()
 {
     Ui ui;
@@ -744,6 +768,7 @@ int main()
     dropdownSelectsAndBlocks();
     keyboardFocus();
     knobDragAndKeys();
+    parameterToggleAndSegmented();
     textFieldEdits();
     textFieldShortcuts();
     fileDrags();
