@@ -158,8 +158,39 @@ endfunction()
 # so do entries libraries add to the global property CORE_THIRD_PARTY_LICENSES.
 # <name>= (no file) marks a download another entry covers. A library with no
 # licence file stops the configure, so none ships unnoticed.
+#
+# Built as part of a bigger project (this repository's top-level CMakeLists,
+# which builds every example in one build/), the plugins share build/_deps and
+# so one licence folder: it is gathered once, at the end of the configure, when
+# every plugin has named its libraries, and each ships all of them.
 function(core_third_party_licenses out)
     set(folder "${CMAKE_BINARY_DIR}/THIRD_PARTY_LICENSES")
+    if(NOT PROJECT_IS_TOP_LEVEL)
+        set(entries "")
+        foreach(entry ${ARGN}) # files relative to the caller, before the caller is gone
+            if(entry MATCHES "^([^=]+)=(.+)$")
+                get_filename_component(file "${CMAKE_MATCH_2}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+                set(entry "${CMAKE_MATCH_1}=${file}")
+            endif()
+            list(APPEND entries "${entry}")
+        endforeach()
+        set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_LICENSES ${entries})
+        # CPM downloads (clap-wrapper's SDKs) land in the first plugin's own build folder.
+        set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_DOWNLOADS "${CMAKE_CURRENT_BINARY_DIR}/cpm/*")
+        get_property(deferred GLOBAL PROPERTY CORE_THIRD_PARTY_LICENSES_DEFERRED)
+        if(NOT deferred)
+            set_property(GLOBAL PROPERTY CORE_THIRD_PARTY_LICENSES_DEFERRED TRUE)
+            # (Its arguments are read when it runs, where only global variables are.)
+            cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL core_gather_third_party_licenses "${CMAKE_BINARY_DIR}/THIRD_PARTY_LICENSES")
+        endif()
+        set(${out} "${folder}" PARENT_SCOPE)
+        return()
+    endif()
+    core_gather_third_party_licenses("${folder}" ${ARGN})
+    set(${out} "${folder}" PARENT_SCOPE)
+endfunction()
+
+function(core_gather_third_party_licenses folder)
     file(REMOVE_RECURSE "${folder}")
     file(MAKE_DIRECTORY "${folder}")
 
@@ -182,7 +213,8 @@ function(core_third_party_licenses out)
     endforeach()
 
     set(libraries "")
-    file(GLOB downloads LIST_DIRECTORIES true "${CMAKE_BINARY_DIR}/_deps/*" "${CMAKE_BINARY_DIR}/cpm/*")
+    get_property(elsewhere GLOBAL PROPERTY CORE_THIRD_PARTY_DOWNLOADS)
+    file(GLOB downloads LIST_DIRECTORIES true "${CMAKE_BINARY_DIR}/_deps/*" "${CMAKE_BINARY_DIR}/cpm/*" ${elsewhere})
     foreach(path ${downloads})
         if(IS_DIRECTORY "${path}" AND NOT path MATCHES "-(build|subbuild)$")
             list(APPEND libraries "${path}")
@@ -232,5 +264,4 @@ function(core_third_party_licenses out)
         file(GLOB runtime "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/licenses/wasi-sdk/*")
         file(COPY ${runtime} DESTINATION "${folder}")
     endif()
-    set(${out} "${folder}" PARENT_SCOPE)
 endfunction()
