@@ -1,6 +1,7 @@
 #define NOMINMAX // keep std::min usable
 #include <windows.h>
 #include "native.h"
+#include <string>
 
 // A child HWND in the host's window. Dawn draws into it with D3D12; a Win32
 // timer on it drives frames, and its window procedure forwards the mouse and keys.
@@ -52,6 +53,65 @@ static bool keyFor(WPARAM virtualKey, View::Key &key)
     case VK_DELETE: key = View::Key::deleteForward; return true;
     }
     return false;
+}
+
+static std::string clipboardText(HWND hwnd)
+{
+    std::string text;
+    if (!OpenClipboard(hwnd)) return text;
+    if (HANDLE data = GetClipboardData(CF_UNICODETEXT))
+        if (const auto *wide = static_cast<const wchar_t *>(GlobalLock(data)))
+        {
+            const int size = WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
+            if (size > 1)
+            {
+                text.resize(size_t(size));
+                WideCharToMultiByte(CP_UTF8, 0, wide, -1, text.data(), size, nullptr, nullptr);
+                text.pop_back(); // the terminating zero
+            }
+            GlobalUnlock(data);
+        }
+    CloseClipboard();
+    return text;
+}
+
+void copyText(Window *window, const std::string &utf8)
+{
+    const int size = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
+    HGLOBAL memory = size > 0 ? GlobalAlloc(GMEM_MOVEABLE, size_t(size) * sizeof(wchar_t)) : nullptr;
+    if (!memory) return;
+    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, static_cast<wchar_t *>(GlobalLock(memory)), size);
+    GlobalUnlock(memory);
+    if (OpenClipboard(window->hwnd))
+    {
+        EmptyClipboard();
+        if (SetClipboardData(CF_UNICODETEXT, memory)) memory = nullptr; // the clipboard owns it now
+        CloseClipboard();
+    }
+    if (memory) GlobalFree(memory);
+}
+
+// Ctrl+Z, Ctrl+Shift+Z or Y, A, X, C and V, for a text field being edited;
+// false for the rest, which go on to the host (its own undo, for one).
+static bool shortcut(Window *window, WPARAM virtualKey)
+{
+    if (GetKeyState(VK_CONTROL) >= 0 || GetKeyState(VK_MENU) < 0) return false;
+    View::Key key;
+    switch (virtualKey)
+    {
+    case 'V':
+    {
+        const std::string text = clipboardText(window->hwnd);
+        return !text.empty() && window->callbacks.text(text.c_str());
+    }
+    case 'Z': key = GetKeyState(VK_SHIFT) < 0 ? View::Key::redo : View::Key::undo; break;
+    case 'Y': key = View::Key::redo; break;
+    case 'A': key = View::Key::selectAll; break;
+    case 'X': key = View::Key::cut; break;
+    case 'C': key = View::Key::copy; break;
+    default: return false;
+    }
+    return window->callbacks.key(key, modifiers());
 }
 
 static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -108,6 +168,7 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
     case WM_KEYDOWN:
     {
         View::Key key;
+        if (shortcut(window, wParam)) return 0;
         if (keyFor(wParam, key) && window->callbacks.key(key, modifiers())) return 0;
         // Not ours: let the host's window have it (its shortcuts, transport).
         PostMessageW(GetParent(hwnd), message, wParam, lParam);

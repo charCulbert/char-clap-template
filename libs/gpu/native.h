@@ -2,6 +2,7 @@
 #include "clap/ext/gui.h"
 #include <webgpu/webgpu_cpp.h>
 #include <functional>
+#include <string>
 #include "view.h"
 
 // A child window inside the host's window that WebGPU can draw into. One small
@@ -30,5 +31,6 @@ void setVisible(Window *window, bool visible);
 void pumpEvents(Window *window); // only where needsTimer
 void lockPointer(Window *window, bool locked); // see View::lockPointer
 bool darkMode(Window *window); // the system's (or host window's) appearance; polled about once a second
+void copyText(Window *window, const std::string &utf8); // to the clipboard: View::copyText
 
 }

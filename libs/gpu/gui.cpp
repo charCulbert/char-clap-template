@@ -120,6 +120,7 @@ bool Gui::create(const char *api, bool floating)
         pluginWebview->receive(plugin, bytes.data(), uint32_t(bytes.size()));
     };
     view->lockPointer = [this](bool locked) { if (window) platform::lockPointer(window, locked); };
+    view->copyText = [this](const std::string &utf8) { if (window) platform::copyText(window, utf8); };
     if (hostGui && pluginGui)
         view->resizeTo = [this](float w, float h) {
             // The view measures in pixels; clap.gui in points on macOS.

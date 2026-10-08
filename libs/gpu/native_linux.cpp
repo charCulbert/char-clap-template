@@ -1,9 +1,12 @@
 #include "native.h"
 #include <X11/Xlib.h> // after webgpu_cpp.h: Xlib defines macros such as Status and None
 #include <X11/keysym.h>
+#include <X11/Xatom.h>
 #include <X11/Xutil.h> // XLookupString
+#include <unistd.h>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 // A child X11 window in the host's window. Dawn draws into it with Vulkan.
 // Linux hosts have no shared event loop, so the host's timer (needsTimer)
@@ -22,6 +25,8 @@ struct Window
     int anchorX = 0, anchorY = 0; // where the cursor is held while locked
     float x = 0, y = 0;           // pointer position reported to the view (pixels)
     Cursor blank = 0;             // an invisible cursor, made on first lock
+    std::string clipboard;        // what we've copied, while we own CLIPBOARD
+    Atom clipboardAtom = 0, utf8 = 0, targets = 0, pasted = 0;
 };
 
 Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Callbacks callbacks)
@@ -34,6 +39,10 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     }
     auto *window = new Window{display, 0, std::move(callbacks)};
     window->window = XCreateSimpleWindow(display, ::Window(parent->x11), 0, 0, width, height, 0, 0, 0);
+    window->clipboardAtom = XInternAtom(display, "CLIPBOARD", False);
+    window->utf8 = XInternAtom(display, "UTF8_STRING", False);
+    window->targets = XInternAtom(display, "TARGETS", False);
+    window->pasted = XInternAtom(display, "GPU_PASTED", False); // where a paste is delivered
     XSelectInput(display, window->window, ButtonPressMask | ButtonReleaseMask | PointerMotionMask | LeaveWindowMask | KeyPressMask);
     XMapWindow(display, window->window);
     XFlush(display);
@@ -118,12 +127,92 @@ static unsigned modifiers(unsigned state)
     return (state & ShiftMask ? View::shift : 0u) | (state & ControlMask ? View::control : 0u) | (state & Mod1Mask ? View::alt : 0u);
 }
 
+// X11's clipboard is a conversation: the owner answers each request for it.
+void copyText(Window *window, const std::string &utf8)
+{
+    window->clipboard = utf8;
+    XSetSelectionOwner(window->display, window->clipboardAtom, window->window, CurrentTime);
+    XFlush(window->display);
+}
+
+static void answerSelection(Window *window, const XSelectionRequestEvent &request)
+{
+    XSelectionEvent reply = {};
+    reply.type = SelectionNotify;
+    reply.requestor = request.requestor, reply.selection = request.selection;
+    reply.target = request.target, reply.time = request.time;
+    const Atom property = request.property ? request.property : request.target; // pre-ICCCM clients
+    if (request.target == window->targets)
+    {
+        const Atom offered[] = {window->targets, window->utf8, XA_STRING};
+        XChangeProperty(window->display, request.requestor, property, XA_ATOM, 32, PropModeReplace,
+                        reinterpret_cast<const unsigned char *>(offered), 3);
+        reply.property = property;
+    }
+    else if (request.target == window->utf8 || request.target == XA_STRING)
+    {
+        XChangeProperty(window->display, request.requestor, property, request.target, 8, PropModeReplace,
+                        reinterpret_cast<const unsigned char *>(window->clipboard.data()), int(window->clipboard.size()));
+        reply.property = property;
+    }
+    XSendEvent(window->display, request.requestor, False, 0, reinterpret_cast<XEvent *>(&reply));
+    XFlush(window->display);
+}
+
+// Asks the owner for CLIPBOARD as UTF-8 and waits up to 100 ms for it.
+static std::string clipboardText(Window *window)
+{
+    if (XGetSelectionOwner(window->display, window->clipboardAtom) == window->window) return window->clipboard;
+    XConvertSelection(window->display, window->clipboardAtom, window->utf8, window->pasted, window->window, CurrentTime);
+    XFlush(window->display);
+    for (int tries = 0; tries < 50; ++tries, usleep(2000))
+    {
+        XEvent event;
+        if (!XCheckTypedWindowEvent(window->display, window->window, SelectionNotify, &event)) continue;
+        if (!event.xselection.property) return {};
+        Atom type;
+        int format;
+        unsigned long count, after;
+        unsigned char *data = nullptr;
+        XGetWindowProperty(window->display, window->window, window->pasted, 0, 1 << 20, True, AnyPropertyType, &type,
+                           &format, &count, &after, &data);
+        std::string text = data && format == 8 ? std::string(reinterpret_cast<char *>(data), count) : std::string();
+        if (data) XFree(data);
+        return text;
+    }
+    return {};
+}
+
+// Ctrl+Z, Ctrl+Shift+Z or Y, A, X, C and V, for a text field being edited.
+static bool shortcut(Window *window, const XKeyEvent &event)
+{
+    if (!(event.state & ControlMask) || (event.state & Mod1Mask)) return false;
+    View::Key key;
+    switch (XLookupKeysym(const_cast<XKeyEvent *>(&event), 0))
+    {
+    case XK_v:
+    {
+        const std::string text = clipboardText(window);
+        return !text.empty() && window->callbacks.text(text.c_str());
+    }
+    case XK_z: key = event.state & ShiftMask ? View::Key::redo : View::Key::undo; break;
+    case XK_y: key = View::Key::redo; break;
+    case XK_a: key = View::Key::selectAll; break;
+    case XK_x: key = View::Key::cut; break;
+    case XK_c: key = View::Key::copy; break;
+    default: return false;
+    }
+    return window->callbacks.key(key, modifiers(event.state));
+}
+
 void pumpEvents(Window *window)
 {
     while (XPending(window->display))
     {
         XEvent event;
         XNextEvent(window->display, &event);
+        if (event.type == SelectionRequest) answerSelection(window, event.xselectionrequest);
+        if (event.type == SelectionClear) window->clipboard.clear();
         if (event.type == LeaveNotify && !window->locked)
             window->callbacks.pointer({View::Pointer::leave, window->x, window->y, modifiers(event.xcrossing.state)});
         if (event.type == MotionNotify)
@@ -153,6 +242,7 @@ void pumpEvents(Window *window)
         }
         else if (event.type == KeyPress)
         {
+            if (shortcut(window, event.xkey)) continue;
             View::Key key;
             switch (XLookupKeysym(&event.xkey, 0))
             {

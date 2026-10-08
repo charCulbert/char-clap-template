@@ -83,8 +83,36 @@ static unsigned modifiers(NSEvent *event)
     const CGFloat scale = self.layer.contentsScale;
     _callbacks->pointer({gpu::View::Pointer::wheel, float(p.x * scale), float(p.y * scale), modifiers(event), float(notches)});
 }
+// Cmd+Z, Shift+Cmd+Z, A, X, C and V, for a text field being edited; false
+// for the rest, which go on to the host (its own undo, for one).
+- (BOOL)shortcut:(NSEvent *)event
+{
+    using Key = gpu::View::Key;
+    const NSEventModifierFlags flags = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+    const NSEventModifierFlags chords = NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption;
+    if (!_callbacks || (flags & chords) != NSEventModifierFlagCommand) return NO;
+    NSString *letter = event.charactersIgnoringModifiers.lowercaseString;
+    if ([letter isEqualToString:@"v"])
+    {
+        NSString *text = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString];
+        return text && _callbacks->text(text.UTF8String);
+    }
+    std::optional<Key> key;
+    if ([letter isEqualToString:@"z"]) key = flags & NSEventModifierFlagShift ? Key::redo : Key::undo;
+    else if ([letter isEqualToString:@"a"]) key = Key::selectAll;
+    else if ([letter isEqualToString:@"x"]) key = Key::cut;
+    else if ([letter isEqualToString:@"c"]) key = Key::copy;
+    return key && _callbacks->key(*key, modifiers(event));
+}
+// Cmd shortcuts come here before the host's menus get them.
+- (BOOL)performKeyEquivalent:(NSEvent *)event
+{
+    if (self.window.firstResponder == self && [self shortcut:event]) return YES;
+    return [super performKeyEquivalent:event];
+}
 - (void)keyDown:(NSEvent *)event
 {
+    if ([self shortcut:event]) return;
     using Key = gpu::View::Key;
     std::optional<Key> key;
     switch (event.keyCode) // kVK_* from Carbon's Events.h
@@ -198,6 +226,14 @@ void setVisible(Window *window, bool visible) { [window->view setHidden:!visible
 void pumpEvents(Window *) {}
 
 // The view's own appearance: the system's, unless the host sets its window's.
+void copyText(Window *, const std::string &utf8)
+{
+    NSString *text = [NSString stringWithUTF8String:utf8.c_str()];
+    if (!text) return;
+    [NSPasteboard.generalPasteboard clearContents];
+    [NSPasteboard.generalPasteboard setString:text forType:NSPasteboardTypeString];
+}
+
 bool darkMode(Window *window)
 {
     NSAppearanceName name = [window->view.effectiveAppearance

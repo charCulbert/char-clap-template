@@ -161,6 +161,7 @@ public:
         ui.draw.prepare(device, format, gpu::loadAsset("/fonts/Inter.ttf"));
         params.send = send;
         ui.lockPointer = lockPointer;
+        ui.copyText = copyText;
         ui.resizeTo = resizeTo;
         send(core::Value::Map{{"type", "ready"}});
     }

@@ -98,7 +98,7 @@ function(gpu_add_page target)
     target_include_directories(${target} PRIVATE "${GPU_DIR}/..")
     target_compile_options(${target} PRIVATE ${port})
     target_link_options(${target} PRIVATE ${port} -sALLOW_MEMORY_GROWTH
-        -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_gpuReceive)
+        -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_gpuReceive,_gpuPaste)
     set_target_properties(${target} PROPERTIES OUTPUT_NAME gui SUFFIX ".js"
                                                RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/page")
     if(ARG_ASSETS)

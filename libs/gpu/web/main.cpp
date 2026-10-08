@@ -35,6 +35,11 @@ EM_JS(bool, pointerLocked, (), {
 });
 float pointerX = 0, pointerY = 0; // pixels; keeps moving while the pointer is locked
 
+EM_JS(void, copyToClipboard, (const char *utf8, int size), {
+    const text = new TextDecoder().decode(HEAPU8.slice(utf8, utf8 + size));
+    if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+});
+
 bool frame(double, void *)
 {
     double cssWidth, cssHeight;
@@ -77,6 +82,16 @@ bool key(int, const EmscriptenKeyboardEvent *event, void *)
         {"PageUp", Key::pageUp}, {"PageDown", Key::pageDown}, {"Home", Key::home}, {"End", Key::end}, {"Tab", Key::tab},
         {"Enter", Key::enter}, {"Escape", Key::escape}, {"Backspace", Key::backspace}, {"Delete", Key::deleteForward}};
     if (!ready) return false;
+    // Ctrl or Cmd + Z, Shift+Z or Y, A, X, C, for a text field being edited.
+    // Cmd+V is left to the browser, whose paste event brings the text.
+    if ((event->ctrlKey || event->metaKey) && !event->altKey && std::strlen(event->key) == 1)
+    {
+        const char letter = char(event->key[0] | 0x20);
+        const Key k = letter == 'z' ? (event->shiftKey ? Key::redo : Key::undo) : letter == 'y' ? Key::redo
+                    : letter == 'a' ? Key::selectAll : letter == 'x' ? Key::cut : Key::copy;
+        if (std::strchr("zyaxc", letter) && view->key(k, modifiers(*event))) return dirty = true;
+        return false;
+    }
     for (auto [name, k] : keys)
         if (std::strcmp(event->key, name) == 0)
             return view->key(k, modifiers(*event)) && (dirty = true); // handled: the browser does nothing else with it
@@ -126,6 +141,11 @@ std::string gpu::loadAsset(const char *path)
     return std::string(std::istreambuf_iterator<char>(file), {});
 }
 
+extern "C" EMSCRIPTEN_KEEPALIVE int gpuPaste(const char *utf8)
+{
+    return ready && view->text(utf8) && (dirty = true);
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE void gpuReceive(const unsigned char *data, int size)
 {
     if (auto message = core::decode(data, size); message && view) view->receive(*message), dirty = true;
@@ -139,6 +159,7 @@ int main()
         postToPlugin(bytes.data(), int(bytes.size()));
     };
     view->lockPointer = [](bool locked) { setPointerLock(locked); };
+    view->copyText = [](const std::string &utf8) { copyToClipboard(utf8.data(), int(utf8.size())); };
     EM_ASM({
         window.addEventListener('message', event => {
             if (!(event.data instanceof ArrayBuffer)) return;
@@ -146,6 +167,15 @@ int main()
             const pointer = _malloc(bytes.length);
             HEAPU8.set(bytes, pointer);
             _gpuReceive(pointer, bytes.length);
+            _free(pointer);
+        });
+        document.addEventListener('paste', event => {
+            const text = event.clipboardData && event.clipboardData.getData('text/plain');
+            if (!text) return;
+            const bytes = new TextEncoder().encode(text + '\0');
+            const pointer = _malloc(bytes.length);
+            HEAPU8.set(bytes, pointer);
+            if (_gpuPaste(pointer)) event.preventDefault();
             _free(pointer);
         });
     });
