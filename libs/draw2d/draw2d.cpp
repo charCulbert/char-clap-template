@@ -82,7 +82,7 @@ struct Varyings {
 // Kinds: 0 box   rect = x, y, w, h        uv = corner radii (TL, TR, BR, BL), border = L, R, T, B widths
 //        1 glyph rect = x, y, w, h        uv = atlas rectangle (a distance field)
 //        4 glyph rect = x, y, w, h        uv = atlas rectangle (coverage, drawn 1:1)
-//        2 image rect = x, y, w, h        uv = 0, 0, 1, 1, border = corner radii; the image is bound as atlas
+//        2 image rect = x, y, w, h        uv = source rectangle (0..1), border = corner radii; the image is bound as atlas
 //        3 arc   rect = x, y, w, h        uv = from, to (radians), shape.y = half width
 //        5 gradient (a box)               uv = corner radii, fill to stroke along border = x0, y0, x1, y1
 //                                         (from the centre), shape.y = 1 for radial
@@ -234,6 +234,7 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
     samplerDescriptor.minFilter = wgpu::FilterMode::Linear;
     sampler = device.CreateSampler(&samplerDescriptor); // clamps to the edge: images don't wrap
     images.clear();
+    imageSizes.clear();
 
     wgpu::ShaderSourceWGSL source;
     source.code = shader;
@@ -545,6 +546,7 @@ int Draw2D::addImage(const uint8_t *rgba, int width, int height)
     descriptor.entryCount = 3;
     descriptor.entries = entries;
     images.push_back(device.CreateBindGroup(&descriptor));
+    imageSizes.push_back({width, height});
     return int(images.size() - 1);
 }
 
@@ -559,11 +561,18 @@ int Draw2D::addImage(std::string_view fileBytes)
     return number;
 }
 
-void Draw2D::image(int number, float x, float y, float w, float h, Corners r, float alpha)
+void Draw2D::imageSize(int number, int &width, int &height) const
+{
+    const bool known = number >= 0 && number < int(imageSizes.size());
+    width = known ? imageSizes[size_t(number)].first : 0;
+    height = known ? imageSizes[size_t(number)].second : 0;
+}
+
+void Draw2D::image(int number, float x, float y, float w, float h, Corners r, float alpha, Source source)
 {
     if (number < 0 || number >= int(images.size())) return;
     run(Run::shapes, number).count++;
-    batch.push_back({{x, y, w, h}, {0, 0, 1, 1}, {1, 1, 1, alpha}, {}, {2, 0, 0, 0},
+    batch.push_back({{x, y, w, h}, {source.u0, source.v0, source.u1, source.v1}, {1, 1, 1, alpha}, {}, {2, 0, 0, 0},
                      {r.topLeft, r.topRight, r.bottomRight, r.bottomLeft}});
 }
 

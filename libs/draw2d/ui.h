@@ -105,6 +105,8 @@ public:
     void vslider(Params &params, Param *p, const char *format, bool log = false, float heightPoints = 140);
     void xyPad(Params &params, Param *x, Param *y); // fills the space it's given
     void meter(float level, float peak = -1, float widthPoints = 6); // 0..1, filled from the bottom
+    // A filmstrip knob at the size of one frame (in points, at scale 1 a pixel each).
+    void imageKnob(Params &params, Param *p, int image, int frames, bool log = false, bool across = false);
 
     // At a rectangle you choose (pixels).
     // A rotary control with its value and name below; drag up/down to change.
@@ -112,6 +114,9 @@ public:
     void knob(Params &params, Param *p, Rect r, const char *format, bool log = false);
     // A horizontal slider, its name and value above it; drag left/right.
     void slider(Params &params, Param *p, Rect r, const char *format, bool log = false);
+    // A knob drawn from a filmstrip: frames of a Draw2D image, stacked down
+    // (or across) from the minimum to the maximum. Drags like knob.
+    void imageKnob(Params &params, Param *p, int image, int frames, Rect r, bool log = false, bool across = false);
     // An upright slider, its value above and name below; drag up/down.
     void vslider(Params &params, Param *p, Rect r, const char *format, bool log = false);
     // A point dragged in two dimensions: x and y each a parameter.
@@ -139,7 +144,8 @@ public:
     float widthPoints = 0, heightPoints = 0; // the view's size, for placing popups
 
 private:
-    enum Builtin { knobBox = -1, sliderBox = -2, chevronBox = -3, chevronRightBox = -4, vsliderBox = -5, xyBox = -6, meterBox = -7 };
+    enum Builtin { knobBox = -1, sliderBox = -2, chevronBox = -3, chevronRightBox = -4, vsliderBox = -5, xyBox = -6, meterBox = -7,
+                   imageKnobBox = -8 };
     struct Placed
     {
         Params *params;
@@ -148,6 +154,8 @@ private:
         bool log;
         Param *second = nullptr; // an XY pad's y
         float level = 0, peak = -1; // a meter's
+        int image = -1, frames = 0;  // a filmstrip knob's
+        bool across = false;
     };
     std::deque<Placed> placed; // knobs and sliders the layout places, until end()
 

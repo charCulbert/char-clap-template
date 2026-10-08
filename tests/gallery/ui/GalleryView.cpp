@@ -34,6 +34,7 @@ public:
         ui.draw.prepare(device, format, gpu::loadAsset("/fonts/BarlowSemiCondensed-Medium.ttf"));
         mono = ui.draw.addFont(gpu::loadAsset("/fonts/IBMPlexMono-Regular.ttf"));
         wheel = ui.draw.addImage(gpu::loadAsset("/images/colour-wheel.png"));
+        strip = ui.draw.addImage(gpu::loadAsset("/images/knob-strip.png"));
         wgpu::ShaderSourceWGSL source;
         source.code = stripes;
         wgpu::ShaderModuleDescriptor moduleDescriptor;
@@ -311,6 +312,13 @@ private:
             cell("XY pad: drag the point; double-click resets", [&] {
                 ui.xyPad(params, params.find("Mix"), params.find("Gain"));
             });
+            cell("Filmstrip knobs (64 frames): drag like the others", [&] {
+                for (int i = 0; i < 2; ++i)
+                {
+                    ui.imageKnob(params, params.find(names[i]), strip, 64);
+                    ui.tooltip(names[i]);
+                }
+            });
             cell("Meters: level and peak (animated)", [&] {
                 const double t = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
                 for (int i = 0; i < 6; ++i)
@@ -450,7 +458,7 @@ private:
         }
     }
 
-    int page = 0, themeMode = 0, mode = 0, shape = 0, clicks = 0, edits = 0, mono = 0, wheel = -1;
+    int page = 0, themeMode = 0, mode = 0, shape = 0, clicks = 0, edits = 0, mono = 0, wheel = -1, strip = -1;
     bool sync = false, advancedOpen = true, oversample = false, linearPhase = true;
     float peaks[6] = {};
     std::string name = "Preset 1";

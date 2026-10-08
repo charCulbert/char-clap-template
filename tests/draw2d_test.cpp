@@ -186,6 +186,12 @@ int main(int argc, char **argv)
         CHECK(is(px, 2, 2, red) && is(px, 29, 2, green) && is(px, 2, 29, blue) && is(px, 29, 29, white) && is(px, 40, 40, black));
         px = gpu.render(draw, [&] { draw.image(picture, 0, 0, 32, 32, {16, 0, 0, 0}); });
         CHECK(is(px, 1, 1, black) && is(px, 29, 2, green));
+        // A source rectangle draws part of it: the top-left quarter is all red.
+        px = gpu.render(draw, [&] { draw.image(picture, 0, 0, 32, 32, {}, 1, {0, 0, 0.25f, 0.25f}); });
+        CHECK(is(px, 2, 2, red) && is(px, 29, 29, red));
+        int w = 0, h = 0;
+        draw.imageSize(picture, w, h);
+        CHECK(w == 2 && h == 2);
         CHECK(draw.addImage("not an image") == -1);
     }
 

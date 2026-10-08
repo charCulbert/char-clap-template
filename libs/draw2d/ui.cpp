@@ -96,6 +96,7 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
         else if (kind == vsliderBox) vslider(*c->params, c->p, r, c->format, c->log);
         else if (kind == xyBox) xyPad(*c->params, c->p, c->second, r);
         else if (kind == meterBox) meter(c->level, c->peak, r);
+        else if (kind == imageKnobBox) imageKnob(*c->params, c->p, c->image, c->frames, r, c->log, c->across);
         else if (kind == chevronBox)
         {
             const float xy[] = {r.x, r.y + r.h * 0.3f, r.x + r.w / 2, r.y + r.h * 0.7f, r.x + r.w, r.y + r.h * 0.3f};
@@ -764,6 +765,30 @@ void Ui::meter(float level, float peak, float widthPoints)
 {
     CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_GROW(0)}},
           .custom = {.customData = layout.custom(meterBox, &placed.emplace_back(Placed{nullptr, nullptr, nullptr, false, nullptr, level, peak}))}}) {}
+}
+
+void Ui::imageKnob(Params &params, Param *p, int image, int frames, Rect r, bool log, bool across)
+{
+    if (!p || frames < 1) return;
+    const bool dragging = control(params, *p, r.x, r.y, r.w, r.h, true, 200 * s, log);
+    const int frame = int(std::lround(toUnit(*p, p->value, log) * (frames - 1)));
+    const float step = 1.0f / float(frames), a = frame * step, b = a + step;
+    draw.image(image, r.x, r.y, r.w, r.h, {}, 1, across ? Draw2D::Source{a, 0, b, 1} : Draw2D::Source{0, a, 1, b});
+    if (focusShown(p) || dragging) draw.circle(r.x + r.w / 2, r.y + r.h / 2, std::min(r.w, r.h) / 2 + 2 * s, {0, 0, 0, 0}, 1 * s, theme.accent);
+}
+
+void Ui::imageKnob(Params &params, Param *p, int image, int frames, bool log, bool across)
+{
+    if (!p || frames < 1) return;
+    int width, height;
+    draw.imageSize(image, width, height);
+    const float w = across ? float(width) / frames : float(width), h = across ? float(height) : float(height) / frames;
+    const Clay_ElementId kid = id("ImageKnob", p->id);
+    Placed placedKnob{&params, p, nullptr, log};
+    placedKnob.image = image, placedKnob.frames = frames, placedKnob.across = across;
+    CLAY({.id = kid, .layout = {.sizing = {CLAY_SIZING_FIXED(w), CLAY_SIZING_FIXED(h)}},
+          .custom = {.customData = layout.custom(imageKnobBox, &placed.emplace_back(placedKnob))}}) {}
+    lastElement = kid.id;
 }
 
 }

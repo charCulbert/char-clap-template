@@ -65,9 +65,12 @@ public:
     // PNG or JPEG file. Returns the image's number, or -1 if unusable.
     int addImage(const uint8_t *rgba, int width, int height);
     int addImage(std::string_view fileBytes);
-    // Draws an image stretched over the rectangle, its corners rounded,
-    // faded by alpha.
-    void image(int image, float x, float y, float w, float h, Corners radius = {}, float alpha = 1);
+    // Draws an image (or the part of it in source, 0..1 across and down)
+    // stretched over the rectangle, its corners rounded, faded by alpha.
+    struct Source { float u0, v0, u1, v1; };
+    void image(int image, float x, float y, float w, float h, Corners radius = {}, float alpha = 1, Source source = {0, 0, 1, 1});
+    // An image's size in pixels, or 0 x 0 for no such image.
+    void imageSize(int image, int &width, int &height) const;
 
     // Clips what follows to a rectangle, inside any clip already set, until
     // the matching popClip.
@@ -139,6 +142,7 @@ private:
     wgpu::Texture atlasTexture;
     wgpu::Sampler sampler;
     std::vector<wgpu::BindGroup> images; // each image's textures, bound in place of the atlas
+    std::vector<std::pair<int, int>> imageSizes;
     size_t capacity = 0, styleCapacity = 0, pointCapacity = 0;
     std::vector<LineStyle> styles;
     std::vector<LinePoint> points;
