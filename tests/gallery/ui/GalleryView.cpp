@@ -278,6 +278,11 @@ private:
             });
         });
         row([&] {
+            cell("Piano: press and slide; held notes light (C4 lit)", [&] {
+                const auto notes = ui.piano(48, 83, 56, [&](int n) { return n == 60 || n == held; });
+                if (notes.on >= 0) held = notes.on;
+                if (notes.off >= 0 && notes.off == held) held = -1;
+            });
             cell("Grow, fit and fixed sizes share a row", [&] {
                 CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(40), CLAY_SIZING_FIXED(40)}}, .backgroundColor = gpu::clayColor(ui.theme.accent)}) {}
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(40)}}, .backgroundColor = gpu::clayColor(ui.theme.edge)}) {}
@@ -465,6 +470,7 @@ private:
     }
 
     int page = 0, themeMode = 0, mode = 0, shape = 0, clicks = 0, edits = 0, mono = 0, wheel = -1, strip = -1, speaker = -1;
+    int held = -1; // the piano note held down
     bool sync = false, advancedOpen = true, oversample = false, linearPhase = true;
     float peaks[6] = {};
     std::string name = "Preset 1";

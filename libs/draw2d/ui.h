@@ -84,6 +84,9 @@ public:
     bool record(const std::function<void(int kind, void *data, Rect pixels)> &onCustom = {});
     void flush(const wgpu::RenderPassEncoder &pass) { draw.flush(pass); }
 
+    // A piano's note-on and note-off this frame, -1 for none.
+    struct Notes { int on = -1, off = -1; };
+
     // In the layout. Each returns true when the user changed something.
     bool button(const char *label, int index = 0);
     bool toggle(const char *label, bool &on, int index = 0);
@@ -105,6 +108,9 @@ public:
     void vslider(Params &params, Param *p, const char *format, bool log = false, float heightPoints = 140);
     void xyPad(Params &params, Param *x, Param *y); // fills the space it's given
     void meter(float level, float peak = -1, float widthPoints = 6); // 0..1, filled from the bottom
+    // A piano keyboard filling the width, heightPoints tall. Its notes come
+    // back from the next frame's call (drawing happens at end()).
+    Notes piano(int lowest, int highest, float heightPoints = 64, const std::function<bool(int)> &lit = {});
     // A filmstrip knob at the size of one frame (in points, at scale 1 a pixel each).
     void imageKnob(Params &params, Param *p, int image, int frames, bool log = false, bool across = false);
 
@@ -122,6 +128,10 @@ public:
     // A point dragged in two dimensions: x and y each a parameter.
     void xyPad(Params &params, Param *x, Param *y, Rect r);
     void meter(float level, float peak, Rect r);
+    // A piano keyboard from note lowest to highest (MIDI numbers; best from
+    // and to a white key). Press a key, slide across keys; lit says which
+    // notes to show held (e.g. from incoming MIDI).
+    Notes piano(int lowest, int highest, Rect r, const std::function<bool(int)> &lit = {});
 
     // A custom region (pixels): reports press, drag and release on it, plus
     // double-clicks and the wheel over it.
@@ -145,7 +155,7 @@ public:
 
 private:
     enum Builtin { knobBox = -1, sliderBox = -2, chevronBox = -3, chevronRightBox = -4, vsliderBox = -5, xyBox = -6, meterBox = -7,
-                   imageKnobBox = -8 };
+                   imageKnobBox = -8, pianoBox = -9 };
     struct Placed
     {
         Params *params;
@@ -156,6 +166,8 @@ private:
         float level = 0, peak = -1; // a meter's
         int image = -1, frames = 0;  // a filmstrip knob's
         bool across = false;
+        int lowest = 0, highest = 0; // a piano's
+        std::function<bool(int)> lit;
     };
     std::deque<Placed> placed; // knobs and sliders the layout places, until end()
 
@@ -211,6 +223,8 @@ private:
     bool tooltipWaiting = false;
     bool settle = false;        // input arrived this frame: draw one more
 
+    int playing = -1;           // the piano note held down, or -1
+    Notes pianoNotes;           // what the piano drawn last frame reported
     uint32_t editing = 0;       // the text field being edited, or 0
     std::string draft;          // its text while editing
     size_t caret = 0;           // byte offset in draft

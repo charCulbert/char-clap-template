@@ -97,6 +97,7 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
         else if (kind == xyBox) xyPad(*c->params, c->p, c->second, r);
         else if (kind == meterBox) meter(c->level, c->peak, r);
         else if (kind == imageKnobBox) imageKnob(*c->params, c->p, c->image, c->frames, r, c->log, c->across);
+        else if (kind == pianoBox) pianoNotes = piano(c->lowest, c->highest, r, c->lit);
         else if (kind == chevronBox)
         {
             const float xy[] = {r.x, r.y + r.h * 0.3f, r.x + r.w / 2, r.y + r.h * 0.7f, r.x + r.w, r.y + r.h * 0.3f};
@@ -789,6 +790,67 @@ void Ui::imageKnob(Params &params, Param *p, int image, int frames, bool log, bo
     CLAY({.id = kid, .layout = {.sizing = {CLAY_SIZING_FIXED(w), CLAY_SIZING_FIXED(h)}},
           .custom = {.customData = layout.custom(imageKnobBox, &placed.emplace_back(placedKnob))}}) {}
     lastElement = kid.id;
+}
+
+// Which keys of an octave are black, from C.
+static bool isBlack(int note)
+{
+    const int n = ((note % 12) + 12) % 12;
+    return n == 1 || n == 3 || n == 6 || n == 8 || n == 10;
+}
+
+Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(int)> &lit)
+{
+    Notes notes;
+    int whites = 0;
+    for (int n = lowest; n <= highest; ++n) whites += !isBlack(n);
+    if (whites == 0) return notes;
+    const float keyWidth = r.w / whites, blackWidth = keyWidth * 0.6f, blackHeight = r.h * 0.62f;
+    // Each key's rectangle: whites side by side, blacks over the gap after the white before them.
+    auto keyRect = [&](int note) {
+        int whitesBefore = 0;
+        for (int n = lowest; n < note; ++n) whitesBefore += !isBlack(n);
+        if (!isBlack(note)) return Rect{r.x + whitesBefore * keyWidth, r.y, keyWidth, r.h};
+        return Rect{r.x + whitesBefore * keyWidth - blackWidth / 2, r.y, blackWidth, blackHeight};
+    };
+    auto inside = [&](Rect k) { return mouse.x >= k.x && mouse.x < k.x + k.w && mouse.y >= k.y && mouse.y < k.y + k.h; };
+    // The key under the pointer: a black one, being on top, first.
+    int under = -1;
+    for (int n = lowest; n <= highest && under < 0; ++n)
+        if (isBlack(n) && inside(keyRect(n))) under = n;
+    for (int n = lowest; n <= highest && under < 0; ++n)
+        if (!isBlack(n) && inside(keyRect(n))) under = n;
+
+    const auto a = area(&playing, r.x, r.y, r.w, r.h);
+    if (a.held && under != playing && (under >= 0 || !a.pressed)) // pressed, or slid onto another key
+    {
+        if (playing >= 0) notes.off = playing;
+        playing = under, notes.on = under;
+    }
+    if (a.released && playing >= 0) notes.off = playing, notes.on = -1, playing = -1;
+
+    auto drawKey = [&](int n) {
+        const Rect k = keyRect(n);
+        const bool down = n == playing || (lit && lit(n));
+        const Color fill = down ? theme.accent : isBlack(n) ? theme.background : theme.text;
+        draw.rect(k.x, k.y, k.w, k.h, Draw2D::Corners{0, 0, 2 * s, 2 * s}, fill, Draw2D::Sides{1 * s, 0, 0, 1 * s}, theme.edge);
+    };
+    for (int n = lowest; n <= highest; ++n)
+        if (!isBlack(n)) drawKey(n);
+    for (int n = lowest; n <= highest; ++n)
+        if (isBlack(n)) drawKey(n);
+    return notes;
+}
+
+Ui::Notes Ui::piano(int lowest, int highest, float heightPoints, const std::function<bool(int)> &lit)
+{
+    Placed keys{nullptr, nullptr, nullptr, false};
+    keys.lowest = lowest, keys.highest = highest, keys.lit = lit;
+    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(heightPoints)}},
+          .custom = {.customData = layout.custom(pianoBox, &placed.emplace_back(std::move(keys)))}}) {}
+    const Notes notes = pianoNotes;
+    pianoNotes = {};
+    return notes;
 }
 
 }

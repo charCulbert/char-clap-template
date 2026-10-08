@@ -213,6 +213,34 @@ static void textFieldEdits()
     CHECK(value == "xy" && commits == 1);
 }
 
+static void pianoNotes()
+{
+    // C4 to B4, seven white keys 40 pixels wide.
+    Ui ui;
+    Ui::Notes notes;
+    auto draw = [&] {
+        ui.begin(400, 300, 1);
+        notes = ui.piano(60, 71, gpu::Rect{0, 0, 280, 60});
+        ui.end(wgpu::RenderPassEncoder{});
+    };
+    draw();
+    pointer(ui, View::Pointer::down, 20, 50); // C, below the black keys
+    draw();
+    CHECK(notes.on == 60 && notes.off == -1);
+    pointer(ui, View::Pointer::move, 60, 50); // slid to D
+    draw();
+    CHECK(notes.on == 62 && notes.off == 60);
+    pointer(ui, View::Pointer::up, 60, 50);
+    draw();
+    CHECK(notes.on == -1 && notes.off == 62);
+    pointer(ui, View::Pointer::down, 40, 10); // C sharp, on top of C and D
+    draw();
+    CHECK(notes.on == 61);
+    pointer(ui, View::Pointer::up, 40, 10);
+    draw();
+    CHECK(notes.off == 61);
+}
+
 int main()
 {
     layoutSizes();
@@ -221,6 +249,7 @@ int main()
     dropdownSelectsAndBlocks();
     knobDragAndKeys();
     textFieldEdits();
+    pianoNotes();
     if (failures) std::fprintf(stderr, "%d failed\n", failures);
     return failures ? 1 : 0;
 }
