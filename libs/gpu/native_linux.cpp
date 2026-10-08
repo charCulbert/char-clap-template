@@ -42,11 +42,15 @@ struct Window
     ::Window dropTarget = 0;
     int dropX = 0, dropY = 0;          // pixels in the view
     bool dropPending = false;          // XdndDrop came before the list
+    bool filesAsked = false;           // the list has been asked for
     std::vector<std::string> dragging; // files dragged out, offered as XdndSelection
     bool dragActive = false;           // the button is still down
     ::Window dragTo = 0;               // the XDND-aware window under the pointer
     bool dragTaken = false;            // which says it would take them
+    std::vector<::Window> proxies;     // windows we marked XdndAware, sending their drops to us
 };
+
+static ::Window xdndReceiver(Window *window, ::Window target);
 
 // The desktop's scale: Xft.dpi (GNOME and KDE set it from their scaling
 // setting) over 96, times GDK_SCALE where set. X11 has no per-monitor scale
@@ -101,14 +105,44 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
                               {&window->xdndSelection, "XdndSelection"}, {&window->xdndCopy, "XdndActionCopy"},
                               {&window->uriList, "text/uri-list"}})
         *atom = XInternAtom(display, name, False);
-    // Drag sources look for XdndAware on the window under the pointer that the
-    // host made for us, not our own child of it (Visage does the same): mark
-    // it, with XdndProxy sending its messages on to us.
+    // Drag sources look for XdndAware on a window above ours: the one the host
+    // made for us (Visage marks that), or, as the XDND spec has it, the
+    // top-level window (GTK 4 looks only there). We mark both with XdndProxy
+    // sending their messages on to us, the top level only when the host
+    // doesn't take drops there itself.
     const long version = 5;
-    for (::Window w : {window->window, window->parent})
+    auto hasProperty = [&](::Window w, Atom name) {
+        Atom type;
+        int format;
+        unsigned long count, after;
+        unsigned char *data = nullptr;
+        const bool has = XGetWindowProperty(display, w, name, 0, 1, False, AnyPropertyType, &type, &format, &count, &after, &data)
+                             == Success && data && count > 0;
+        if (data) XFree(data);
+        return has;
+    };
+    auto proxy = [&](::Window w) {
         XChangeProperty(display, w, window->xdndAware, XA_ATOM, 32, PropModeReplace, reinterpret_cast<const unsigned char *>(&version), 1);
-    XChangeProperty(display, window->parent, window->xdndProxy, XA_WINDOW, 32, PropModeReplace,
-                    reinterpret_cast<const unsigned char *>(&window->window), 1);
+        XChangeProperty(display, w, window->xdndProxy, XA_WINDOW, 32, PropModeReplace, reinterpret_cast<const unsigned char *>(&window->window), 1);
+        window->proxies.push_back(w);
+    };
+    // The proxy, ours, says XdndProxy is itself: sources (GTK 4) check that to
+    // tell a live proxy from a stale one.
+    XChangeProperty(display, window->window, window->xdndAware, XA_ATOM, 32, PropModeReplace, reinterpret_cast<const unsigned char *>(&version), 1);
+    XChangeProperty(display, window->window, window->xdndProxy, XA_WINDOW, 32, PropModeReplace, reinterpret_cast<const unsigned char *>(&window->window), 1);
+    proxy(window->parent);
+    const Atom wmState = XInternAtom(display, "WM_STATE", False);
+    for (::Window w = window->parent, root, up, *children; w && w != DefaultRootWindow(display); w = up)
+    {
+        if (hasProperty(w, wmState)) // the top level: the host's client window
+        {
+            if (w != window->parent && !hasProperty(w, window->xdndAware)) proxy(w);
+            break;
+        }
+        unsigned int count = 0;
+        if (!XQueryTree(display, w, &root, &up, &children, &count)) break;
+        if (children) XFree(children);
+    }
     XSelectInput(display, window->window,
                  ButtonPressMask | ButtonReleaseMask | PointerMotionMask | LeaveWindowMask | KeyPressMask | ExposureMask);
     XMapWindow(display, window->window);
@@ -154,8 +188,12 @@ void destroy(Window *window)
 {
     lockPointer(window, false);
     if (window->blank) XFreeCursor(window->display, window->blank);
-    XDeleteProperty(window->display, window->parent, window->xdndAware);
-    XDeleteProperty(window->display, window->parent, window->xdndProxy);
+    for (::Window w : window->proxies) // ours to take back, unless something else took them over
+        if (xdndReceiver(window, w) == window->window)
+        {
+            XDeleteProperty(window->display, w, window->xdndAware);
+            XDeleteProperty(window->display, w, window->xdndProxy);
+        }
     XDestroyWindow(window->display, window->window);
     XSync(window->display, False); // its errors, while they're still ours to ignore
     std::erase(ourDisplays, window->display);
@@ -368,19 +406,27 @@ static void dropNow(Window *window)
 static void xdndEvent(Window *window, const XClientMessageEvent &message)
 {
     const long *l = message.data.l;
+    // The list of files comes as XdndSelection, asked for with the time of a
+    // position or the drop (as the spec has it; GTK 4 refuses CurrentTime).
+    auto askForFiles = [&](Time time) {
+        window->filesAsked = true;
+        XConvertSelection(window->display, window->xdndSelection, window->uriList, window->xdndSelection, window->window, time);
+        XFlush(window->display);
+    };
     if (message.message_type == window->xdndEnter)
     {
-        // The list of files comes as XdndSelection, asked for now.
         window->dropSource = ::Window(l[0]), window->dropTarget = message.window;
-        window->dropping.clear(), window->dropPending = false;
-        XConvertSelection(window->display, window->xdndSelection, window->uriList, window->xdndSelection, window->window, CurrentTime);
-        XFlush(window->display);
+        window->dropping.clear(), window->dropPending = false, window->filesAsked = false;
     }
     else if (message.message_type == window->xdndPosition && ::Window(l[0]) == window->dropSource)
     {
-        ::Window child;
-        XTranslateCoordinates(window->display, DefaultRootWindow(window->display), window->window, int(l[2] >> 16),
-                              int(l[2] & 0xFFFF), &window->dropX, &window->dropY, &child);
+        if (!window->filesAsked) askForFiles(Time(l[3]));
+        // Where the pointer is over us, from the server: some sources (GTK 4
+        // under Mutter) report a position off by their window's frame.
+        ::Window root, child;
+        int rootX, rootY;
+        unsigned int mask;
+        XQueryPointer(window->display, window->window, &root, &child, &rootX, &rootY, &window->dropX, &window->dropY, &mask);
         dropStatus(window);
     }
     else if (message.message_type == window->xdndLeave && ::Window(l[0]) == window->dropSource)
@@ -390,7 +436,11 @@ static void xdndEvent(Window *window, const XClientMessageEvent &message)
     }
     else if (message.message_type == window->xdndDrop && ::Window(l[0]) == window->dropSource)
     {
-        if (window->dropping.empty()) window->dropPending = true; // the list is still on its way
+        if (window->dropping.empty()) // the list is still on its way
+        {
+            window->dropPending = true;
+            askForFiles(Time(l[2]));
+        }
         else dropNow(window);
     }
     else if (message.message_type == window->xdndStatus && ::Window(l[0]) == window->dragTo)
