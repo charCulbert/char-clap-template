@@ -1,5 +1,7 @@
 #define CLAY_IMPLEMENTATION
 #include "layout.h"
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace gpu {
@@ -86,7 +88,9 @@ void Layout::end(const std::function<void(int, void *, Rect)> &onCustom)
     {
         const Clay_RenderCommand &command = commands.internalArray[i];
         const Clay_BoundingBox &b = command.boundingBox;
-        const Rect r{b.x * s, b.y * s, b.width * s, b.height * s};
+        // Edges on whole pixels, so 1-point lines stay crisp at 125% and 150%.
+        const float x0 = std::round(b.x * s), y0 = std::round(b.y * s);
+        const Rect r{x0, y0, std::round((b.x + b.width) * s) - x0, std::round((b.y + b.height) * s) - y0};
         switch (command.commandType)
         {
         case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
@@ -100,8 +104,9 @@ void Layout::end(const std::function<void(int, void *, Rect)> &onCustom)
         case CLAY_RENDER_COMMAND_TYPE_BORDER: {
             const auto &data = command.renderData.border;
             const auto &w = data.width;
+            const auto px = [s](uint16_t points) { return points ? std::max(1.0f, std::round(points * s)) : 0.0f; };
             draw->rect(r.x, r.y, r.w, r.h, corners(data.cornerRadius), {0, 0, 0, 0},
-                       {w.left * s, w.right * s, w.top * s, w.bottom * s}, color(data.color));
+                       {px(w.left), px(w.right), px(w.top), px(w.bottom)}, color(data.color));
             break;
         }
         case CLAY_RENDER_COMMAND_TYPE_TEXT: {
@@ -109,7 +114,7 @@ void Layout::end(const std::function<void(int, void *, Rect)> &onCustom)
             // Clay gives the line's box; Draw2D wants its baseline, which sits
             // about 0.95 of the font size below the top in a 1.25 line.
             const float lineHeight = data.lineHeight ? float(data.lineHeight) : data.fontSize * 1.25f;
-            const float baseline = r.y + (lineHeight - data.fontSize * 1.25f) / 2 * s + data.fontSize * 0.95f * s;
+            const float baseline = std::round(r.y + (lineHeight - data.fontSize * 1.25f) / 2 * s + data.fontSize * 0.95f * s);
             draw->text(r.x, baseline, data.fontSize * s, {data.stringContents.chars, size_t(data.stringContents.length)},
                        color(data.textColor), Draw2D::Align::left, data.fontId);
             break;
