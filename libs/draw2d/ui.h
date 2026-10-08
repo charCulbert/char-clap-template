@@ -248,6 +248,7 @@ private:
     int playing = -1;           // the piano note held down, or -1
     Notes pianoNotes;           // what the piano drawn last frame reported
     int grabbedPoint = -1;      // the envelope point being dragged
+    uint32_t numberDrag = 0;    // the number box being dragged
     int lastStep = -1;          // the step painted last in a drag
     std::vector<const void *> changedNow, changedLast; // envelopes and steps (by their data) changed in this end() and the last
     uint32_t editing = 0;       // the text field being edited, or 0

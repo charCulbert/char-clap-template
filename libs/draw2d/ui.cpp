@@ -661,26 +661,26 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
     if (pendingField == nid.id) typed = std::move(pendingDraft), pendingField = 0;
     const Area a = element(nid);
     const bool fine = mouse.modifiers & View::shift;
-    if (editing != nid.id)
+    // A drag is its own gesture, whether or not typing starts or stops under it.
+    if (a.doubleClicked && editing != nid.id) startEditing(nid.id, typed);
+    else if (a.pressed && editing != nid.id)
     {
-        if (a.doubleClicked) startEditing(nid.id, typed);
-        else if (a.pressed)
-        {
-            grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = fine;
-            params.begin(*p);
-            if (lockPointer) lockPointer(true);
-        }
-        else if (a.held)
-        {
-            if (fine != grabFine) grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = fine;
-            const double value = fromUnit(*p, grabUnit + (grabY - mouse.y) / (200 * s * (fine ? 10 : 1)), log);
-            if (value != p->value) params.change(*p, value);
-        }
-        if (a.released)
-        {
-            params.end(*p);
-            if (lockPointer) lockPointer(false);
-        }
+        grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = fine;
+        numberDrag = nid.id;
+        params.begin(*p);
+        if (lockPointer) lockPointer(true);
+    }
+    else if (a.held && numberDrag == nid.id)
+    {
+        if (fine != grabFine) grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = fine;
+        const double value = fromUnit(*p, grabUnit + (grabY - mouse.y) / (200 * s * (fine ? 10 : 1)), log);
+        if (value != p->value) params.change(*p, value);
+    }
+    if (a.released && numberDrag == nid.id)
+    {
+        numberDrag = 0;
+        params.end(*p);
+        if (lockPointer) lockPointer(false);
     }
     if (editKeys(nid.id, typed, Clay_PointerOver(nid)) || typed != before)
     {
