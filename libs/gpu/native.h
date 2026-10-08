@@ -16,6 +16,7 @@ struct Window;
 struct Callbacks
 {
     std::function<void()> frame;                       // draw one frame
+    std::function<void()> damaged;                     // the system lost what's on screen: draw it again
     std::function<void(const View::PointerEvent &)> pointer;
     std::function<bool(View::Key, unsigned modifiers)> key; // true if used
     std::function<bool(const char *utf8)> text;             // true if used

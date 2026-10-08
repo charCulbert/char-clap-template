@@ -20,7 +20,9 @@ struct Context
     void configure(uint32_t width, uint32_t height);
     // Unless the view says nothing changed (View::record): clears, lets the
     // view draw, and presents. Reconfigures a lost surface.
-    void frame(View &view, float scale);
+    // damaged: the system lost what's on screen, so draw even if the view
+    // looks just as it did.
+    void frame(View &view, float scale, bool damaged = false);
 };
 
 }

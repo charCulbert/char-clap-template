@@ -391,6 +391,10 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
     }
     case WM_KEYUP: PostMessageW(GetParent(hwnd), message, wParam, lParam); return 0;
     case WM_ERASEBKGND: return 1; // Dawn paints every pixel
+    case WM_PAINT: // uncovered or restored: the next frame draws it
+        ValidateRect(hwnd, nullptr);
+        window->callbacks.damaged();
+        return 0;
     }
     return DefWindowProcW(hwnd, message, wParam, lParam);
 }

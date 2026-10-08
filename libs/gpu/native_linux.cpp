@@ -4,6 +4,8 @@
 #include <X11/Xatom.h>
 #include <X11/Xutil.h> // XLookupString
 #include <unistd.h>
+#include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
@@ -32,6 +34,18 @@ struct Window
     std::string clipboard;        // what we've copied, while we own CLIPBOARD
     Atom clipboardAtom = 0, utf8 = 0, targets = 0, pasted = 0;
     float scale = 1;              // see desktopScale
+    // XDND, the X drag-and-drop protocol, both ways.
+    Atom xdndAware = 0, xdndProxy = 0, xdndEnter = 0, xdndPosition = 0, xdndStatus = 0, xdndLeave = 0, xdndDrop = 0,
+         xdndFinished = 0, xdndSelection = 0, xdndCopy = 0, uriList = 0;
+    std::vector<std::string> dropping; // files dragged in, once their list has come
+    ::Window dropSource = 0;           // the window dragging them in, and the one it addressed
+    ::Window dropTarget = 0;
+    int dropX = 0, dropY = 0;          // pixels in the view
+    bool dropPending = false;          // XdndDrop came before the list
+    std::vector<std::string> dragging; // files dragged out, offered as XdndSelection
+    bool dragActive = false;           // the button is still down
+    ::Window dragTo = 0;               // the XDND-aware window under the pointer
+    bool dragTaken = false;            // which says it would take them
 };
 
 // The desktop's scale: Xft.dpi (GNOME and KDE set it from their scaling
@@ -80,7 +94,23 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     window->utf8 = XInternAtom(display, "UTF8_STRING", False);
     window->targets = XInternAtom(display, "TARGETS", False);
     window->pasted = XInternAtom(display, "GPU_PASTED", False); // where a paste is delivered
-    XSelectInput(display, window->window, ButtonPressMask | ButtonReleaseMask | PointerMotionMask | LeaveWindowMask | KeyPressMask);
+    for (auto [atom, name] : {std::pair{&window->xdndAware, "XdndAware"}, {&window->xdndProxy, "XdndProxy"},
+                              {&window->xdndEnter, "XdndEnter"}, {&window->xdndPosition, "XdndPosition"},
+                              {&window->xdndStatus, "XdndStatus"}, {&window->xdndLeave, "XdndLeave"},
+                              {&window->xdndDrop, "XdndDrop"}, {&window->xdndFinished, "XdndFinished"},
+                              {&window->xdndSelection, "XdndSelection"}, {&window->xdndCopy, "XdndActionCopy"},
+                              {&window->uriList, "text/uri-list"}})
+        *atom = XInternAtom(display, name, False);
+    // Drag sources look for XdndAware on the window under the pointer that the
+    // host made for us, not our own child of it (Visage does the same): mark
+    // it, with XdndProxy sending its messages on to us.
+    const long version = 5;
+    for (::Window w : {window->window, window->parent})
+        XChangeProperty(display, w, window->xdndAware, XA_ATOM, 32, PropModeReplace, reinterpret_cast<const unsigned char *>(&version), 1);
+    XChangeProperty(display, window->parent, window->xdndProxy, XA_WINDOW, 32, PropModeReplace,
+                    reinterpret_cast<const unsigned char *>(&window->window), 1);
+    XSelectInput(display, window->window,
+                 ButtonPressMask | ButtonReleaseMask | PointerMotionMask | LeaveWindowMask | KeyPressMask | ExposureMask);
     XMapWindow(display, window->window);
     XFlush(display);
     return window;
@@ -124,6 +154,8 @@ void destroy(Window *window)
 {
     lockPointer(window, false);
     if (window->blank) XFreeCursor(window->display, window->blank);
+    XDeleteProperty(window->display, window->parent, window->xdndAware);
+    XDeleteProperty(window->display, window->parent, window->xdndProxy);
     XDestroyWindow(window->display, window->window);
     XSync(window->display, False); // its errors, while they're still ours to ignore
     std::erase(ourDisplays, window->display);
@@ -191,13 +223,194 @@ bool onScreen(Window *window)
     return XGetWindowAttributes(window->display, window->window, &attributes) && attributes.map_state == IsViewable;
 }
 
-void dragFiles(Window *, const std::vector<std::string> &) {}
+// Files dragged out: we own XdndSelection while the button is down, and
+// pumpEvents tells the window under the pointer (see dragMotion).
+void dragFiles(Window *window, const std::vector<std::string> &paths)
+{
+    window->dragging = paths;
+    window->dragActive = true;
+    window->dragTo = 0, window->dragTaken = false;
+    XSetSelectionOwner(window->display, window->xdndSelection, window->window, CurrentTime);
+    XFlush(window->display);
+}
 
 void copyText(Window *window, const std::string &utf8)
 {
     window->clipboard = utf8;
     XSetSelectionOwner(window->display, window->clipboardAtom, window->window, CurrentTime);
     XFlush(window->display);
+}
+
+// text/uri-list, the form XDND passes files in: file:// URIs, %-escaped, one per line.
+static std::string uriList(const std::vector<std::string> &paths)
+{
+    std::string list;
+    for (const std::string &path : paths)
+    {
+        list += "file://";
+        for (const unsigned char c : path)
+        {
+            if (std::isalnum(c) || std::strchr("/-._~", c)) list += char(c);
+            else
+            {
+                char escaped[4];
+                std::snprintf(escaped, sizeof(escaped), "%%%02X", c);
+                list += escaped;
+            }
+        }
+        list += "\r\n";
+    }
+    return list;
+}
+
+static std::vector<std::string> pathsIn(const std::string &list)
+{
+    std::vector<std::string> paths;
+    size_t at = 0;
+    while (at < list.size())
+    {
+        size_t end = list.find('\n', at);
+        if (end == std::string::npos) end = list.size();
+        std::string line = list.substr(at, end - at);
+        at = end + 1;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.rfind("file://", 0) != 0) continue; // comments, other schemes
+        line.erase(0, line.find('/', 7)); // file://host/path: the host goes
+        std::string path;
+        for (size_t i = 0; i < line.size(); ++i)
+        {
+            if (line[i] == '%' && i + 2 < line.size() && std::isxdigit(static_cast<unsigned char>(line[i + 1]))
+                && std::isxdigit(static_cast<unsigned char>(line[i + 2])))
+                path += char(std::stoi(line.substr(i + 1, 2), nullptr, 16)), i += 2;
+            else path += line[i];
+        }
+        paths.push_back(path);
+    }
+    return paths;
+}
+
+static void xdndMessage(Window *window, ::Window to, Atom type, long l1, long l2, long l3, long l4, ::Window from)
+{
+    XEvent message = {};
+    message.xclient.type = ClientMessage;
+    message.xclient.display = window->display;
+    message.xclient.window = to;
+    message.xclient.message_type = type;
+    message.xclient.format = 32;
+    message.xclient.data.l[0] = long(from);
+    message.xclient.data.l[1] = l1, message.xclient.data.l[2] = l2, message.xclient.data.l[3] = l3, message.xclient.data.l[4] = l4;
+    XSendEvent(window->display, to, False, NoEventMask, &message);
+    XFlush(window->display);
+}
+
+// A window's XdndProxy, where its messages go, or the window itself.
+static ::Window xdndReceiver(Window *window, ::Window target)
+{
+    Atom type;
+    int format;
+    unsigned long count, after;
+    unsigned char *data = nullptr;
+    ::Window proxy = 0;
+    if (XGetWindowProperty(window->display, target, window->xdndProxy, 0, 1, False, XA_WINDOW, &type, &format, &count, &after,
+                           &data) == Success && data && count == 1)
+        proxy = *reinterpret_cast<::Window *>(data);
+    if (data) XFree(data);
+    return proxy ? proxy : target;
+}
+
+static bool xdndAware(Window *window, ::Window w)
+{
+    Atom type;
+    int format;
+    unsigned long count, after;
+    unsigned char *data = nullptr;
+    const bool aware = XGetWindowProperty(window->display, w, window->xdndAware, 0, 1, False, XA_ATOM, &type, &format, &count,
+                                          &after, &data) == Success && data && count == 1;
+    if (data) XFree(data);
+    return aware;
+}
+
+// The outermost XDND-aware window under the pointer, as sources find it;
+// none over our own (dropping on ourselves isn't a drag out).
+static ::Window xdndTargetUnderPointer(Window *window)
+{
+    ::Window w = DefaultRootWindow(window->display), root, child;
+    int rootX, rootY, x, y;
+    unsigned int mask;
+    while (XQueryPointer(window->display, w, &root, &child, &rootX, &rootY, &x, &y, &mask) && child)
+    {
+        w = child;
+        if (xdndAware(window, w)) return w == window->parent || w == window->window ? 0 : w;
+    }
+    return 0;
+}
+
+// Files dragged in: what the view says to where they are now.
+static void dropStatus(Window *window)
+{
+    const bool taken = !window->dropping.empty()
+                    && window->callbacks.files(View::FileDrag::over, float(window->dropX), float(window->dropY), window->dropping);
+    xdndMessage(window, window->dropSource, window->xdndStatus, taken ? 3 : 2, 0, 0, taken ? long(window->xdndCopy) : None,
+                window->dropTarget); // 2: send every position, as the view's targets are small
+}
+
+static void dropNow(Window *window)
+{
+    const bool used = !window->dropping.empty()
+                   && window->callbacks.files(View::FileDrag::drop, float(window->dropX), float(window->dropY), window->dropping);
+    xdndMessage(window, window->dropSource, window->xdndFinished, used ? 1 : 0, used ? long(window->xdndCopy) : None, 0, 0,
+                window->dropTarget);
+    window->dropping.clear(), window->dropPending = false;
+}
+
+// The XDND messages: a drag coming in (enter, position, leave, drop) and
+// replies to ours going out (status, finished).
+static void xdndEvent(Window *window, const XClientMessageEvent &message)
+{
+    const long *l = message.data.l;
+    if (message.message_type == window->xdndEnter)
+    {
+        // The list of files comes as XdndSelection, asked for now.
+        window->dropSource = ::Window(l[0]), window->dropTarget = message.window;
+        window->dropping.clear(), window->dropPending = false;
+        XConvertSelection(window->display, window->xdndSelection, window->uriList, window->xdndSelection, window->window, CurrentTime);
+        XFlush(window->display);
+    }
+    else if (message.message_type == window->xdndPosition && ::Window(l[0]) == window->dropSource)
+    {
+        ::Window child;
+        XTranslateCoordinates(window->display, DefaultRootWindow(window->display), window->window, int(l[2] >> 16),
+                              int(l[2] & 0xFFFF), &window->dropX, &window->dropY, &child);
+        dropStatus(window);
+    }
+    else if (message.message_type == window->xdndLeave && ::Window(l[0]) == window->dropSource)
+    {
+        window->callbacks.files(View::FileDrag::leave, 0, 0, {});
+        window->dropping.clear(), window->dropSource = 0;
+    }
+    else if (message.message_type == window->xdndDrop && ::Window(l[0]) == window->dropSource)
+    {
+        if (window->dropping.empty()) window->dropPending = true; // the list is still on its way
+        else dropNow(window);
+    }
+    else if (message.message_type == window->xdndStatus && ::Window(l[0]) == window->dragTo)
+        window->dragTaken = l[1] & 1;
+}
+
+// Dragging files out, the pointer moved: tell the XDND-aware window under it
+// where (entering and leaving as it changes).
+static void dragMotion(Window *window, const XMotionEvent &motion)
+{
+    const ::Window under = xdndTargetUnderPointer(window);
+    if (under != window->dragTo)
+    {
+        if (window->dragTo) xdndMessage(window, xdndReceiver(window, window->dragTo), window->xdndLeave, 0, 0, 0, 0, window->window);
+        window->dragTo = under, window->dragTaken = false;
+        if (under) xdndMessage(window, xdndReceiver(window, under), window->xdndEnter, 5L << 24, long(window->uriList), None, None, window->window);
+    }
+    if (window->dragTo)
+        xdndMessage(window, xdndReceiver(window, window->dragTo), window->xdndPosition, 0, long(motion.x_root) << 16 | (motion.y_root & 0xFFFF),
+                    long(motion.time), long(window->xdndCopy), window->window);
 }
 
 static void answerSelection(Window *window, const XSelectionRequestEvent &request)
@@ -207,7 +420,23 @@ static void answerSelection(Window *window, const XSelectionRequestEvent &reques
     reply.requestor = request.requestor, reply.selection = request.selection;
     reply.target = request.target, reply.time = request.time;
     const Atom property = request.property ? request.property : request.target; // pre-ICCCM clients
-    if (request.target == window->targets)
+    if (request.selection == window->xdndSelection) // files we're dragging out
+    {
+        if (request.target == window->targets)
+        {
+            XChangeProperty(window->display, request.requestor, property, XA_ATOM, 32, PropModeReplace,
+                            reinterpret_cast<const unsigned char *>(&window->uriList), 1);
+            reply.property = property;
+        }
+        else if (request.target == window->uriList)
+        {
+            const std::string list = uriList(window->dragging);
+            XChangeProperty(window->display, request.requestor, property, window->uriList, 8, PropModeReplace,
+                            reinterpret_cast<const unsigned char *>(list.data()), int(list.size()));
+            reply.property = property;
+        }
+    }
+    else if (request.target == window->targets)
     {
         const Atom offered[] = {window->targets, window->utf8, XA_STRING};
         XChangeProperty(window->display, request.requestor, property, XA_ATOM, 32, PropModeReplace,
@@ -230,10 +459,22 @@ static std::string clipboardText(Window *window)
     if (XGetSelectionOwner(window->display, window->clipboardAtom) == window->window) return window->clipboard;
     XConvertSelection(window->display, window->clipboardAtom, window->utf8, window->pasted, window->window, CurrentTime);
     XFlush(window->display);
+    std::vector<XEvent> others; // a drop's file list, say: back in the queue afterwards
+    struct PutBack
+    {
+        Window *window;
+        std::vector<XEvent> &events;
+        ~PutBack() { for (XEvent &e : events) XPutBackEvent(window->display, &e); }
+    } putBack{window, others};
     for (int tries = 0; tries < 50; ++tries, usleep(2000))
     {
         XEvent event;
         if (!XCheckTypedWindowEvent(window->display, window->window, SelectionNotify, &event)) continue;
+        if (event.xselection.selection != window->clipboardAtom)
+        {
+            others.push_back(event);
+            continue;
+        }
         if (!event.xselection.property) return {};
         Atom type;
         int format;
@@ -277,6 +518,25 @@ void pumpEvents(Window *window)
         XEvent event;
         XNextEvent(window->display, &event);
         if (event.type == SelectionRequest) answerSelection(window, event.xselectionrequest);
+        if (event.type == ClientMessage) xdndEvent(window, event.xclient);
+        if (event.type == Expose) window->callbacks.damaged(); // uncovered, without a compositor to keep it
+        if (event.type == SelectionNotify && event.xselection.selection == window->xdndSelection) // a drop's file list
+        {
+            window->dropping.clear();
+            if (event.xselection.property)
+            {
+                Atom type;
+                int format;
+                unsigned long count, after;
+                unsigned char *data = nullptr;
+                XGetWindowProperty(window->display, window->window, event.xselection.property, 0, 1 << 20, True, AnyPropertyType,
+                                   &type, &format, &count, &after, &data);
+                if (data && format == 8) window->dropping = pathsIn(std::string(reinterpret_cast<char *>(data), count));
+                if (data) XFree(data);
+            }
+            if (window->dropPending) dropNow(window);
+            else if (window->dropSource) dropStatus(window);
+        }
         if (event.type == SelectionClear) window->clipboard.clear();
         if (event.type == LeaveNotify && !window->locked)
             window->callbacks.pointer({View::Pointer::leave, window->x, window->y, modifiers(event.xcrossing.state)});
@@ -294,6 +554,7 @@ void pumpEvents(Window *window)
                 XWarpPointer(window->display, 0, window->window, 0, 0, 0, 0, window->anchorX, window->anchorY);
             }
             window->callbacks.pointer({View::Pointer::move, window->x, window->y, modifiers(event.xmotion.state)});
+            if (window->dragActive) dragMotion(window, event.xmotion);
         }
         else if (event.type == ButtonPress && (event.xbutton.button == Button4 || event.xbutton.button == Button5))
             window->callbacks.pointer({View::Pointer::wheel, float(event.xbutton.x), float(event.xbutton.y),
@@ -301,6 +562,13 @@ void pumpEvents(Window *window)
         else if ((event.type == ButtonPress || event.type == ButtonRelease) && event.xbutton.button == Button1)
         {
             if (!window->locked) window->x = float(event.xbutton.x), window->y = float(event.xbutton.y);
+            if (event.type == ButtonRelease && window->dragActive) // let go: drop on the window under it, or don't
+            {
+                if (window->dragTo)
+                    xdndMessage(window, xdndReceiver(window, window->dragTo), window->dragTaken ? window->xdndDrop : window->xdndLeave,
+                                0, long(event.xbutton.time), 0, 0, window->window);
+                window->dragActive = false, window->dragTo = 0;
+            }
             window->callbacks.pointer({event.type == ButtonPress ? View::Pointer::down : View::Pointer::up,
                                        window->x, window->y, modifiers(event.xbutton.state)});
         }

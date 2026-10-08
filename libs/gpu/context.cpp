@@ -100,9 +100,10 @@ void Context::configure(uint32_t newWidth, uint32_t newHeight)
     surface.Configure(&config);
 }
 
-void Context::frame(View &view, float scale)
+void Context::frame(View &view, float scale, bool damaged)
 {
-    if (!surface || !device || !view.record(float(width), float(height), scale)) return;
+    if (!surface || !device) return;
+    if (!view.record(float(width), float(height), scale) && !damaged) return;
     wgpu::SurfaceTexture current;
     surface.GetCurrentTexture(&current);
     if (current.status == wgpu::SurfaceGetCurrentTextureStatus::Outdated ||

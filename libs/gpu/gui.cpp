@@ -155,6 +155,7 @@ bool Gui::setParent(const clap_window_t *parent)
         return false;
     window = platform::create(parent, width, height, {
         [this] { frame(); },
+        [this] { damaged = true; },
         [this](const View::PointerEvent &event) { if (view) view->pointer(event), dirty = true; },
         [this](View::Key key, unsigned modifiers) { dirty = true; return view && view->key(key, modifiers); },
         [this](const char *utf8) { dirty = true; return view && view->text(utf8); },
@@ -223,7 +224,7 @@ void Gui::frame()
     if (!window || !view) return;
     if (!platform::onScreen(window))
     {
-        dirty = true; // draw when it's back
+        damaged = true; // draw when it's back: what was there may be gone
         return;
     }
     // The view's size in pixels changes without clap.gui.set_size too: a host
@@ -254,9 +255,9 @@ void Gui::frame()
         if (dark != view->darkMode) view->darkMode = dark, dirty = true;
     }
     platform::textInput(window, view->editingText());
-    if (!(dirty || view->animating())) return;
-    dirty = false;
-    context->frame(*view, scale());
+    if (!(dirty || damaged || view->animating())) return;
+    context->frame(*view, scale(), damaged);
+    dirty = damaged = false;
 }
 
 bool Gui::send(const core::Value &message)

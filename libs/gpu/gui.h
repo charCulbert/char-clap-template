@@ -62,7 +62,8 @@ private:
     std::unique_ptr<Context> context;
     std::unique_ptr<View> view;
     platform::Window *window = nullptr;
-    bool dirty = true; // something changed since the last frame
+    bool dirty = true;    // something changed since the last frame
+    bool damaged = false; // the system lost what's on screen (uncovered without a compositor)
     float hostScale = 0;   // from set_scale, where taken
     float shownScale = 0;  // the scale the last frame was drawn at
     std::chrono::steady_clock::time_point appearanceChecked; // see platform::darkMode
