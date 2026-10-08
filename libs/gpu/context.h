@@ -11,6 +11,7 @@ struct Context
     wgpu::Device device;
     wgpu::Surface surface;
     wgpu::TextureFormat format = wgpu::TextureFormat::Undefined;
+    wgpu::PresentMode presentMode = wgpu::PresentMode::Fifo; // Mailbox where the surface has it
     uint32_t width = 0, height = 0; // pixels
 
     // Natively this blocks until the device exists; it returns false without one.

@@ -28,6 +28,7 @@ struct Window
     POINT anchor = {};       // screen position the cursor is held at while locked
     float x = 0, y = 0;      // pointer position reported to the view (pixels)
     bool tracking = false;   // asked for WM_MOUSELEAVE
+    bool pressed = false;    // the left button went down here and hasn't come up
 };
 
 static const UINT WM_APP_DRAG = WM_APP + 1; // drag `dragging` out, outside any frame (DoDragDrop is modal)
@@ -220,6 +221,8 @@ static std::string clipboardText(HWND hwnd)
 
 void textInput(Window *, bool) {}
 
+bool onScreen(Window *window) { return IsWindowVisible(window->hwnd) && !IsIconic(GetAncestor(window->hwnd, GA_ROOT)); }
+
 void dragFiles(Window *window, const std::vector<std::string> &paths)
 {
     window->dragging = paths;
@@ -294,6 +297,7 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
     case WM_LBUTTONDOWN:
         SetFocus(hwnd); // for keys
         SetCapture(hwnd);
+        window->pressed = true;
         pointer(View::Pointer::down);
         return 0;
     case WM_MOUSEMOVE:
@@ -308,7 +312,15 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
         window->tracking = false;
         if (!window->locked) pointer(View::Pointer::leave);
         return 0;
-    case WM_LBUTTONUP: ReleaseCapture(); pointer(View::Pointer::up); return 0;
+    case WM_LBUTTONUP:
+        window->pressed = false;
+        pointer(View::Pointer::up);
+        ReleaseCapture();
+        return 0;
+    case WM_CAPTURECHANGED: // taken mid-drag (Alt+Tab, a host's dialog): the button-up won't come here
+        if (window->pressed) window->pressed = false, pointer(View::Pointer::up);
+        return 0;
+    case WM_GETDLGCODE: return DLGC_WANTALLKEYS; // in dialog-based hosts, Tab, arrows and Enter too
     case WM_MOUSEWHEEL:
     {
         POINT at = {short(LOWORD(lParam)), short(HIWORD(lParam))}; // screen coordinates

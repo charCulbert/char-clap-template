@@ -221,6 +221,11 @@ void Gui::onTimer(clap_id id)
 void Gui::frame()
 {
     if (!window || !view) return;
+    if (!platform::onScreen(window))
+    {
+        dirty = true; // draw when it's back
+        return;
+    }
     // The view's size in pixels changes without clap.gui.set_size too: a host
     // may create it before it is in a window (AU), or move it to a screen of
     // another scale. Keep the surface matching it.
@@ -248,11 +253,8 @@ void Gui::frame()
         const bool dark = platform::darkMode(window);
         if (dark != view->darkMode) view->darkMode = dark, dirty = true;
     }
-    // One more frame after a change: some swapchains (Fifo on an X server
-    // without Present) show an image only once the next one is queued.
     platform::textInput(window, view->editingText());
-    if (!(dirty || trailing || view->animating())) return;
-    trailing = dirty;
+    if (!(dirty || view->animating())) return;
     dirty = false;
     context->frame(*view, scale());
 }

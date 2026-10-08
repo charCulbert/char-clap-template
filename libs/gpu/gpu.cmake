@@ -76,6 +76,10 @@ function(gpu_add_to target)
     if(APPLE)
         target_sources(${target} PRIVATE "${GPU_DIR}/native_mac.mm")
         set_source_files_properties("${GPU_DIR}/native_mac.mm" PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+        # Objective-C classes share one namespace across every plugin a host
+        # loads, so each plugin names its own (see native_mac.mm).
+        string(MAKE_C_IDENTIFIER "${PROJECT_NAME}_${target}_" prefix)
+        target_compile_definitions(${target} PRIVATE GPU_OBJC_PREFIX=${prefix})
         target_link_libraries(${target} PUBLIC "-framework AppKit" "-framework QuartzCore")
     elseif(WIN32)
         target_sources(${target} PRIVATE "${GPU_DIR}/native_win.cpp")

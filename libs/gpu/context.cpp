@@ -84,13 +84,18 @@ void Context::configure(uint32_t newWidth, uint32_t newHeight)
         wgpu::SurfaceCapabilities capabilities;
         surface.GetCapabilities(adapter, &capabilities);
         format = capabilities.formatCount ? capabilities.formats[0] : wgpu::TextureFormat::BGRA8Unorm;
+        // Mailbox shows the newest image without tearing. Fifo can hold
+        // images back (an X server without Present shows each one a frame or
+        // two late), and frames come from our timer anyway, not the display.
+        for (size_t i = 0; i < capabilities.presentModeCount; ++i)
+            if (capabilities.presentModes[i] == wgpu::PresentMode::Mailbox) presentMode = wgpu::PresentMode::Mailbox;
     }
     wgpu::SurfaceConfiguration config;
     config.device = device;
     config.format = format;
     config.width = width;
     config.height = height;
-    config.presentMode = wgpu::PresentMode::Fifo;
+    config.presentMode = presentMode;
     config.alphaMode = wgpu::CompositeAlphaMode::Auto;
     surface.Configure(&config);
 }

@@ -6,7 +6,9 @@
 #include <unistd.h>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 #include <string>
+#include <vector>
 
 // A child X11 window in the host's window. Dawn draws into it with Vulkan.
 // Linux hosts have no shared event loop, so the host's timer (needsTimer)
@@ -20,6 +22,8 @@ struct Window
 {
     Display *display = nullptr; // our own connection, so we see only our events
     ::Window window = 0;
+    ::Window parent = 0;          // the host's, which gets the keyboard back after a text edit
+    bool focused = false;         // we took the keyboard for a text field
     Callbacks callbacks;
     bool locked = false;
     int anchorX = 0, anchorY = 0; // where the cursor is held while locked
@@ -44,6 +48,18 @@ static float desktopScale(Display *display)
     return scale;
 }
 
+// X errors on our own connections (BadWindow once the host has destroyed our
+// parent window, say) are ignored; Xlib's default handler would exit the
+// host. Others go on to the handler that was there before.
+static std::vector<Display *> ourDisplays;
+static XErrorHandler hostHandler = nullptr;
+
+static int ignoreOurErrors(Display *display, XErrorEvent *error)
+{
+    if (std::find(ourDisplays.begin(), ourDisplays.end(), display) != ourDisplays.end()) return 0;
+    return hostHandler ? hostHandler(display, error) : 0;
+}
+
 Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Callbacks callbacks)
 {
     Display *display = XOpenDisplay(nullptr);
@@ -52,11 +68,14 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
         if (display) XCloseDisplay(display);
         return nullptr;
     }
+    if (ourDisplays.empty()) hostHandler = XSetErrorHandler(ignoreOurErrors);
+    ourDisplays.push_back(display);
     auto *window = new Window;
     window->display = display;
     window->callbacks = std::move(callbacks);
     window->scale = desktopScale(display);
-    window->window = XCreateSimpleWindow(display, ::Window(parent->x11), 0, 0, width, height, 0, 0, 0);
+    window->parent = ::Window(parent->x11);
+    window->window = XCreateSimpleWindow(display, window->parent, 0, 0, width, height, 0, 0, 0);
     window->clipboardAtom = XInternAtom(display, "CLIPBOARD", False);
     window->utf8 = XInternAtom(display, "UTF8_STRING", False);
     window->targets = XInternAtom(display, "TARGETS", False);
@@ -106,7 +125,10 @@ void destroy(Window *window)
     lockPointer(window, false);
     if (window->blank) XFreeCursor(window->display, window->blank);
     XDestroyWindow(window->display, window->window);
+    XSync(window->display, False); // its errors, while they're still ours to ignore
+    std::erase(ourDisplays, window->display);
     XCloseDisplay(window->display);
+    if (ourDisplays.empty()) XSetErrorHandler(hostHandler);
     delete window;
 }
 
@@ -153,7 +175,21 @@ static unsigned modifiers(unsigned state)
 }
 
 // X11's clipboard is a conversation: the owner answers each request for it.
-void textInput(Window *, bool) {}
+// The keyboard is ours only while a text field is edited: a click alone
+// doesn't take it, so the host's shortcuts (Space plays) keep working.
+void textInput(Window *window, bool editing)
+{
+    if (editing == window->focused) return;
+    window->focused = editing;
+    XSetInputFocus(window->display, editing ? window->window : window->parent, RevertToParent, CurrentTime);
+    XFlush(window->display);
+}
+
+bool onScreen(Window *window)
+{
+    XWindowAttributes attributes;
+    return XGetWindowAttributes(window->display, window->window, &attributes) && attributes.map_state == IsViewable;
+}
 
 void dragFiles(Window *, const std::vector<std::string> &) {}
 
@@ -265,7 +301,6 @@ void pumpEvents(Window *window)
         else if ((event.type == ButtonPress || event.type == ButtonRelease) && event.xbutton.button == Button1)
         {
             if (!window->locked) window->x = float(event.xbutton.x), window->y = float(event.xbutton.y);
-            if (event.type == ButtonPress) XSetInputFocus(window->display, window->window, RevertToParent, CurrentTime);
             window->callbacks.pointer({event.type == ButtonPress ? View::Pointer::down : View::Pointer::up,
                                        window->x, window->y, modifiers(event.xbutton.state)});
         }

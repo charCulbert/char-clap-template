@@ -3,6 +3,17 @@
 #include "native.h"
 #include <optional>
 
+// The classes below are global to the host process: two plugins (or two
+// versions of one) with a GpuView each would get one of them. GPU_OBJC_PREFIX
+// (from gpu.cmake) names them after the plugin.
+#ifndef GPU_OBJC_PREFIX
+#define GPU_OBJC_PREFIX Gpu_
+#endif
+#define GPU_JOIN2(a, b) a##b
+#define GPU_JOIN(a, b) GPU_JOIN2(a, b)
+#define GpuView GPU_JOIN(GPU_OBJC_PREFIX, View)
+#define GpuKeys GPU_JOIN(GPU_OBJC_PREFIX, Keys)
+
 // An NSView backed by a CAMetalLayer, added to the host's view. It forwards the
 // mouse and keys and runs a 60 Hz timer on the main run loop to draw frames.
 @interface GpuView : NSView <NSDraggingSource>
@@ -22,7 +33,8 @@
 
 @implementation GpuKeys
 - (void)keyDown:(NSEvent *)event { [self.target keyDown:event]; }
-- (BOOL)performKeyEquivalent:(NSEvent *)event { return [self.target handleKey:event]; }
+// AppKit offers key equivalents to every view in the window, focused or not.
+- (BOOL)performKeyEquivalent:(NSEvent *)event { return self.window.firstResponder == self && [self.target handleKey:event]; }
 // The Edit menu's actions, which hosts send a text view for Cmd+C, X, V and A.
 - (void)copy:(id)sender { [self.target edit:gpu::View::Key::copy]; }
 - (void)cut:(id)sender { [self.target edit:gpu::View::Key::cut]; }
@@ -314,6 +326,14 @@ void setVisible(Window *window, bool visible) { [window->view setHidden:!visible
 void pumpEvents(Window *) {}
 
 void dragFiles(Window *window, const std::vector<std::string> &paths) { [window->view dragFiles:paths]; }
+
+// Off screen, the layer has no drawables to give, and asking for one blocks
+// the host's main thread for up to a second.
+bool onScreen(Window *window)
+{
+    NSWindow *host = window->view.window;
+    return host && !window->view.isHiddenOrHasHiddenAncestor && (host.occlusionState & NSWindowOcclusionStateVisible);
+}
 
 // While a field is edited, an invisible NSTextView holds the keyboard: hosts
 // that act on keys before the focused view (REAPER plays on Space) leave a
