@@ -186,6 +186,24 @@ void Gui::setSize(uint32_t newWidth, uint32_t newHeight)
     dirty = true;
 }
 
+// The GPU was reset or removed: a new device and surface, and the view builds
+// its resources again on them. Tried at most once a second until one comes.
+void Gui::recover()
+{
+    const auto now = std::chrono::steady_clock::now();
+    if (now - recoveryTried < std::chrono::seconds(1)) return;
+    recoveryTried = now;
+    auto fresh = std::make_unique<Context>();
+    if (!fresh->createDevice()) return;
+    fresh->surface = platform::createSurface(fresh->instance, window);
+    uint32_t w, h;
+    platform::pixelSize(window, w, h);
+    fresh->configure(w, h);
+    context = std::move(fresh);
+    view->prepare(context->device, context->format);
+    damaged = true;
+}
+
 float Gui::scale() const
 {
     return hostScale > 0 ? hostScale : platform::scale(window); // a guess before there's a window
@@ -222,6 +240,8 @@ void Gui::onTimer(clap_id id)
 void Gui::frame()
 {
     if (!window || !view) return;
+    if (context->lost->load()) recover();
+    if (context->lost->load()) return; // no GPU to draw with yet
     if (!platform::onScreen(window))
     {
         damaged = true; // draw when it's back: what was there may be gone

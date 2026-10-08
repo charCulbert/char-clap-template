@@ -55,6 +55,12 @@ bool Context::createDevice()
     toggles.disabledToggleCount = 1;
     deviceDescriptor.nextInChain = &toggles;
 #endif
+    deviceDescriptor.SetDeviceLostCallback(wgpu::CallbackMode::AllowSpontaneous,
+        [lost = lost](const wgpu::Device &, wgpu::DeviceLostReason reason, wgpu::StringView message) {
+            if (reason == wgpu::DeviceLostReason::Destroyed || reason == wgpu::DeviceLostReason::CallbackCancelled) return;
+            std::fprintf(stderr, "WebGPU device lost: %.*s\n", int(message.length), message.data);
+            *lost = true;
+        });
     deviceDescriptor.SetUncapturedErrorCallback([](const wgpu::Device &, wgpu::ErrorType, wgpu::StringView message) {
         std::fprintf(stderr, "WebGPU error: %.*s\n", int(message.length), message.data);
     });

@@ -37,8 +37,12 @@ draw2d_add_to(draw2d_test)
 target_link_libraries(draw2d_test PRIVATE dawn::webgpu_dawn)
 add_test(NAME draw2d COMMAND draw2d_test "${CMAKE_CURRENT_SOURCE_DIR}/gallery/resources/fonts/BarlowSemiCondensed-Medium.ttf")
 set_tests_properties(draw2d PROPERTIES SKIP_RETURN_CODE 77)
+add_executable(context_test context_test.cpp ../libs/gpu/context.cpp)
+target_link_libraries(context_test PRIVATE dawn::webgpu_dawn)
+add_test(NAME context COMMAND context_test)
+set_tests_properties(context PROPERTIES SKIP_RETURN_CODE 77)
 
 # The tests are assert()s, so keep them in every build type.
-foreach(test resources_test messages_test spectrum_test ui_test draw2d_test)
+foreach(test resources_test messages_test spectrum_test ui_test draw2d_test context_test)
     target_compile_options(${test} PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
 endforeach()

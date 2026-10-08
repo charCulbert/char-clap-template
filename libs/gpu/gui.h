@@ -46,6 +46,7 @@ public:
 private:
     void frame();
     float scale() const; // pixels per point
+    void recover();      // after the GPU device was lost
 
     const clap_plugin_t *plugin = nullptr;
     const clap_host_t *host = nullptr;
@@ -67,6 +68,7 @@ private:
     float hostScale = 0;   // from set_scale, where taken
     float shownScale = 0;  // the scale the last frame was drawn at
     std::chrono::steady_clock::time_point appearanceChecked; // see platform::darkMode
+    std::chrono::steady_clock::time_point recoveryTried;     // see recover
 #endif
 };
 
