@@ -77,6 +77,8 @@ public:
     bool text(const char *utf8);
     // True while something waits to be drawn without input (a tooltip's delay).
     bool animating() const;
+    // True while a control is held: an edit isn't finished until it's let go.
+    bool dragging() const { return active != nullptr; }
 
     // Starts a frame of controls and its layout; the canvas in pixels.
     void begin(float width, float height, float scale);
@@ -196,7 +198,8 @@ private:
     static double fromUnit(const Param &p, double u, bool log);
     // Handles all input for the control with rectangle x,y,w,h. Returns true
     // while that control is being dragged.
-    bool control(Params &params, Param &p, float x, float y, float w, float h, bool vertical, float travel, bool log);
+    static const void *controlId(const Param &p, float x, float y);
+    bool control(Params &params, Param &p, const void *me, float x, float y, float w, float h, bool vertical, float travel, bool log);
     // A whole edit: begin, change and end at once (wheel, keys, double-click).
     void set(Params &params, Param &p, double value);
     bool over(float x, float y, float w, float h) const;

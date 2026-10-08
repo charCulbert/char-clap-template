@@ -160,20 +160,30 @@ void Ui::set(Params &params, Param &p, double value)
     params.end(p);
 }
 
-bool Ui::control(Params &params, Param &p, float x, float y, float w, float h, bool vertical, float travel, bool log)
+// A control's identity: its parameter and where it is, so a knob and a slider
+// of one parameter drag, focus and step apart.
+const void *Ui::controlId(const Param &p, float x, float y)
 {
-    order.push_back(&p);
+    uint32_t bits[2];
+    std::memcpy(bits, &x, 4), std::memcpy(bits + 1, &y, 4);
+    const uintptr_t where = (uintptr_t(bits[0]) * 0x9E3779B1u) ^ bits[1];
+    return reinterpret_cast<const void *>(reinterpret_cast<uintptr_t>(&p) ^ (where << 3));
+}
+
+bool Ui::control(Params &params, Param &p, const void *me, float x, float y, float w, float h, bool vertical, float travel, bool log)
+{
+    order.push_back(me);
     const bool fine = mouse.modifiers & View::shift;
     const double unit = toUnit(p, p.value, log);
 
     if (!active && over(x, y, w, h))
     {
-        if (mouse.pressed) focus = &p;
+        if (mouse.pressed) focus = me;
         if (mouse.pressed && mouse.doubleClicked)
             set(params, p, p.defaultValue);
         else if (mouse.pressed)
         {
-            active = &p;
+            active = me;
             grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = fine;
             params.begin(p);
             if (lockPointer) lockPointer(true);
@@ -182,7 +192,7 @@ bool Ui::control(Params &params, Param &p, float x, float y, float w, float h, b
             set(params, p, fromUnit(p, unit + mouse.wheel * (fine ? 0.002 : 0.02), log));
     }
 
-    if (focus == &p)
+    if (focus == me)
         for (auto [key, modifiers] : keys)
         {
             const double step = modifiers & View::shift ? 0.001 : 0.01, u = toUnit(p, p.value, log);
@@ -198,7 +208,7 @@ bool Ui::control(Params &params, Param &p, float x, float y, float w, float h, b
             }
         }
 
-    if (active != &p) return false;
+    if (active != me) return false;
     // Switching to or from fine mid-drag continues from where the value is.
     if (fine != grabFine) grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = fine;
     const double moved = (vertical ? grabY - mouse.y : mouse.x - grabX) / (travel * (fine ? 10 : 1));
@@ -219,11 +229,12 @@ void Ui::knob(Params &params, Param *p, Rect box, const char *format, bool log)
     // The dial fills the width, leaving room below for two lines of text.
     const float size = theme.textSize * s;
     const float r = std::min(box.w, box.h - 3 * size) / 2, cx = box.x + box.w / 2, cy = box.y + r;
-    const bool dragging = control(params, *p, cx - r, cy - r, 2 * r, 2 * r, true, 200 * s, log);
+    const void *me = controlId(*p, cx, cy);
+    const bool dragging = control(params, *p, me, cx - r, cy - r, 2 * r, 2 * r, true, 200 * s, log);
     // 270 degrees of travel, from 7:30 to 4:30; the ring a tenth of the dial (as compost's knob).
     const float from = 3.927f, sweep = 4.712f, u = float(toUnit(*p, p->value, log));
     const float width = std::max(2.0f * s, r * 0.19f);
-    if (focusShown(p)) draw.circle(cx, cy, r + 2 * s, {0, 0, 0, 0}, 1 * s, theme.accent);
+    if (focusShown(me)) draw.circle(cx, cy, r + 2 * s, {0, 0, 0, 0}, 1 * s, theme.accent);
     draw.arc(cx, cy, r - width, width, from, from + sweep, theme.track);
     if (u > 0) draw.arc(cx, cy, r - width, width, from, from + sweep * u, theme.accent);
     const float angle = from + sweep * u, inner = r - 1.6f * width;
@@ -250,10 +261,11 @@ void Ui::slider(Params &params, Param *p, Rect box, const char *format, bool log
     // The value first: a click on it types, rather than starting a drag.
     const float valueWidth = std::max(draw.measure(size, value, theme.valueFont), 3 * size) + 4 * s;
     const bool typing = valueEntry(params, *p, &p->max, {px + w - valueWidth, py, valueWidth, 1.4f * size}, Draw2D::Align::right);
-    const bool dragging = control(params, *p, px, py, w, h, false, w, log);
+    const void *me = controlId(*p, px, py);
+    const bool dragging = control(params, *p, me, px, py, w, h, false, w, log);
     const bool hot = dragging || (!active && over(px, py, w, h));
     const float u = float(toUnit(*p, p->value, log)), thumb = 1.125f * size, track = py + h - thumb / 2;
-    if (focusShown(p)) draw.rect(px - 3 * s, py - 2 * s, w + 6 * s, h + 4 * s, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
+    if (focusShown(me)) draw.rect(px - 3 * s, py - 2 * s, w + 6 * s, h + 4 * s, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
     draw.text(px, py + size, size, p->name, theme.dim, Draw2D::Align::left, theme.labelFont);
     if (!typing) draw.text(px + w, py + size, size, value, theme.dim, Draw2D::Align::right, theme.valueFont);
     draw.rect(px, track - 1.5f * s, w, 3 * s, 0, theme.track);
@@ -747,10 +759,11 @@ void Ui::vslider(Params &params, Param *p, Rect box, const char *format, bool lo
     if (!p) return;
     const float size = theme.textSize * s, cx = box.x + box.w / 2;
     const float top = box.y + 1.6f * size, bottom = box.y + box.h - 1.6f * size, thumb = 1.125f * size;
-    const bool dragging = control(params, *p, box.x, top - thumb / 2, box.w, bottom - top + thumb, true, bottom - top, log);
+    const void *me = controlId(*p, box.x, box.y);
+    const bool dragging = control(params, *p, me, box.x, top - thumb / 2, box.w, bottom - top + thumb, true, bottom - top, log);
     const bool hot = dragging || (!active && over(box.x, top, box.w, bottom - top));
     const float u = float(toUnit(*p, p->value, log)), y = bottom - (bottom - top) * u;
-    if (focusShown(p)) draw.rect(box.x, box.y, box.w, box.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
+    if (focusShown(me)) draw.rect(box.x, box.y, box.w, box.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
     char value[32];
     std::snprintf(value, sizeof(value), format, p->value);
     draw.text(cx, box.y + size, size, value, theme.dim, Draw2D::Align::center, theme.valueFont);
@@ -821,11 +834,12 @@ void Ui::meter(float level, float peak, float widthPoints)
 void Ui::imageKnob(Params &params, Param *p, int image, int frames, Rect r, bool log, bool across)
 {
     if (!p || frames < 1) return;
-    const bool dragging = control(params, *p, r.x, r.y, r.w, r.h, true, 200 * s, log);
+    const void *me = controlId(*p, r.x, r.y);
+    const bool dragging = control(params, *p, me, r.x, r.y, r.w, r.h, true, 200 * s, log);
     const int frame = int(std::lround(toUnit(*p, p->value, log) * (frames - 1)));
     const float step = 1.0f / float(frames), a = frame * step, b = a + step;
     draw.image(image, r.x, r.y, r.w, r.h, {}, 1, across ? Draw2D::Source{a, 0, b, 1} : Draw2D::Source{0, a, 1, b});
-    if (focusShown(p) || dragging) draw.circle(r.x + r.w / 2, r.y + r.h / 2, std::min(r.w, r.h) / 2 + 2 * s, {0, 0, 0, 0}, 1 * s, theme.accent);
+    if (focusShown(me) || dragging) draw.circle(r.x + r.w / 2, r.y + r.h / 2, std::min(r.w, r.h) / 2 + 2 * s, {0, 0, 0, 0}, 1 * s, theme.accent);
 }
 
 void Ui::imageKnob(Params &params, Param *p, int image, int frames, bool log, bool across)

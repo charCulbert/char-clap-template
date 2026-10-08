@@ -189,6 +189,7 @@ static void knobDragAndKeys()
     draw();
     pointer(ui, View::Pointer::move, 50, -50);
     draw();
+    CHECK(std::abs(a->value - 1.0) < 1e-9); // the slider of A, not dragged, leaves it alone
     pointer(ui, View::Pointer::up, 50, -50);
     draw();
     CHECK(std::abs(a->value - 1.0) < 1e-9);
