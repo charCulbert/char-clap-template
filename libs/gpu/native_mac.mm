@@ -20,19 +20,34 @@
 @property(nonatomic) gpu::platform::Callbacks *callbacks;
 @property(nonatomic) BOOL locked;
 - (BOOL)handleKey:(NSEvent *)event;
+- (BOOL)handleNamedKey:(NSEvent *)event;
+- (BOOL)typeText:(NSString *)text;
 - (void)edit:(gpu::View::Key)key;
 - (void)paste;
 - (void)dragFiles:(const std::vector<std::string> &)paths;
 @end
 
-// Takes the keys while a text field is edited (see textInput) and gives them
-// all to the GpuView, so nothing is typed into the text view itself.
+// Takes the keys while a text field is edited (see textInput). The keys the
+// view names (arrows, Enter, its shortcuts) go to it; the rest go through
+// the system's text input, which composes what takes more than one key
+// (dead keys, press-and-hold accents, input methods) and hands back text.
 @interface GpuKeys : NSTextView
 @property(nonatomic, weak) GpuView *target;
 @end
 
 @implementation GpuKeys
-- (void)keyDown:(NSEvent *)event { [self.target keyDown:event]; }
+- (void)keyDown:(NSEvent *)event
+{
+    if (!self.hasMarkedText && [self.target handleNamedKey:event]) return;
+    [self interpretKeyEvents:@[ event ]];
+}
+- (void)insertText:(id)string replacementRange:(NSRange)range
+{
+    [super insertText:string replacementRange:range]; // ends any composition
+    [self.target typeText:[string isKindOfClass:NSAttributedString.class] ? [string string] : string];
+    self.string = @""; // the view keeps the text, not us
+}
+- (void)doCommandBySelector:(SEL)selector {} // keys the view didn't take: nothing for a hidden field to do
 // AppKit offers key equivalents to every view in the window, focused or not.
 - (BOOL)performKeyEquivalent:(NSEvent *)event { return self.window.firstResponder == self && [self.target handleKey:event]; }
 // The Edit menu's actions, which hosts send a text view for Cmd+C, X, V and A.
@@ -205,6 +220,20 @@ static unsigned modifiers(NSEvent *event)
 // or text field uses, and typed text while a field is edited.
 - (BOOL)handleKey:(NSEvent *)event
 {
+    if ([self handleNamedKey:event]) return YES;
+    // Typed characters, but not shortcuts or function keys (U+F700 and up).
+    const bool chord = event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl);
+    return !chord && [self typeText:event.characters];
+}
+- (BOOL)typeText:(NSString *)text
+{
+    const bool typed = text.length > 0 && [text characterAtIndex:0] >= 0x20 && [text characterAtIndex:0] < 0xF700
+                    && [text characterAtIndex:0] != 0x7F;
+    return _callbacks && typed && _callbacks->text(text.UTF8String);
+}
+// Shortcuts and the keys the view names (arrows, Enter, Delete...).
+- (BOOL)handleNamedKey:(NSEvent *)event
+{
     if ([self shortcut:event]) return YES;
     using Key = gpu::View::Key;
     std::optional<Key> key;
@@ -224,13 +253,7 @@ static unsigned modifiers(NSEvent *event)
     case 51: key = Key::backspace; break;
     case 117: key = Key::deleteForward; break;
     }
-    if (_callbacks && key && _callbacks->key(*key, modifiers(event))) return YES;
-    // Typed characters, but not shortcuts or function keys (U+F700 and up).
-    NSString *characters = event.characters;
-    const bool typed = !key && characters.length > 0 && [characters characterAtIndex:0] >= 0x20
-                    && [characters characterAtIndex:0] < 0xF700 && [characters characterAtIndex:0] != 0x7F
-                    && !(event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl));
-    return _callbacks && typed && _callbacks->text(characters.UTF8String);
+    return _callbacks && key && _callbacks->key(*key, modifiers(event));
 }
 - (void)keyDown:(NSEvent *)event
 {
@@ -340,10 +363,14 @@ bool onScreen(Window *window)
 // While a field is edited, an invisible NSTextView holds the keyboard: hosts
 // that act on keys before the focused view (REAPER plays on Space) leave a
 // system text view alone, as they would VSTGUI's and iPlug2's native fields.
-void textInput(Window *window, bool editing)
+void textInput(Window *window, bool editing, View::Caret caret)
 {
     NSWindow *host = window->view.window;
     if (!host) return;
+    // At the caret, which is where input methods show what's being composed.
+    const CGFloat scale = window->view.layer.contentsScale;
+    if (editing && caret.height > 0)
+        window->keys.frame = NSMakeRect(caret.x / scale, caret.y / scale, 1, caret.height / scale);
     if (editing && host.firstResponder == window->view) [host makeFirstResponder:window->keys];
     else if (!editing && host.firstResponder == window->keys) [host makeFirstResponder:window->view];
 }

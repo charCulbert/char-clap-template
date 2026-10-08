@@ -239,7 +239,7 @@ static LRESULT CALLBACK keyHookProc(int code, WPARAM removed, LPARAM message)
     return CallNextHookEx(keyHook, code, removed, message);
 }
 
-void textInput(Window *window, bool editing)
+void textInput(Window *window, bool editing, View::Caret)
 {
     if (editing && !keyHook)
     {
@@ -459,7 +459,7 @@ void lockPointer(Window *window, bool locked)
 void destroy(Window *window)
 {
     lockPointer(window, false);
-    textInput(window, false);
+    textInput(window, false, {});
     KillTimer(window->hwnd, 1);
     if (window->dropTarget) RevokeDragDrop(window->hwnd), window->dropTarget->Release();
     if (window->ole) OleUninitialize();

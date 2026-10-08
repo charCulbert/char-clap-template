@@ -35,7 +35,7 @@ void lockPointer(Window *window, bool locked); // see View::lockPointer
 bool darkMode(Window *window); // the system's (or host window's) appearance; polled about once a second
 void copyText(Window *window, const std::string &utf8); // to the clipboard: View::copyText
 bool onScreen(Window *window); // false while hidden, minimised or covered: frames wait
-void textInput(Window *window, bool editing); // a text field has the keys: see View::editingText
+void textInput(Window *window, bool editing, View::Caret caret); // a text field has the keys: see View::editingText
 void dragFiles(Window *window, const std::vector<std::string> &paths); // View::dragFiles, during a press
 
 }

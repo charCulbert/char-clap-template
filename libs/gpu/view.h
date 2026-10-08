@@ -51,6 +51,10 @@ public:
     // True while a text field has the keys, so a host that acts on keys
     // before the focused window (REAPER: Space plays) leaves them alone.
     virtual bool editingText() const { return false; }
+    // Where its caret is (pixels), so the system can put an input method's
+    // candidate window by it; height 0 when not known.
+    struct Caret { float x = 0, y = 0, height = 0; };
+    virtual Caret textCaret() const { return {}; }
     // Files dragged in from elsewhere (UTF-8 paths) moving over the view, let
     // go on it, or taken away again; pixels. Return true where files would be
     // taken (the presenter shows a copy cursor) and when a drop was used.

@@ -209,7 +209,7 @@ static unsigned modifiers(unsigned state)
 // X11's clipboard is a conversation: the owner answers each request for it.
 // The keyboard is ours only while a text field is edited: a click alone
 // doesn't take it, so the host's shortcuts (Space plays) keep working.
-void textInput(Window *window, bool editing)
+void textInput(Window *window, bool editing, View::Caret)
 {
     if (editing == window->focused) return;
     window->focused = editing;

@@ -254,7 +254,7 @@ void Gui::frame()
         const bool dark = platform::darkMode(window);
         if (dark != view->darkMode) view->darkMode = dark, dirty = true;
     }
-    platform::textInput(window, view->editingText());
+    platform::textInput(window, view->editingText(), view->textCaret());
     if (!(dirty || damaged || view->animating())) return;
     context->frame(*view, scale(), damaged);
     dirty = damaged = false;

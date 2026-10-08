@@ -92,6 +92,7 @@ public:
     // True while a control is held: an edit isn't finished until it's let go.
     bool dragging() const { return active != nullptr; }
     bool editingText() const { return editing != 0; }
+    View::Caret textCaret() const { return editing ? caretAt : View::Caret{}; } // a text field's, in pixels
     // View::files: true over a dropTarget declared last frame.
     bool files(View::FileDrag type, float x, float y, const std::vector<std::string> &paths);
 
@@ -308,6 +309,7 @@ private:
     bool inside(Clay_ElementId id, float x, float y) const; // in last frame's box; pixels
     uint32_t editing = 0;       // the text field being edited, or 0
     float fieldScroll = 0;      // how far its text is scrolled left (points)
+    View::Caret caretAt;        // where its caret is (pixels), for input methods
     std::string draft;          // its text while editing
     size_t caret = 0;           // byte offsets in draft: the caret, and the selection
     size_t selectFrom = 0, selectTo = 0;

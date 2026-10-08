@@ -950,6 +950,7 @@ bool Ui::textField(std::string &value, float widthPoints, int index)
         const float textWidth = draw.measure(theme.textSize, draft, theme.valueFont);
         fieldScroll = std::clamp(fieldScroll, caretX - visible, caretX);
         scroll = fieldScroll = std::clamp(fieldScroll, 0.0f, std::max(0.0f, textWidth - visible));
+        caretAt = {(box.x + 5 - scroll + caretX) * s, box.y * s, box.height * s};
     }
     CLAY({.id = fid, .layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_FIT(0)}, .padding = {5, 5, 2, 2},
                                 .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},

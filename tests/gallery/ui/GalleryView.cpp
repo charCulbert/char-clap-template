@@ -78,6 +78,7 @@ public:
     bool text(const char *utf8) override { return ui.text(utf8); }
     bool animating() const override { return ui.animating() || page == 4; } // the meters move
     bool editingText() const override { return ui.editingText(); }
+    Caret textCaret() const override { return ui.textCaret(); }
     bool files(FileDrag type, float x, float y, const std::vector<std::string> &paths) override { return ui.files(type, x, y, paths); }
 
     // The frame is built in record, so the presenter can skip one that looks
