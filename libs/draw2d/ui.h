@@ -177,6 +177,10 @@ public:
     // notes to show held (e.g. from incoming MIDI).
     Notes piano(int lowest, int highest, Rect r, const std::function<bool(int)> &lit = {});
 
+    // What a quick second press is: a double-click (the default: knobs reset,
+    // fields select a word), or just another press, so a button, toggle or
+    // menu reacts to every one.
+    enum Presses { doubleClicks, eachPress };
     // A custom region (pixels): reports press, drag and release on it, plus
     // double-clicks and the wheel over it.
     struct Area
@@ -185,9 +189,9 @@ public:
         float x = 0, y = 0, wheel = 0;
         unsigned modifiers = 0;
     };
-    Area area(const void *id, float x, float y, float w, float h);
+    Area area(const void *id, float x, float y, float w, float h, Presses presses = doubleClicks);
     // The same for a Clay element declared in this layout, hit-tested by Clay.
-    Area element(Clay_ElementId id);
+    Area element(Clay_ElementId id, Presses presses = doubleClicks);
 
     // A grip in the bottom-right corner of a view `width` x `height` pixels:
     // dragging it resizes the window (through resizeTo; drawn only if set).
@@ -227,7 +231,7 @@ private:
     // A whole edit: begin, change and end at once (wheel, keys, double-click).
     void set(Params &params, Param &p, double value);
     bool over(float x, float y, float w, float h) const;
-    Area press(const void *id, bool over);
+    Area press(const void *id, bool over, Presses presses);
     bool focusShown(const void *id) const { return focus == id && focusVisible; }
     bool focusShown(Clay_ElementId element) const;
     std::vector<View::Key> focusable(Clay_ElementId element, const Area &a);

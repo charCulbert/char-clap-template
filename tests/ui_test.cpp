@@ -96,6 +96,28 @@ static void toggleAndSegmented()
     CHECK(selected == 2);
 }
 
+// Two quick clicks on a button or toggle are two clicks, not one swallowed
+// as a double-click: only knobs, sliders and fields give double-clicks a meaning.
+static void quickClicksCount()
+{
+    Ui ui;
+    int clicks = 0;
+    bool on = false;
+    auto draw = [&] {
+        frame(ui, [&] {
+            if (ui.button("Go")) ++clicks;
+            ui.toggle("Sync", on);
+        });
+    };
+    draw();
+    clickAt(ui, box("Go"), draw);
+    clickAt(ui, box("Go"), draw);
+    CHECK(clicks == 2);
+    clickAt(ui, box("Sync"), draw);
+    clickAt(ui, box("Sync"), draw);
+    CHECK(!on);
+}
+
 static void keyboardFocus()
 {
     // Tab reaches buttons, toggles, segments and dropdowns, in order.
@@ -718,6 +740,7 @@ int main()
     layoutSizes();
     buttonClicks();
     toggleAndSegmented();
+    quickClicksCount();
     dropdownSelectsAndBlocks();
     keyboardFocus();
     knobDragAndKeys();

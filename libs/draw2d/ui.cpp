@@ -230,7 +230,7 @@ bool Ui::fileOver(Clay_ElementId id) const { return incoming.over && inside(id, 
 
 void Ui::dragSource(Clay_ElementId id, const std::function<std::vector<std::string>()> &make)
 {
-    const Area a = element(id);
+    const Area a = element(id, eachPress);
     if (a.pressed) dragArmed = true, dragFromX = mouse.x, dragFromY = mouse.y;
     if (a.held && dragArmed && dragFiles && std::hypot(mouse.x - dragFromX, mouse.y - dragFromY) > 4 * s)
     {
@@ -503,24 +503,24 @@ void Ui::drawGrip()
         draw.line(width - 3 * s - d * s, height - 3 * s, width - 3 * s, height - 3 * s - d * s, 1.2f * s, color);
 }
 
-Ui::Area Ui::area(const void *id, float x, float y, float w, float h)
+Ui::Area Ui::area(const void *id, float x, float y, float w, float h, Presses presses)
 {
-    return press(id, over(x, y, w, h));
+    return press(id, over(x, y, w, h), presses);
 }
 
-Ui::Area Ui::element(Clay_ElementId id)
+Ui::Area Ui::element(Clay_ElementId id, Presses presses)
 {
     // Clay ids are hashes, so they serve as the control's identity too.
-    return press(reinterpret_cast<const void *>(uintptr_t(id.id)), Clay_PointerOver(id));
+    return press(reinterpret_cast<const void *>(uintptr_t(id.id)), Clay_PointerOver(id), presses);
 }
 
-Ui::Area Ui::press(const void *id, bool isOver)
+Ui::Area Ui::press(const void *id, bool isOver, Presses presses)
 {
     Area result;
     result.modifiers = mouse.modifiers;
     if (!active && isOver)
     {
-        if (mouse.pressed && mouse.doubleClicked) result.doubleClicked = true;
+        if (mouse.pressed && mouse.doubleClicked && presses == doubleClicks) result.doubleClicked = true;
         else if (mouse.pressed) active = id, result.pressed = true;
         result.wheel = mouse.wheel;
     }
@@ -572,7 +572,7 @@ bool Ui::focusShown(Clay_ElementId element) const
 bool Ui::button(const char *label, int index)
 {
     const Clay_ElementId bid = id(label, index);
-    const Area a = element(bid);
+    const Area a = element(bid, eachPress);
     bool clicked = a.clicked;
     for (View::Key key : focusable(bid, a)) clicked |= key == View::Key::enter;
     const bool hot = Clay_PointerOver(bid);
@@ -592,7 +592,7 @@ bool Ui::button(const char *label, int index)
 bool Ui::toggle(const char *label, bool &on, int index)
 {
     const Clay_ElementId tid = id(label, index);
-    const Area a = element(tid);
+    const Area a = element(tid, eachPress);
     bool clicked = a.clicked;
     for (View::Key key : focusable(tid, a)) clicked |= key == View::Key::enter;
     if (clicked) on = !on;
@@ -619,7 +619,7 @@ bool Ui::segmented(const char *const *items, int count, int &selected, int index
         Area any;
         for (int i = 0; i < count; ++i)
         {
-            const Area a = element(id("Segment", index * 64 + i));
+            const Area a = element(id("Segment", index * 64 + i), eachPress);
             if (a.clicked && selected != i) selected = i, changed = true;
             any.pressed |= a.pressed;
         }
@@ -649,7 +649,7 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
     bool changed = false;
     const Clay_ElementId did = id("Dropdown", index), menu = id("DropdownMenu", index);
     const bool open = openMenu == menu.id;
-    const Area a = element(did);
+    const Area a = element(did, eachPress);
     if (a.pressed) openMenu = open ? 0 : menu.id;
     // Keys: Enter opens and closes it, Escape closes it, the arrows choose.
     for (View::Key key : focusable(did, a))
@@ -692,7 +692,7 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
                 for (int i = 0; i < count; ++i)
                 {
                     const Clay_ElementId item = id("DropdownItem", index * 1024 + i);
-                    if (element(item).clicked) selected = i, changed = true, openMenu = 0;
+                    if (element(item, eachPress).clicked) selected = i, changed = true, openMenu = 0;
                     const bool itemHot = Clay_PointerOver(item);
                     CLAY({.id = item, .layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {7, 7, 3, 3}},
                           .backgroundColor = clayColor(itemHot ? theme.panel : Color{0, 0, 0, 0})})
@@ -874,7 +874,7 @@ bool Ui::valueEntry(Params &params, Param &p, const void *id, Rect r, Draw2D::Al
 {
     const uint32_t field = uint32_t(reinterpret_cast<uintptr_t>(id)) | 1u;
     const bool isOver = over(r.x, r.y, r.w, r.h);
-    if (press(id, isOver).pressed && editing != field) startEditing(field, plainNumber(p.value), true);
+    if (press(id, isOver, doubleClicks).pressed && editing != field) startEditing(field, plainNumber(p.value), true);
     std::string typed = plainNumber(p.value);
     if (editKeys(field, typed, isOver))
     {
@@ -1076,7 +1076,7 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
 bool Ui::drawer(const char *title, bool &open, int index)
 {
     const Clay_ElementId did = id("Drawer", index);
-    if (element(did).clicked) open = !open;
+    if (element(did, eachPress).clicked) open = !open;
     const bool hot = Clay_PointerOver(did);
     CLAY({.id = did, .layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {6, 6, 4, 4}, .childGap = 6,
                                 .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
