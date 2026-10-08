@@ -1,11 +1,22 @@
 // GUI Gallery: a page of every feature of the GPU interface (libs/gpu,
 // libs/draw2d), for checking how it looks and performs in real hosts. Audio
-// passes through; its four settings exist only for the controls to edit.
+// passes through; its four parameters exist only for the controls to edit.
 // A test bench, not an example: tools/new-plugin.py doesn't offer it.
+//
+// Undo goes through the host, so one history covers the project. Parameter
+// drags are gestures, which the host records itself. The interface's other
+// edits (envelope, steps, name, switches) come here as one "data" value, which
+// is part of the state: each finished edit is a clap.undo change, or marks the
+// project dirty where the host lacks clap.undo, and the host's undo loads the
+// state back.
 #include "clap/clap.h"
+#include "clap/events.h"
 #include "clap/ext/audio-ports.h"
+#include "clap/ext/params.h"
+#include "clap/ext/state.h"
 #include "clap/ext/gui.h"
 #include "clap/ext/timer-support.h"
+#include "clap/ext/draft/undo.h"
 #include "clap/ext/draft/webview.h"
 #include <algorithm>
 #include <atomic>
@@ -17,31 +28,48 @@
 #include "core/resources.h"
 #include "gpu/gui.h"
 
-// Settings: {name, min, max, default}. Their index is their id in messages.
+static_assert(std::atomic<float>::is_always_lock_free);
+
+// Parameters: {name, min, max, default, format}. Their index is their id.
 struct Setting
 {
     const char *name;
     double min, max, defaultValue;
+    const char *format;
 };
 static const Setting settings[] = {
-    {"Gain", -24, 24, 0},
-    {"Mix", 0, 100, 100},
-    {"Cutoff", 20, 20000, 1000},
-    {"Drive", 0, 10, 2},
+    {"Gain", -24, 24, 0, "%.1f dB"},
+    {"Mix", 0, 100, 100, "%.0f %%"},
+    {"Cutoff", 20, 20000, 1000, "%.0f Hz"},
+    {"Drive", 0, 10, 2, "%.2f"},
 };
-#define S_COUNT (4)
+#define P_COUNT (4)
 
 struct MyPlugin
 {
     clap_plugin_t plugin;
     const clap_host_t *host;
-    double settingValues[S_COUNT]; // main thread only
+    const clap_host_params_t *hostParams;
+    const clap_host_state_t *hostState;
+    const clap_host_undo_t *hostUndo;
+
+    // Each parameter as the audio thread has it, and as the main thread does;
+    // the changed flags say which side has news for the other.
+    std::atomic<float> parameters[P_COUNT], mainParameters[P_COUNT];
+    std::atomic<bool> changed[P_COUNT], mainChanged[P_COUNT];
+    std::atomic<bool> gestureBegin[P_COUNT], gestureEnd[P_COUNT];
+    std::atomic<bool> uiDirty; // the host changed a parameter
+
+    core::Value data; // the interface's other state (main thread)
 
     gpu::Gui gui;
     uint32_t guiWidth = 720, guiHeight = 480;
-    bool uiReady = false; // the interface has said "ready" and not been closed since
 };
 
+static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *event);
+static void PluginSyncMainToAudio(MyPlugin *plugin, const clap_output_events_t *out);
+static void PluginSyncAudioToMain(MyPlugin *plugin);
+static double PluginGetValue(MyPlugin *plugin, uint32_t i);
 static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message);
 static void PluginSendValues(MyPlugin *plugin);
 
@@ -78,6 +106,114 @@ static const clap_plugin_audio_ports_t extensionAudioPorts = {
         info->port_type = CLAP_PORT_STEREO;
         info->in_place_pair = 0; // output may share the input's buffer
         snprintf(info->name, sizeof(info->name), "%s", isInput ? "Audio Input" : "Audio Output");
+        return true;
+    },
+};
+
+static const clap_plugin_params_t extensionParams = {
+    .count = [](const clap_plugin_t *plugin) -> uint32_t { return P_COUNT; },
+
+    .get_info = [](const clap_plugin_t *_plugin, uint32_t index, clap_param_info_t *information) -> bool
+    {
+        if (index >= P_COUNT)
+            return false;
+        memset(information, 0, sizeof(clap_param_info_t));
+        information->id = index;
+        information->flags = CLAP_PARAM_IS_AUTOMATABLE;
+        information->min_value = settings[index].min;
+        information->max_value = settings[index].max;
+        information->default_value = settings[index].defaultValue;
+        snprintf(information->name, sizeof(information->name), "%s", settings[index].name);
+        return true;
+    },
+
+    .get_value = [](const clap_plugin_t *_plugin, clap_id id, double *value) -> bool
+    {
+        if (id >= P_COUNT)
+            return false;
+        *value = PluginGetValue((MyPlugin *)_plugin->plugin_data, id);
+        return true;
+    },
+
+    .value_to_text = [](const clap_plugin_t *_plugin, clap_id id, double value, char *display, uint32_t size) -> bool
+    {
+        if (id >= P_COUNT)
+            return false;
+        snprintf(display, size, settings[id].format, value);
+        return true;
+    },
+
+    .text_to_value = [](const clap_plugin_t *_plugin, clap_id id, const char *display, double *value) -> bool
+    {
+        if (id >= P_COUNT)
+            return false;
+        char *end = nullptr;
+        *value = strtod(display, &end); // "1000 Hz" reads as 1000
+        return end != display;
+    },
+
+    .flush = [](const clap_plugin_t *_plugin, const clap_input_events_t *in, const clap_output_events_t *out)
+    {
+        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        PluginSyncMainToAudio(plugin, out);
+        for (uint32_t i = 0, n = in->size(in); i < n; i++)
+            PluginProcessEvent(plugin, in->get(in, i));
+    },
+};
+
+// The state is a CBOR map (core/messages.h): a version, each parameter by
+// name, and the interface's data.
+static const clap_plugin_state_t extensionState = {
+    .save = [](const clap_plugin_t *_plugin, const clap_ostream_t *stream) -> bool
+    {
+        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        PluginSyncAudioToMain(plugin);
+        core::Value::Map state{{"version", 1}, {"data", plugin->data}};
+        for (uint32_t i = 0; i < P_COUNT; i++)
+            state[settings[i].name] = PluginGetValue(plugin, i);
+        const auto bytes = core::encode(state);
+        const unsigned char *data = bytes.data();
+        uint64_t remaining = bytes.size();
+        while (remaining)
+        {
+            const int64_t written = stream->write(stream, data, remaining);
+            if (written <= 0)
+                return false;
+            data += written;
+            remaining -= (uint64_t)written;
+        }
+        return true;
+    },
+
+    .load = [](const clap_plugin_t *_plugin, const clap_istream_t *stream) -> bool
+    {
+        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        std::vector<unsigned char> bytes;
+        unsigned char buffer[256];
+        for (int64_t read; (read = stream->read(stream, buffer, sizeof(buffer))) > 0;)
+        {
+            bytes.insert(bytes.end(), buffer, buffer + read);
+            if (bytes.size() > core::maxMessageBytes)
+                return false;
+        }
+        auto state = core::decode(bytes.data(), bytes.size());
+        if (!state || (*state)["version"].number() < 1)
+            return false;
+        for (uint32_t i = 0; i < P_COUNT; i++)
+        {
+            const Setting &setting = settings[i];
+            const double value = (*state)[setting.name].number(setting.defaultValue);
+            plugin->mainParameters[i].store((float)std::clamp(value, setting.min, setting.max), std::memory_order_relaxed);
+            plugin->mainChanged[i].store(true, std::memory_order_release);
+        }
+        plugin->data = (*state)["data"];
+        if (plugin->hostParams)
+        {
+            plugin->hostParams->rescan(plugin->host, CLAP_PARAM_RESCAN_VALUES);
+            plugin->hostParams->request_flush(plugin->host);
+        }
+        PluginSendValues(plugin);
+        plugin->gui.send(core::Value::Map{{"type", "data"}, {"data", plugin->data}});
         return true;
     },
 };
@@ -162,7 +298,6 @@ static const clap_plugin_gui_t extensionGui = {
     {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
         plugin->gui.destroy();
-        plugin->uiReady = false;
     },
 
     .set_scale = [](const clap_plugin_t *_plugin, double scale) -> bool
@@ -225,43 +360,138 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 
 // Messages between the interface and the plugin (main thread only):
 //   UI -> plugin  {type: "ready"}
-//                 {type: "change", id, value}     a setting changed
-//                 {type: "begin" | "end", id}     a drag starts or ends (unused here)
-//   plugin -> UI  {type: "params", params: [{id, name, min, max, default}]}  the settings
-//                 {type: "values", values: [value per setting id]}
+//                 {type: "begin" | "end", id}     a drag starts or ends
+//                 {type: "change", id, value}
+//                 {type: "edit", name, data}      a finished edit of the other state
+//   plugin -> UI  {type: "params", params: [{id, name, min, max, default}]}
+//                 {type: "values", values: [value per parameter id]}
+//                 {type: "data", data}            the other state, after a load or undo
 static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
 {
     const auto type = message["type"].text();
     if (type == "ready")
     {
         core::Value::Array list;
-        for (uint32_t i = 0; i < S_COUNT; i++)
+        for (uint32_t i = 0; i < P_COUNT; i++)
             list.push_back(core::Value::Map{{"id", (double)i}, {"name", settings[i].name}, {"min", settings[i].min},
                                             {"max", settings[i].max}, {"default", settings[i].defaultValue}});
         plugin->gui.send(core::Value::Map{{"type", "params"}, {"params", list}});
         PluginSendValues(plugin);
-        plugin->uiReady = true;
+        if (!std::holds_alternative<std::monostate>(plugin->data.data))
+            plugin->gui.send(core::Value::Map{{"type", "data"}, {"data", plugin->data}});
+        return true;
+    }
+    if (type == "edit")
+    {
+        plugin->data = message["data"];
+        const std::string name(message["name"].text());
+        if (plugin->hostUndo)
+            plugin->hostUndo->change_made(plugin->host, name.empty() ? "Edit" : name.c_str(), nullptr, 0, false);
+        else if (plugin->hostState)
+            plugin->hostState->mark_dirty(plugin->host);
         return true;
     }
 
     const double id = message["id"].number(-1);
-    if (!(id >= 0 && id < S_COUNT))
+    if (!(id >= 0 && id < P_COUNT))
         return false;
+    const uint32_t i = (uint32_t)id;
     if (type == "change")
     {
-        const Setting &setting = settings[(int)id];
+        const Setting &setting = settings[i];
         const double value = message["value"].number(setting.defaultValue);
-        plugin->settingValues[(int)id] = value < setting.min ? setting.min : value > setting.max ? setting.max : value;
+        plugin->mainParameters[i].store((float)std::clamp(value, setting.min, setting.max), std::memory_order_relaxed);
+        plugin->mainChanged[i].store(true, std::memory_order_release);
     }
-    return type == "change" || type == "begin" || type == "end";
+    else if (type == "begin")
+        plugin->gestureBegin[i].store(true, std::memory_order_release);
+    else if (type == "end")
+        plugin->gestureEnd[i].store(true, std::memory_order_release);
+    else
+        return false;
+
+    // The host then calls process() or flush(), which send these on to it.
+    if (plugin->hostParams)
+    {
+        plugin->hostParams->request_flush(plugin->host);
+        if (type == "change")
+            plugin->hostParams->rescan(plugin->host, CLAP_PARAM_RESCAN_VALUES);
+    }
+    return true;
 }
 
 static void PluginSendValues(MyPlugin *plugin)
 {
     core::Value::Array values;
-    for (uint32_t i = 0; i < S_COUNT; i++)
-        values.push_back(plugin->settingValues[i]);
+    for (uint32_t i = 0; i < P_COUNT; i++)
+        values.push_back(PluginGetValue(plugin, i));
     plugin->gui.send(core::Value::Map{{"type", "values"}, {"values", values}});
+}
+
+// The main thread's view of a value: its own edit if it has an unsent one,
+// else the audio thread's.
+static double PluginGetValue(MyPlugin *plugin, uint32_t i)
+{
+    return plugin->mainChanged[i] ? plugin->mainParameters[i].load() : plugin->parameters[i].load();
+}
+
+static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *event)
+{
+    if (event->space_id != CLAP_CORE_EVENT_SPACE_ID || event->type != CLAP_EVENT_PARAM_VALUE)
+        return;
+    const auto *valueEvent = (const clap_event_param_value_t *)event;
+    if (valueEvent->param_id >= P_COUNT)
+        return;
+    const uint32_t i = valueEvent->param_id;
+    plugin->parameters[i].store((float)valueEvent->value, std::memory_order_relaxed);
+    plugin->changed[i].store(true, std::memory_order_release);
+    if (!plugin->uiDirty.exchange(true, std::memory_order_acq_rel))
+        plugin->host->request_callback(plugin->host); // on_main_thread tells the interface
+}
+
+static void PluginSendGesture(const clap_output_events_t *out, uint32_t i, uint16_t type)
+{
+    clap_event_param_gesture_t event = {};
+    event.header.size = sizeof(event);
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = type;
+    event.param_id = i;
+    out->try_push(out, &event.header);
+}
+
+// The interface's edits to the host, in order: begin, values, end.
+static void PluginSyncMainToAudio(MyPlugin *plugin, const clap_output_events_t *out)
+{
+    for (uint32_t i = 0; i < P_COUNT; i++)
+    {
+        if (plugin->gestureBegin[i].exchange(false, std::memory_order_acquire))
+            PluginSendGesture(out, i, CLAP_EVENT_PARAM_GESTURE_BEGIN);
+        if (plugin->mainChanged[i].exchange(false, std::memory_order_acquire))
+        {
+            const float value = plugin->mainParameters[i].load(std::memory_order_relaxed);
+            plugin->parameters[i].store(value, std::memory_order_relaxed);
+            clap_event_param_value_t event = {};
+            event.header.size = sizeof(event);
+            event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            event.header.type = CLAP_EVENT_PARAM_VALUE;
+            event.param_id = i;
+            event.note_id = -1;
+            event.port_index = -1;
+            event.channel = -1;
+            event.key = -1;
+            event.value = value;
+            out->try_push(out, &event.header);
+        }
+        if (plugin->gestureEnd[i].exchange(false, std::memory_order_acquire))
+            PluginSendGesture(out, i, CLAP_EVENT_PARAM_GESTURE_END);
+    }
+}
+
+static void PluginSyncAudioToMain(MyPlugin *plugin)
+{
+    for (uint32_t i = 0; i < P_COUNT; i++)
+        if (plugin->changed[i].exchange(false, std::memory_order_acquire))
+            plugin->mainParameters[i].store(plugin->parameters[i].load(std::memory_order_relaxed), std::memory_order_relaxed);
 }
 
 static const clap_plugin_t pluginClass = {
@@ -271,9 +501,15 @@ static const clap_plugin_t pluginClass = {
     .init = [](const clap_plugin *_plugin) -> bool
     {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        plugin->hostParams = (const clap_host_params_t *)plugin->host->get_extension(plugin->host, CLAP_EXT_PARAMS);
+        plugin->hostState = (const clap_host_state_t *)plugin->host->get_extension(plugin->host, CLAP_EXT_STATE);
+        plugin->hostUndo = (const clap_host_undo_t *)plugin->host->get_extension(plugin->host, CLAP_EXT_UNDO);
         plugin->gui.init(_plugin, plugin->host);
-        for (uint32_t i = 0; i < S_COUNT; i++)
-            plugin->settingValues[i] = settings[i].defaultValue;
+        for (uint32_t i = 0; i < P_COUNT; i++)
+        {
+            plugin->parameters[i].store((float)settings[i].defaultValue, std::memory_order_relaxed);
+            plugin->mainParameters[i].store((float)settings[i].defaultValue, std::memory_order_relaxed);
+        }
         return true;
     },
 
@@ -294,6 +530,11 @@ static const clap_plugin_t pluginClass = {
 
     .process = [](const clap_plugin *_plugin, const clap_process_t *process) -> clap_process_status
     {
+        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        PluginSyncMainToAudio(plugin, process->out_events);
+        for (uint32_t i = 0, n = process->in_events->size(process->in_events); i < n; i++)
+            PluginProcessEvent(plugin, process->in_events->get(process->in_events, i));
+
         const uint32_t frameCount = process->frames_count;
         float *const *input = process->audio_inputs[0].data32;
         float *const *output = process->audio_outputs[0].data32;
@@ -310,6 +551,10 @@ static const clap_plugin_t pluginClass = {
     {
         if (0 == strcmp(id, CLAP_EXT_AUDIO_PORTS))
             return &extensionAudioPorts;
+        if (0 == strcmp(id, CLAP_EXT_PARAMS))
+            return &extensionParams;
+        if (0 == strcmp(id, CLAP_EXT_STATE))
+            return &extensionState;
         if (0 == strcmp(id, CLAP_EXT_WEBVIEW))
             return &extensionWebview;
         if (0 == strcmp(id, CLAP_EXT_GUI))
@@ -319,7 +564,12 @@ static const clap_plugin_t pluginClass = {
         return nullptr;
     },
 
-    .on_main_thread = [](const clap_plugin *_plugin) {},
+    .on_main_thread = [](const clap_plugin *_plugin)
+    {
+        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        if (plugin->uiDirty.exchange(false, std::memory_order_acq_rel))
+            PluginSendValues(plugin);
+    },
 };
 
 // What entry.cpp needs.

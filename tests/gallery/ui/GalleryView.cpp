@@ -62,7 +62,11 @@ public:
         send(core::Value::Map{{"type", "ready"}});
     }
 
-    void receive(const core::Value &message) override { params.receive(message); }
+    void receive(const core::Value &message) override
+    {
+        if (params.receive(message)) return;
+        if (message["type"].text() == "data") setData(message["data"]);
+    }
     void pointer(const PointerEvent &event) override { ui.pointer(event); }
     bool key(Key key, unsigned modifiers) override { return ui.key(key, modifiers); }
     bool text(const char *utf8) override { return ui.text(utf8); }
@@ -101,7 +105,59 @@ public:
             }
         }
         ui.resizeGrip(width, height);
-        return ui.record([&](int kind, void *data, gpu::Rect r) { drawCell(kind, data, r); });
+        const bool changed = ui.record([&](int kind, void *data, gpu::Rect r) { drawCell(kind, data, r); });
+        sendEdit();
+        return changed;
+    }
+
+    // The state other than parameters, which the plugin keeps (and the host's
+    // undo restores): one map, sent whole after each finished edit.
+    core::Value::Map data() const
+    {
+        core::Value::Array points, steps;
+        for (auto p : envelope) points.push_back(core::Value::Array{double(p.x), double(p.y)});
+        for (float v : stepValues) steps.push_back(double(v));
+        return {{"Envelope", points}, {"Steps", steps}, {"Name", name}, {"Sync", sync}, {"Mode", mode},
+                {"Shape", shape}, {"Oversample", oversample}, {"Linear phase", linearPhase}};
+    }
+    void setData(const core::Value &value)
+    {
+        const auto *map = std::get_if<core::Value::Map>(&value.data);
+        if (!map) return;
+        auto flag = [&](const char *key, bool &out) {
+            if (auto *b = std::get_if<bool>(&value[key].data)) out = *b;
+        };
+        if (auto *list = std::get_if<core::Value::Array>(&value["Envelope"].data); list && list->size() >= 2)
+        {
+            envelope.clear();
+            for (const auto &p : *list)
+                if (auto *xy = std::get_if<core::Value::Array>(&p.data); xy && xy->size() == 2)
+                    envelope.push_back({std::clamp(float((*xy)[0].number()), 0.0f, 1.0f), std::clamp(float((*xy)[1].number()), 0.0f, 1.0f)});
+            std::sort(envelope.begin(), envelope.end(), [](auto a, auto b) { return a.x < b.x; });
+        }
+        if (auto *list = std::get_if<core::Value::Array>(&value["Steps"].data); list && !list->empty())
+        {
+            stepValues.clear();
+            for (const auto &v : *list) stepValues.push_back(std::clamp(float(v.number()), 0.0f, 1.0f));
+        }
+        if (auto *text = std::get_if<std::string>(&value["Name"].data)) name = *text;
+        flag("Sync", sync), flag("Oversample", oversample), flag("Linear phase", linearPhase);
+        mode = std::clamp(int(value["Mode"].number(mode)), 0, 1);
+        shape = std::clamp(int(value["Shape"].number(shape)), 0, 4);
+        sent = data(); // what the plugin has, so not an edit
+    }
+    // Once nothing is held, any difference from what the plugin has is an
+    // edit, named after the first field that differs.
+    void sendEdit()
+    {
+        if (ui.dragging()) return;
+        core::Value::Map now = data();
+        const char *changed = nullptr;
+        for (const auto &[key, value] : now)
+            if (core::encode(value) != core::encode(sent[key])) { changed = key.c_str(); break; }
+        if (!changed) return;
+        send(core::Value::Map{{"type", "edit"}, {"name", changed}, {"data", now}});
+        sent = std::move(now);
     }
 
 private:
@@ -499,6 +555,7 @@ private:
     bool sync = false, advancedOpen = true, oversample = false, linearPhase = true;
     float peaks[6] = {};
     std::string name = "Preset 1";
+    core::Value::Map sent = data(); // the data the plugin has
     gpu::Params params;
     gpu::Ui ui;
     wgpu::RenderPipeline stripePipeline;

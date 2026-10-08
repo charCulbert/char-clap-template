@@ -238,7 +238,10 @@ pixels: inside and outside shapes, corners, clips, draw order. The GUI
 Gallery (`tests/gallery`) is for looking: each cell draws one feature and
 says what it should look like. Build it with the rest, or alone with
 `cmake -S tests/gallery -B build-gallery && cmake --build build-gallery`, and
-open `GUI Gallery.app` (or its CLAP in a host).
+open `GUI Gallery.app` (or its CLAP in a host). It also shows undo through the
+host: parameter drags are gestures, and its other edits (envelope, steps, name)
+are part of its state and report each finished edit with `clap.undo`, so one
+undo history covers the project.
 
 ## CI
 
