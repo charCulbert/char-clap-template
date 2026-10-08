@@ -304,12 +304,14 @@ private:
             cell("Number boxes: drag up/down, Shift fine, double-click to type", [&] {
                 for (int i = 0; i < 4; ++i) ui.numberBox(params, params.find(names[i]), formats[i], i == 2);
             });
+            cell("Envelope: drag points; double-click adds or removes", [&] { ui.envelope(envelope); });
+            cell("Steps: drag across to paint", [&] { ui.steps(stepValues); });
             cell("Drawer: click the header to open and close", [&] {
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 6, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
                 {
                     if (ui.drawer("Advanced", advancedOpen))
                     {
-                        CLAY({.layout = {.padding = {12, 0, 0, 0}, .childGap = 6}})
+                        CLAY({.layout = {.padding = {12, 0, 0, 0}, .childGap = 6, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
                         {
                             ui.toggle("Oversample", oversample);
                             ui.toggle("Linear phase", linearPhase);
@@ -492,6 +494,8 @@ private:
 
     int page = 0, themeMode = 0, mode = 0, shape = 0, clicks = 0, edits = 0, mono = 0, wheel = -1, strip = -1, speaker = -1;
     int held = -1; // the piano note held down
+    std::vector<gpu::Ui::Point> envelope = {{0, 0}, {0.08f, 1}, {0.3f, 0.6f}, {0.8f, 0.6f}, {1, 0}};
+    std::vector<float> stepValues = {0.8f, 0.2f, 0.5f, 0.2f, 1.0f, 0.2f, 0.5f, 0.3f, 0.7f, 0.2f, 0.5f, 0.2f, 0.9f, 0.4f, 0.6f, 0.3f};
     bool sync = false, advancedOpen = true, oversample = false, linearPhase = true;
     float peaks[6] = {};
     std::string name = "Preset 1";

@@ -241,6 +241,50 @@ static void pianoNotes()
     CHECK(notes.off == 61);
 }
 
+static void editors()
+{
+    Ui ui;
+    std::vector<Ui::Point> points = {{0, 0}, {0.5f, 1}, {1, 0}};
+    std::vector<float> values(8, 0.0f);
+    bool envelopeChanged = false, stepsChanged = false;
+    auto draw = [&] {
+        ui.begin(400, 300, 1);
+        envelopeChanged |= ui.envelope(points, gpu::Rect{0, 0, 200, 100});
+        stepsChanged |= ui.steps(values, gpu::Rect{0, 200, 160, 100});
+        ui.end(wgpu::RenderPassEncoder{});
+    };
+    draw();
+    // Drag the middle point down and right; it stays between its neighbours.
+    pointer(ui, View::Pointer::down, 100, 0);
+    draw();
+    pointer(ui, View::Pointer::move, 150, 50);
+    draw();
+    pointer(ui, View::Pointer::up, 150, 50);
+    draw();
+    CHECK(std::abs(points[1].x - 0.75f) < 1e-4 && std::abs(points[1].y - 0.5f) < 1e-4 && envelopeChanged);
+    // Double-click empty space adds a point there, in order.
+    for (int i = 0; i < 2; ++i) pointer(ui, View::Pointer::down, 40, 80), pointer(ui, View::Pointer::up, 40, 80);
+    draw();
+    CHECK(points.size() == 4 && std::abs(points[1].x - 0.2f) < 1e-4);
+    // An end can't move sideways.
+    pointer(ui, View::Pointer::down, 0, 100);
+    draw();
+    pointer(ui, View::Pointer::move, 60, 20);
+    draw();
+    pointer(ui, View::Pointer::up, 60, 20);
+    draw();
+    CHECK(points[0].x == 0 && std::abs(points[0].y - 0.8f) < 1e-4);
+    // A drag across the steps paints every bar it passes, even skipped ones.
+    pointer(ui, View::Pointer::down, 10, 250);
+    draw();
+    pointer(ui, View::Pointer::move, 150, 250);
+    draw();
+    pointer(ui, View::Pointer::up, 150, 250);
+    draw();
+    CHECK(stepsChanged);
+    for (float v : values) CHECK(std::abs(v - 0.5f) < 1e-4);
+}
+
 int main()
 {
     layoutSizes();
@@ -250,6 +294,7 @@ int main()
     knobDragAndKeys();
     textFieldEdits();
     pianoNotes();
+    editors();
     if (failures) std::fprintf(stderr, "%d failed\n", failures);
     return failures ? 1 : 0;
 }

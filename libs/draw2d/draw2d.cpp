@@ -523,7 +523,14 @@ void Draw2D::fill(const float *xy, size_t count, Color color)
         for (size_t k = 0; k < left.size() && !cut; ++k)
         {
             const size_t a = left[(k + left.size() - 1) % left.size()], b = left[k], c = left[(k + 1) % left.size()];
-            if (cross(a, b, c) <= 0) continue; // reflex (or flat): not an ear
+            const float corner = cross(a, b, c);
+            if (std::abs(corner) < 1e-6f) // no area: a repeated or in-line point, which can go
+            {
+                left.erase(left.begin() + std::ptrdiff_t(k));
+                cut = true;
+                break;
+            }
+            if (corner < 0) continue; // reflex: not an ear
             bool empty = true;
             for (size_t p : left)
                 if (p != a && p != b && p != c && cross(a, b, p) >= 0 && cross(b, c, p) >= 0 && cross(c, a, p) >= 0)

@@ -98,6 +98,8 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
         else if (kind == meterBox) meter(c->level, c->peak, r);
         else if (kind == imageKnobBox) imageKnob(*c->params, c->p, c->image, c->frames, r, c->log, c->across);
         else if (kind == pianoBox) pianoNotes = piano(c->lowest, c->highest, r, c->lit);
+        else if (kind == envelopeBox) { if (envelope(*c->points, r)) changedNow.push_back(c->points); }
+        else if (kind == stepsBox) { if (steps(*c->values, r)) changedNow.push_back(c->values); }
         else if (kind == chevronBox)
         {
             const float xy[] = {r.x, r.y + r.h * 0.3f, r.x + r.w / 2, r.y + r.h * 0.7f, r.x + r.w, r.y + r.h * 0.3f};
@@ -112,6 +114,8 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
     });
     drawGrip();
     grip = {};
+    changedLast.swap(changedNow);
+    changedNow.clear();
     if (!menuSeen) openMenu = 0; // its dropdown is gone
     for (auto [key, modifiers] : keys)
     {
@@ -851,6 +855,108 @@ Ui::Notes Ui::piano(int lowest, int highest, float heightPoints, const std::func
     const Notes notes = pianoNotes;
     pianoNotes = {};
     return notes;
+}
+
+bool Ui::envelope(std::vector<Point> &points, Rect r)
+{
+    if (points.empty()) return false;
+    bool changed = false;
+    const float handle = 5 * s;
+    auto toPixels = [&](Point p) { return Point{r.x + p.x * r.w, r.y + (1 - p.y) * r.h}; };
+    auto toUnit = [&](float x, float y) {
+        return Point{std::clamp((x - r.x) / r.w, 0.0f, 1.0f), std::clamp(1 - (y - r.y) / r.h, 0.0f, 1.0f)};
+    };
+    int near = -1; // the point under the pointer
+    for (size_t i = 0; i < points.size(); ++i)
+    {
+        const Point p = toPixels(points[i]);
+        if (std::abs(mouse.x - p.x) <= handle * 1.6f && std::abs(mouse.y - p.y) <= handle * 1.6f) near = int(i);
+    }
+    const auto a = area(&grabbedPoint, r.x, r.y, r.w, r.h);
+    if (a.doubleClicked)
+    {
+        if (near > 0 && near + 1 < int(points.size())) points.erase(points.begin() + near), changed = true;
+        else if (near < 0)
+        {
+            const Point p = toUnit(mouse.x, mouse.y);
+            auto at = std::upper_bound(points.begin(), points.end(), p.x, [](float x, const Point &q) { return x < q.x; });
+            points.insert(at, p), changed = true;
+        }
+    }
+    if (a.pressed) grabbedPoint = near;
+    if (a.held && grabbedPoint >= 0 && grabbedPoint < int(points.size()))
+    {
+        Point p = toUnit(a.x, a.y);
+        const size_t i = size_t(grabbedPoint);
+        if (i == 0) p.x = points[i].x;
+        else if (i + 1 == points.size()) p.x = points[i].x;
+        else p.x = std::clamp(p.x, points[i - 1].x, points[i + 1].x);
+        if (p.x != points[i].x || p.y != points[i].y) points[i] = p, changed = true;
+    }
+    if (a.released) grabbedPoint = -1;
+
+    // Drawn: a fill under the line, the line, and a handle at each point.
+    std::vector<float> xy;
+    for (const Point &q : points)
+    {
+        const Point p = toPixels(q);
+        xy.push_back(p.x), xy.push_back(p.y);
+    }
+    std::vector<float> area = xy;
+    area.insert(area.end(), {xy[xy.size() - 2], r.y + r.h, xy[0], r.y + r.h});
+    draw.rect(r.x, r.y, r.w, r.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.edge);
+    draw.fill(area.data(), area.size() / 2, {theme.accent.r, theme.accent.g, theme.accent.b, 0.18f});
+    draw.polyline(xy.data(), points.size(), 1.5f * s, theme.accent);
+    for (size_t i = 0; i < points.size(); ++i)
+    {
+        const bool hot = int(i) == grabbedPoint || (grabbedPoint < 0 && int(i) == near);
+        draw.circle(xy[2 * i], xy[2 * i + 1], hot ? handle * 1.25f : handle, hot ? theme.accent : theme.background, 1.5f * s, theme.accent);
+    }
+    return changed;
+}
+
+bool Ui::steps(std::vector<float> &values, Rect r)
+{
+    if (values.empty()) return false;
+    bool changed = false;
+    const float width = r.w / float(values.size());
+    const auto a = area(&lastStep, r.x, r.y, r.w, r.h);
+    if (a.held)
+    {
+        // Paint every bar between the last one and this, so a fast drag leaves no gaps.
+        const int step = std::clamp(int((a.x - r.x) / width), 0, int(values.size()) - 1);
+        const float value = std::clamp(1 - (a.y - r.y) / r.h, 0.0f, 1.0f);
+        const int from = a.pressed || lastStep < 0 ? step : lastStep;
+        for (int i = std::min(from, step); i <= std::max(from, step); ++i)
+            if (values[size_t(i)] != value) values[size_t(i)] = value, changed = true;
+        lastStep = step;
+    }
+    if (a.released) lastStep = -1;
+    for (size_t i = 0; i < values.size(); ++i)
+    {
+        const float x = r.x + i * width, h = r.h * std::clamp(values[i], 0.0f, 1.0f);
+        draw.rect(x + 1 * s, r.y, width - 2 * s, r.h, 0, theme.track);
+        draw.rect(x + 1 * s, r.y + r.h - h, width - 2 * s, h, 0, theme.accent);
+    }
+    return changed;
+}
+
+bool Ui::envelope(std::vector<Point> &points)
+{
+    Placed editor{nullptr, nullptr, nullptr, false};
+    editor.points = &points;
+    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
+          .custom = {.customData = layout.custom(envelopeBox, &placed.emplace_back(std::move(editor)))}}) {}
+    return std::find(changedLast.begin(), changedLast.end(), &points) != changedLast.end();
+}
+
+bool Ui::steps(std::vector<float> &values)
+{
+    Placed editor{nullptr, nullptr, nullptr, false};
+    editor.values = &values;
+    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
+          .custom = {.customData = layout.custom(stepsBox, &placed.emplace_back(std::move(editor)))}}) {}
+    return std::find(changedLast.begin(), changedLast.end(), &values) != changedLast.end();
 }
 
 }

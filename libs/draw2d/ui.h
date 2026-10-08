@@ -4,7 +4,9 @@
 #include "../gpu/params.h"
 #include "../gpu/view.h"
 #include <chrono>
+#include <deque>
 #include <string>
+#include <vector>
 
 // Immediate-mode controls. Each frame: ui.begin, declare the interface as
 // Clay boxes (layout.h) with controls among them, then ui.end. Forward
@@ -86,6 +88,8 @@ public:
 
     // A piano's note-on and note-off this frame, -1 for none.
     struct Notes { int on = -1, off = -1; };
+    // An envelope's breakpoint, 0..1 across and up.
+    struct Point { float x, y; };
 
     // In the layout. Each returns true when the user changed something.
     bool button(const char *label, int index = 0);
@@ -108,6 +112,10 @@ public:
     void vslider(Params &params, Param *p, const char *format, bool log = false, float heightPoints = 140);
     void xyPad(Params &params, Param *x, Param *y); // fills the space it's given
     void meter(float level, float peak = -1, float widthPoints = 6); // 0..1, filled from the bottom
+    // The envelope and steps editors, filling the space they're given.
+    // Their changes show from the next frame's call (drawing happens at end()).
+    bool envelope(std::vector<Point> &points);
+    bool steps(std::vector<float> &values);
     // A piano keyboard filling the width, heightPoints tall. Its notes come
     // back from the next frame's call (drawing happens at end()).
     Notes piano(int lowest, int highest, float heightPoints = 64, const std::function<bool(int)> &lit = {});
@@ -128,6 +136,13 @@ public:
     // A point dragged in two dimensions: x and y each a parameter.
     void xyPad(Params &params, Param *x, Param *y, Rect r);
     void meter(float level, float peak, Rect r);
+    // Breakpoints, 0..1 across and up, sorted by x: drag a point (between its
+    // neighbours; the ends keep their x), double-click empty space to add
+    // one, double-click a point to remove it. Returns true on any change.
+    bool envelope(std::vector<Point> &points, Rect r);
+    // Bars, each 0..1: drag across them to paint values, as a step
+    // sequencer's. Returns true on any change.
+    bool steps(std::vector<float> &values, Rect r);
     // A piano keyboard from note lowest to highest (MIDI numbers; best from
     // and to a white key). Press a key, slide across keys; lit says which
     // notes to show held (e.g. from incoming MIDI).
@@ -155,7 +170,7 @@ public:
 
 private:
     enum Builtin { knobBox = -1, sliderBox = -2, chevronBox = -3, chevronRightBox = -4, vsliderBox = -5, xyBox = -6, meterBox = -7,
-                   imageKnobBox = -8, pianoBox = -9 };
+                   imageKnobBox = -8, pianoBox = -9, envelopeBox = -10, stepsBox = -11 };
     struct Placed
     {
         Params *params;
@@ -168,6 +183,8 @@ private:
         bool across = false;
         int lowest = 0, highest = 0; // a piano's
         std::function<bool(int)> lit;
+        std::vector<Point> *points = nullptr; // an envelope's
+        std::vector<float> *values = nullptr; // steps'
     };
     std::deque<Placed> placed; // knobs and sliders the layout places, until end()
 
@@ -225,6 +242,9 @@ private:
 
     int playing = -1;           // the piano note held down, or -1
     Notes pianoNotes;           // what the piano drawn last frame reported
+    int grabbedPoint = -1;      // the envelope point being dragged
+    int lastStep = -1;          // the step painted last in a drag
+    std::vector<const void *> changedNow, changedLast; // envelopes and steps (by their data) changed in this end() and the last
     uint32_t editing = 0;       // the text field being edited, or 0
     std::string draft;          // its text while editing
     size_t caret = 0;           // byte offset in draft
