@@ -7,6 +7,7 @@
 #include <cmath>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -270,6 +271,7 @@ private:
     bool pressFocused = false;   // this frame's press focused a control
     bool wheelUsed = false;      // a control turned with this frame's wheel
     bool scrollWaiting = false;  // the wheel scrolls, in the next frame
+    std::optional<View::PointerEvent> heldMove; // after a press not yet seen; see pointer()
     std::vector<std::pair<View::Key, unsigned>> keys; // this frame's
     struct Edit { std::string text; View::Key key; unsigned modifiers; }; // typed text, or else a key
     std::vector<Edit> edits;                          // this frame's, for the text field

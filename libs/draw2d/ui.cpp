@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <utility>
 
 // stb_textedit does the editing (caret, selection, word moves, undo) on the
 // text as codepoints, one line; Ui keeps draft and its offsets in step.
@@ -114,10 +115,21 @@ static std::string toUtf8(std::u32string_view text)
 
 void Ui::pointer(const View::PointerEvent &event)
 {
-    mouse.x = event.x, mouse.y = event.y, mouse.modifiers = event.modifiers;
+    // A move after a press the frame hasn't seen yet waits for it, so the
+    // press lands where it was made, not where a quick flick ended.
+    if (event.type == View::Pointer::move && mouse.pressed)
+    {
+        heldMove = event;
+        return;
+    }
+    if (event.type == View::Pointer::up && mouse.pressed) // a quick click: let go where it was pressed too
+        heldMove = View::PointerEvent{View::Pointer::move, event.x, event.y, event.modifiers};
+    else
+        heldMove.reset(), mouse.x = event.x, mouse.y = event.y;
+    mouse.modifiers = event.modifiers;
     if (event.type == View::Pointer::down) mouse.down = true;
     if (event.type == View::Pointer::up) mouse.down = false;
-    layout.pointer(event.x, event.y, mouse.down);
+    layout.pointer(mouse.x, mouse.y, mouse.down);
     if (event.type == View::Pointer::leave && !mouse.down) // over nothing now
     {
         mouse.x = mouse.y = -1e9f;
@@ -306,9 +318,11 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
     scrollWaiting = mouse.wheel != 0 && !wheelUsed;
     if (scrollWaiting) layout.wheel(mouse.scroll);
     wheelUsed = false;
-    // Each press, release, wheel turn and key is seen by one frame.
+    // Each press, release, wheel turn and key is seen by one frame; moves
+    // held back behind a press go in now, for the next.
     mouse.pressed = mouse.released = mouse.doubleClicked = false;
     mouse.wheel = mouse.scroll = 0;
+    if (const std::optional<View::PointerEvent> move = std::exchange(heldMove, std::nullopt)) pointer(*move), settle = true;
     keys.clear();
     edits.clear();
     return draw.changed();

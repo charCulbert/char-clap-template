@@ -535,6 +535,31 @@ static void longUndoHistory()
     CHECK(!value.empty());
 }
 
+// A press and a quick flick before the next frame: the press lands where it
+// was made, and the drag follows from there.
+static void flickAfterPress()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A");
+    auto draw = [&] {
+        ui.begin(400, 300, 1);
+        ui.knob(params, a, gpu::Rect{0, 0, 100, 140}, "%.2f");
+        ui.end(wgpu::RenderPassEncoder{});
+    };
+    draw();
+    const double before = a->value;
+    pointer(ui, View::Pointer::down, 50, 50);
+    pointer(ui, View::Pointer::move, 50, -50); // off the knob already
+    draw();
+    CHECK(ui.dragging());
+    draw();
+    CHECK(a->value > before);
+    pointer(ui, View::Pointer::up, 50, -50);
+    draw();
+}
+
 // A knob that goes away mid-drag (a drawer closed, the page changed) lets
 // go: its gesture ends, the pointer unlocks, and other controls work again.
 static void dragOfVanishedControl()
@@ -630,6 +655,7 @@ int main()
     dragOfVanishedControl();
     longUndoHistory();
     keysBackToHost();
+    flickAfterPress();
     pianoNotes();
     editors();
     for (uint32_t seed = 1; seed <= 4 && !failures; ++seed) randomInput(seed);
