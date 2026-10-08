@@ -37,7 +37,9 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
         if (display) XCloseDisplay(display);
         return nullptr;
     }
-    auto *window = new Window{display, 0, std::move(callbacks)};
+    auto *window = new Window;
+    window->display = display;
+    window->callbacks = std::move(callbacks);
     window->window = XCreateSimpleWindow(display, ::Window(parent->x11), 0, 0, width, height, 0, 0, 0);
     window->clipboardAtom = XInternAtom(display, "CLIPBOARD", False);
     window->utf8 = XInternAtom(display, "UTF8_STRING", False);

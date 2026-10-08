@@ -216,7 +216,10 @@ void Gui::frame()
         const bool dark = platform::darkMode(window);
         if (dark != view->darkMode) view->darkMode = dark, dirty = true;
     }
-    if (!(dirty || view->animating())) return;
+    // One more frame after a change: some swapchains (Fifo on an X server
+    // without Present) show an image only once the next one is queued.
+    if (!(dirty || trailing || view->animating())) return;
+    trailing = dirty;
     dirty = false;
     context->frame(*view, platform::scale(window));
 }

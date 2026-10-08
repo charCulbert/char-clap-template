@@ -60,6 +60,7 @@ private:
     std::unique_ptr<View> view;
     platform::Window *window = nullptr;
     bool dirty = true; // something changed since the last frame
+    bool trailing = false; // the frame after a change is still to draw
     std::chrono::steady_clock::time_point appearanceChecked; // see platform::darkMode
 #endif
 };
