@@ -4,6 +4,7 @@ name: GUI Gallery
 # Linux, CLAP only. Runs when it or a library it uses changes.
 on:
   push:
+    branches: [main] # other branches run through their pull request
     paths:
       - tests/gallery/**
       - libs/core/**
@@ -18,6 +19,11 @@ on:
       - libs/draw2d/**
       - .github/workflows/gallery.yml
   workflow_dispatch:
+
+# A newer push cancels the run still going for an older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

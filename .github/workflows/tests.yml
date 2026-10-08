@@ -4,6 +4,7 @@ name: Tests
 # the analyzer's DSP. The plugins' own workflows build and validate them.
 on:
   push:
+    branches: [main] # other branches run through their pull request
     paths:
       - tests/**
       - libs/core/messages.*
@@ -26,6 +27,11 @@ on:
       - examples/gpu-analyzer/signalsmith-dsp.cmake
       - .github/workflows/tests.yml
   workflow_dispatch:
+
+# A newer push cancels the run still going for an older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

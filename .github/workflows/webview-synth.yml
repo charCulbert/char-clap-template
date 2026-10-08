@@ -5,6 +5,7 @@ name: WebView Synth
 # it uses changes.
 on:
   push:
+    branches: [main] # other branches run through their pull request
     paths:
       - examples/webview-synth/**
       - libs/core/**
@@ -17,6 +18,11 @@ on:
       - libs/webview/**
       - .github/workflows/webview-synth.yml
   workflow_dispatch:
+
+# A newer push cancels the run still going for an older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

@@ -181,8 +181,8 @@ def main():
 
     # The workflow: the project is the repository's root, and every push runs it.
     def fix_workflow(text):
-        text = re.sub(r"on:\n  push:\n    paths:\n(?:      - .*\n)+  pull_request:\n    paths:\n(?:      - .*\n)+",
-                      "on:\n  push:\n  pull_request:\n", text)
+        text = re.sub(r"on:\n  push:\n    branches: .*\n    paths:\n(?:      - .*\n)+  pull_request:\n    paths:\n(?:      - .*\n)+",
+                      "on:\n  push:\n    branches: [main] # other branches run through their pull request\n  pull_request:\n", text)
         text = text.replace(f"PROJECT: examples/{old['folder']}", "PROJECT: .")
         return text.replace(" Runs when the plugin or a library\n# it uses changes.", "")
     copy(REPO / ".github" / "workflows" / f"{old['folder']}.yml",

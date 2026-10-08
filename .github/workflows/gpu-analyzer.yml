@@ -5,6 +5,7 @@ name: GPU Analyzer
 # it uses changes.
 on:
   push:
+    branches: [main] # other branches run through their pull request
     paths:
       - examples/gpu-analyzer/**
       - libs/core/**
@@ -19,6 +20,11 @@ on:
       - libs/draw2d/**
       - .github/workflows/gpu-analyzer.yml
   workflow_dispatch:
+
+# A newer push cancels the run still going for an older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

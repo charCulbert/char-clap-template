@@ -5,6 +5,7 @@ name: Headless Gain
 # it uses changes.
 on:
   push:
+    branches: [main] # other branches run through their pull request
     paths:
       - examples/headless-gain/**
       - libs/core/**
@@ -15,6 +16,11 @@ on:
       - libs/core/**
       - .github/workflows/headless-gain.yml
   workflow_dispatch:
+
+# A newer push cancels the run still going for an older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
