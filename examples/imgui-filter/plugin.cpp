@@ -436,15 +436,11 @@ static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
     else
         return false;
 
-    // The host then calls process() or flush(), which send these to the host.
-    // A value change also asks the host to re-read values (get_value already
-    // reports it), for hosts whose parameter views ignore value events.
+    // The host then calls process() or flush(), which send these to the host
+    // as gesture and value events. (Not a values rescan: that's for a preset
+    // load, and as a VST3 or AU it makes the host re-read every parameter.)
     if (plugin->hostParams)
-    {
         plugin->hostParams->request_flush(plugin->host);
-        if (type == "change")
-            plugin->hostParams->rescan(plugin->host, CLAP_PARAM_RESCAN_VALUES);
-    }
     return true;
 }
 
