@@ -125,7 +125,10 @@ Read a file with `core::readResource("/sounds/kick.wav")` on the main thread
 - **Name, IDs, version**: `pluginDescriptor` in `plugin.cpp`, and
   `make_clapfirst_plugins(...)` and `project(... VERSION ...)` in `CMakeLists.txt`.
   (The generator does this for you.)
-- **Parameters**: the `P_*` defines and `extensionParams.get_info` in `plugin.cpp`.
+- **Parameters**: the `P_*` defines and `extensionParams.get_info` in `plugin.cpp`
+  of every example but the analyzer, which has none, so its code stays about
+  drawing: its three controls are settings saved with its state. For a Draw2D
+  interface with parameters, copy the filter's parameter code into it.
 - **Window size and resizing**: `guiWidth`/`guiHeight` in `MyPlugin`, the
   `GUI_MIN_*`/`GUI_MAX_*` defines, and `extensionGui.get_resize_hints` in
   `plugin.cpp`. How the content fills the window is up to the interface (the
