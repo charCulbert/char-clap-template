@@ -36,10 +36,11 @@ public:
         mono = ui.draw.addFont(gpu::loadAsset("/fonts/IBMPlexMono-Regular.ttf"));
         wheel = ui.draw.addImage(gpu::loadAsset("/images/colour-wheel.png"));
         strip = ui.draw.addImage(gpu::loadAsset("/images/knob-strip.png"));
-        // An icon, rasterized at 2x its 64-point size (sharp on 2x screens).
+        // An icon, rasterized at 2x its 64-point size (sharp on 2x screens), in
+        // white so the theme can tint it.
         speaker = ui.draw.addSvg(R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-            <path d="M4 9h4l5-4v14l-5-4H4z" fill="#ddc07e"/>
-            <path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="#dedede" stroke-width="1.6" stroke-linecap="round"/>
+            <path d="M4 9h4l5-4v14l-5-4H4z" fill="#fff"/>
+            <path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
         </svg>)", 128, 128);
         wgpu::ShaderSourceWGSL source;
         source.code = stripes;
@@ -329,13 +330,14 @@ private:
                     }
                 }
             });
-            cell("Images: PNG square, rounded by Clay, faded; SVG icon", [&] {
+            cell("Images: PNG square, rounded by Clay, faded; SVG icon tinted by the theme", [&] {
                 CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(64), CLAY_SIZING_FIXED(64)}}, .image = {.imageData = gpu::Layout::image(wheel)}}) {}
                 CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(64), CLAY_SIZING_FIXED(64)}}, .cornerRadius = CLAY_CORNER_RADIUS(32),
                       .image = {.imageData = gpu::Layout::image(wheel)}}) {}
                 CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(64), CLAY_SIZING_FIXED(64)}}, .backgroundColor = {255, 255, 255, 128},
                       .cornerRadius = CLAY_CORNER_RADIUS(10), .image = {.imageData = gpu::Layout::image(wheel)}}) {}
-                CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(64), CLAY_SIZING_FIXED(64)}}, .image = {.imageData = gpu::Layout::image(speaker)}}) {}
+                CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(64), CLAY_SIZING_FIXED(64)}}, .backgroundColor = gpu::clayColor(ui.theme.text),
+                      .image = {.imageData = gpu::Layout::image(speaker)}}) {}
             });
         });
         row([&] {

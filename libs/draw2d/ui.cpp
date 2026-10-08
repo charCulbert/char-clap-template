@@ -1007,7 +1007,7 @@ void Ui::imageKnob(Params &params, Param *p, int image, int frames, Rect r, bool
     const bool dragging = control(params, *p, me, r.x, r.y, r.w, r.h, true, 200 * s, log);
     const int frame = int(std::lround(toUnit(*p, p->value, log) * (frames - 1)));
     const float step = 1.0f / float(frames), a = frame * step, b = a + step;
-    draw.image(image, r.x, r.y, r.w, r.h, {}, 1, across ? Draw2D::Source{a, 0, b, 1} : Draw2D::Source{0, a, 1, b});
+    draw.image(image, r.x, r.y, r.w, r.h, {}, {1, 1, 1, 1}, across ? Draw2D::Source{a, 0, b, 1} : Draw2D::Source{0, a, 1, b});
     if (focusShown(me) || dragging) draw.circle(r.x + r.w / 2, r.y + r.h / 2, std::min(r.w, r.h) / 2 + 2 * s, {0, 0, 0, 0}, 1 * s, theme.accent);
 }
 

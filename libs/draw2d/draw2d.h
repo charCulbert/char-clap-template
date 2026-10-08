@@ -74,9 +74,12 @@ public:
     // scale included, for sharp edges.
     int addSvg(std::string_view svg, int width, int height);
     // Draws an image (or the part of it in source, 0..1 across and down)
-    // stretched over the rectangle, its corners rounded, faded by alpha.
+    // stretched over the rectangle, its corners rounded, each pixel multiplied
+    // by tint: white draws it as it is, a lower alpha fades it, and a colour
+    // tints a white icon.
     struct Source { float u0, v0, u1, v1; };
-    void image(int image, float x, float y, float w, float h, Corners radius = {}, float alpha = 1, Source source = {0, 0, 1, 1});
+    void image(int image, float x, float y, float w, float h, Corners radius = {}, Color tint = {1, 1, 1, 1},
+               Source source = {0, 0, 1, 1});
     // An image's size in pixels, or 0 x 0 for no such image.
     void imageSize(int image, int &width, int &height) const;
 

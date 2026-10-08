@@ -35,7 +35,7 @@ struct Theme
     Color background{0.184f, 0.184f, 0.184f}; // #2f2f2f
     Color panel{0.227f, 0.227f, 0.227f};      // #3a3a3a: raised areas
     Color text{0.871f, 0.871f, 0.871f};       // #dedede
-    Color dim{0.565f, 0.565f, 0.565f};        // #909090: labels
+    Color dim{0.647f, 0.647f, 0.647f};        // #a5a5a5: labels, 4.5:1 on the panel
     Color edge{0.333f, 0.333f, 0.333f};       // #555555: hairlines, outlines
     Color track{0.333f, 0.333f, 0.333f};      // unfilled parts of knobs and sliders
     Color accent{0.867f, 0.753f, 0.494f};     // #ddc07e
@@ -52,8 +52,8 @@ struct Theme
         t.background = {0.804f, 0.804f, 0.804f}; // #cdcdcd
         t.panel = {0.761f, 0.761f, 0.761f};      // #c2c2c2
         t.text = {0.110f, 0.110f, 0.110f};       // #1c1c1c
-        t.dim = {0.365f, 0.365f, 0.365f};        // #5d5d5d
-        t.edge = t.track = {0.663f, 0.663f, 0.663f}; // #a9a9a9
+        t.dim = {0.310f, 0.310f, 0.310f};        // #4f4f4f
+        t.edge = t.track = {0.620f, 0.620f, 0.620f}; // #9e9e9e
         t.accent = {0.459f, 0.329f, 0.039f};     // #75540a
         t.shadow = {0, 0, 0, 0.22f};
         return t;

@@ -123,9 +123,8 @@ void Layout::end(const std::function<void(int, void *, Rect)> &onCustom)
         }
         case CLAY_RENDER_COMMAND_TYPE_IMAGE: {
             const auto &data = command.renderData.image;
-            const Clay_Color tint = data.backgroundColor; // 0, 0, 0, 0 (the default) means untinted
-            draw->image(int(reinterpret_cast<intptr_t>(data.imageData)) - 1, r.x, r.y, r.w, r.h, corners(data.cornerRadius),
-                        tint.a > 0 ? tint.a / 255 : 1);
+            const Color tint = data.backgroundColor.a > 0 ? color(data.backgroundColor) : Color{1, 1, 1, 1}; // 0, 0, 0, 0 (the default): untinted
+            draw->image(int(reinterpret_cast<intptr_t>(data.imageData)) - 1, r.x, r.y, r.w, r.h, corners(data.cornerRadius), tint);
             break;
         }
         default: break;

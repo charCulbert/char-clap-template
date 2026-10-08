@@ -209,7 +209,7 @@ fn roundedBox(p: vec2f, b: vec2f, r4: vec4f) -> f32 {
     let small = vec4f(in.fill.rgb, in.fill.a * g);
 
     // Image: its texel, inside the rounded box.
-    let image = vec4f(texel.rgb, texel.a * in.fill.a * clamp(0.5 - roundedBox(in.local, in.half, in.border), 0.0, 1.0));
+    let image = vec4f(texel.rgb * in.fill.rgb, texel.a * in.fill.a * clamp(0.5 - roundedBox(in.local, in.half, in.border), 0.0, 1.0));
 
     // Gradient: from fill to stroke along the line border.xy to border.zw,
     // or outwards from border.xy to the distance of border.zw.
@@ -689,11 +689,11 @@ void Draw2D::imageSize(int number, int &width, int &height) const
     height = known ? imageSizes[size_t(number)].second : 0;
 }
 
-void Draw2D::image(int number, float x, float y, float w, float h, Corners r, float alpha, Source source)
+void Draw2D::image(int number, float x, float y, float w, float h, Corners r, Color tint, Source source)
 {
     if (number < 0 || number >= int(images.size())) return;
     run(Run::shapes, number).count++;
-    batch.push_back({{x, y, w, h}, {source.u0, source.v0, source.u1, source.v1}, {1, 1, 1, alpha}, {}, {2, 0, 0, 0},
+    batch.push_back({{x, y, w, h}, {source.u0, source.v0, source.u1, source.v1}, {tint.r, tint.g, tint.b, tint.a}, {}, {2, 0, 0, 0},
                      {r.topLeft, r.topRight, r.bottomRight, r.bottomLeft}});
 }
 

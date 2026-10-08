@@ -187,8 +187,11 @@ int main(int argc, char **argv)
         px = gpu.render(draw, [&] { draw.image(picture, 0, 0, 32, 32, {16, 0, 0, 0}); });
         CHECK(is(px, 1, 1, black) && is(px, 29, 2, green));
         // A source rectangle draws part of it: the top-left quarter is all red.
-        px = gpu.render(draw, [&] { draw.image(picture, 0, 0, 32, 32, {}, 1, {0, 0, 0.25f, 0.25f}); });
+        px = gpu.render(draw, [&] { draw.image(picture, 0, 0, 32, 32, {}, {1, 1, 1, 1}, {0, 0, 0.25f, 0.25f}); });
         CHECK(is(px, 2, 2, red) && is(px, 29, 29, red));
+        // A tint multiplies each pixel: white becomes the tint, red under a green tint goes black.
+        px = gpu.render(draw, [&] { draw.image(picture, 0, 0, 32, 32, {}, {0, 1, 0, 1}); });
+        CHECK(is(px, 29, 29, green) && is(px, 2, 2, black) && is(px, 29, 2, green));
         int w = 0, h = 0;
         draw.imageSize(picture, w, h);
         CHECK(w == 2 && h == 2);
