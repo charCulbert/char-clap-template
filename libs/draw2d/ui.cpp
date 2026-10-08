@@ -118,7 +118,6 @@ void Ui::pointer(const View::PointerEvent &event)
     if (event.type == View::Pointer::down) mouse.down = true;
     if (event.type == View::Pointer::up) mouse.down = false;
     layout.pointer(event.x, event.y, mouse.down);
-    if (event.type == View::Pointer::wheel) layout.wheel(event.wheel);
     if (event.type == View::Pointer::leave && !mouse.down) // over nothing now
     {
         mouse.x = mouse.y = -1e9f;
@@ -141,7 +140,10 @@ void Ui::pointer(const View::PointerEvent &event)
         break;
     }
     case View::Pointer::up: mouse.released = true; break;
-    case View::Pointer::wheel: mouse.wheel += event.wheel; break;
+    case View::Pointer::wheel:
+        mouse.wheel += event.wheel;
+        mouse.scroll += event.inverted ? -event.wheel : event.wheel;
+        break;
     case View::Pointer::move: case View::Pointer::leave: break;
     }
 }
@@ -218,7 +220,7 @@ bool Ui::animating() const
 {
     // Controls declared before a click was handled drew the old state, and
     // Clay hit-tests against the last layout: one more frame settles both.
-    return tooltipWaiting || settle || draw.atlasRefilling();
+    return tooltipWaiting || settle || scrollWaiting || draw.atlasRefilling();
 }
 
 void Ui::begin(float width, float height, float scale)
@@ -299,9 +301,14 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
     // so the keys go back to the host.
     if (mouse.pressed && !pressFocused && !active) focus = nullptr;
     pressFocused = false;
+    // A wheel turn no control took scrolls what's under the pointer, from the
+    // next frame (Clay scrolls as a frame starts): not both a knob and its page.
+    scrollWaiting = mouse.wheel != 0 && !wheelUsed;
+    if (scrollWaiting) layout.wheel(mouse.scroll);
+    wheelUsed = false;
     // Each press, release, wheel turn and key is seen by one frame.
     mouse.pressed = mouse.released = mouse.doubleClicked = false;
-    mouse.wheel = 0;
+    mouse.wheel = mouse.scroll = 0;
     keys.clear();
     edits.clear();
     return draw.changed();
@@ -364,7 +371,7 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
             held = {&params, &p, nullptr, true};
         }
         else if (mouse.wheel != 0)
-            set(params, p, fromUnit(p, unit + mouse.wheel * (fine ? 0.002 : 0.02), log));
+            set(params, p, fromUnit(p, unit + mouse.wheel * (fine ? 0.002 : 0.02), log)), wheelUsed = true;
     }
 
     if (focus == me)

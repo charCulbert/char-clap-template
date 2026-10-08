@@ -244,6 +244,7 @@ private:
     struct
     {
         float x = 0, y = 0, wheel = 0;
+        float scroll = 0; // the wheel as the system scrolls content (natural scrolling flips it)
         unsigned modifiers = 0;
         bool down = false, pressed = false, released = false, doubleClicked = false;
     } mouse;
@@ -267,6 +268,8 @@ private:
     bool focusVisible = false;   // after a key, until the next click
     bool focusTakesEnter = false; // the focused control is a button, toggle or dropdown
     bool pressFocused = false;   // this frame's press focused a control
+    bool wheelUsed = false;      // a control turned with this frame's wheel
+    bool scrollWaiting = false;  // the wheel scrolls, in the next frame
     std::vector<std::pair<View::Key, unsigned>> keys; // this frame's
     struct Edit { std::string text; View::Key key; unsigned modifiers; }; // typed text, or else a key
     std::vector<Edit> edits;                          // this frame's, for the text field

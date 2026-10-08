@@ -158,13 +158,15 @@ static unsigned modifiers(NSEvent *event)
 - (void)scrollWheel:(NSEvent *)event
 {
     if (!_callbacks) return;
-    // Trackpads report points, wheels lines (notches). Follow the fingers,
-    // not "natural scrolling": a swipe away from the user turns things up.
+    // Trackpads report points, wheels lines (notches). Knobs follow the
+    // fingers, not "natural scrolling": a swipe away from the user turns
+    // things up. Lists scroll as the system does (inverted).
     double notches = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 10 : event.scrollingDeltaY;
     if (event.isDirectionInvertedFromDevice) notches = -notches;
     const NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
     const CGFloat scale = self.layer.contentsScale;
-    _callbacks->pointer({gpu::View::Pointer::wheel, float(p.x * scale), float(p.y * scale), modifiers(event), float(notches)});
+    _callbacks->pointer({gpu::View::Pointer::wheel, float(p.x * scale), float(p.y * scale), modifiers(event), float(notches),
+                         bool(event.isDirectionInvertedFromDevice)});
 }
 - (BOOL)pasted
 {

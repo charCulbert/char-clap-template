@@ -23,6 +23,7 @@ public:
         float x, y;             // pixels
         unsigned modifiers = 0; // Modifier bits
         float wheel = 0;        // for Pointer::wheel: notches, positive away from the user
+        bool inverted = false;  // and the system scrolls content the other way (macOS natural scrolling)
     };
     // The keys controls and text fields use; other keys go back to the host.
     // The last five are the platform's shortcuts for them (Cmd or Ctrl + Z,
