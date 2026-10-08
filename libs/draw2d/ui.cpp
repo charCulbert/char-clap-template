@@ -62,6 +62,12 @@ static void layoutRow(StbTexteditRow *row, gpu::TextBuffer *buffer, int start)
 
 namespace gpu {
 
+static constexpr unsigned keyBit(View::Key key) { return 1u << unsigned(key); }
+// The keys that step a value: arrows, Page Up and Down, Home and End.
+static constexpr unsigned stepKeys = keyBit(View::Key::left) | keyBit(View::Key::right) | keyBit(View::Key::up)
+                                   | keyBit(View::Key::down) | keyBit(View::Key::pageUp) | keyBit(View::Key::pageDown)
+                                   | keyBit(View::Key::home) | keyBit(View::Key::end);
+
 struct TextEdit
 {
     TextBuffer buffer;
@@ -169,9 +175,7 @@ bool Ui::key(View::Key key, unsigned modifiers)
     // Keys the focused control has no use for are the host's: Space and
     // Delete, Enter on a knob, Escape with no menu open.
     using K = View::Key;
-    const bool used = key == K::tab || key == K::left || key == K::right || key == K::up || key == K::down
-                   || key == K::pageUp || key == K::pageDown || key == K::home || key == K::end
-                   || (key == K::enter && focusTakesEnter) || (key == K::escape && openMenu);
+    const bool used = key == K::tab || (focusUses >> unsigned(key) & 1) || (key == K::escape && openMenu);
     if (!editing && !used) return false;
     keys.push_back({key, modifiers});
     if (editing) edits.push_back({{}, key, modifiers});
@@ -181,6 +185,12 @@ bool Ui::key(View::Key key, unsigned modifiers)
 
 bool Ui::text(const char *utf8)
 {
+    // A focused number box starts editing with what's typed, as compost's does.
+    if (!editing && focus && focusTakesDigits && utf8[0] && std::strchr("0123456789.,+-", utf8[0]))
+    {
+        typedToFocus += utf8;
+        return true;
+    }
     if (!editing) return false;
     edits.push_back({utf8, {}, 0});
     return true;
@@ -325,6 +335,7 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
     if (const std::optional<View::PointerEvent> move = std::exchange(heldMove, std::nullopt)) pointer(*move), settle = true;
     keys.clear();
     edits.clear();
+    typedToFocus.clear();
     return draw.changed();
 }
 
@@ -370,7 +381,7 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
     const bool fine = mouse.modifiers & View::shift;
     const double unit = toUnit(p, p.value, log);
 
-    if (focus == me) focusTakesEnter = false; // knobs and sliders step; Enter isn't theirs
+    if (focus == me) focusUses = stepKeys, focusTakesDigits = false; // knobs and sliders step; Enter isn't theirs
     if (!active && over(x, y, w, h))
     {
         if (mouse.pressed) focus = me, pressFocused = true;
@@ -539,7 +550,10 @@ std::vector<View::Key> Ui::focusable(Clay_ElementId element, const Area &a)
     const void *me = reinterpret_cast<const void *>(uintptr_t(element.id));
     order.push_back(me);
     if (a.pressed) focus = me, pressFocused = true;
-    if (focus == me) focusTakesEnter = true; // buttons, toggles, dropdowns
+    if (focus == me) // buttons, toggles, segmented, dropdowns: Enter, and arrows to choose
+        focusUses = keyBit(View::Key::enter) | keyBit(View::Key::left) | keyBit(View::Key::right) | keyBit(View::Key::up)
+                  | keyBit(View::Key::down),
+        focusTakesDigits = false;
     std::vector<View::Key> mine;
     if (focus == me)
         for (auto [key, modifiers] : keys)
@@ -954,46 +968,101 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
 {
     if (!p) return;
     const Clay_ElementId nid = id("Number", p->id);
+    const void *me = reinterpret_cast<const void *>(uintptr_t(nid.id));
     char shown[32];
     std::snprintf(shown, sizeof(shown), format, p->value);
     std::string typed = plainNumber(p->value);
     const std::string before = typed;
     if (pendingField == nid.id) typed = std::move(pendingDraft), pendingField = 0;
+    order.push_back(me);
     const Area a = element(nid);
-    const bool fine = mouse.modifiers & View::shift;
-    // A drag is its own gesture, whether or not typing starts or stops under it.
-    if (a.doubleClicked && editing != nid.id) startEditing(nid.id, typed, true);
-    else if (a.pressed && editing != nid.id)
+    const bool fine = mouse.modifiers & View::shift, edit = editing == nid.id;
+    if (a.pressed || a.doubleClicked) focus = me, pressFocused = true;
+    if (focus == me)
+        focusUses = stepKeys | keyBit(View::Key::enter) | keyBit(View::Key::escape) | keyBit(View::Key::backspace)
+                  | keyBit(View::Key::deleteForward),
+        focusTakesDigits = true;
+    auto endDrag = [&] {
+        numberDrag = 0, held = {};
+        params.end(*p);
+        if (lockPointer) lockPointer(false);
+    };
+    // Double-click resets; a drag (right or up, past a few points' dead zone)
+    // changes it, Shift for fine and Escape to cancel; clicks do nothing else.
+    if (a.doubleClicked && !edit) set(params, *p, p->defaultValue);
+    else if (a.pressed && !edit)
     {
-        grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = fine;
-        numberDrag = nid.id;
+        grabX = mouse.x, grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = fine;
+        numberDrag = nid.id, numberMoved = false, numberStart = p->value;
         params.begin(*p);
         if (lockPointer) lockPointer(true);
         held = {&params, p, nullptr, true};
     }
     else if (a.held && numberDrag == nid.id)
     {
-        if (fine != grabFine) grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = fine;
-        const double value = fromUnit(*p, grabUnit + (grabY - mouse.y) / (200 * s * (fine ? 10 : 1)), log);
-        if (value != p->value) params.change(*p, value);
+        if (fine != grabFine) grabX = mouse.x, grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = fine;
+        const float moved = (mouse.x - grabX) + (grabY - mouse.y);
+        numberMoved |= std::abs(moved) > 4 * s;
+        if (numberMoved)
+        {
+            const double value = fromUnit(*p, grabUnit + moved / (180 * s) * (fine ? 0.1 : 1), log);
+            if (value != p->value) params.change(*p, value);
+        }
     }
-    if (a.released && numberDrag == nid.id)
+    if (a.released && numberDrag == nid.id) endDrag();
+    // Keys while it has focus: arrows step (Alt a large step), Page Up and
+    // Down step large, Home and End go to the ends, Escape, Delete or
+    // Backspace reset it, Enter or a typed number edits it.
+    if (focus == me && !edit)
     {
-        numberDrag = 0, held = {};
-        params.end(*p);
-        if (lockPointer) lockPointer(false);
+        for (auto [key, modifiers] : keys)
+        {
+            const double u = toUnit(*p, p->value, log), small = modifiers & View::alt ? 0.1 : 0.01;
+            switch (key)
+            {
+            case View::Key::up: case View::Key::right: set(params, *p, fromUnit(*p, u + small, log)); break;
+            case View::Key::down: case View::Key::left: set(params, *p, fromUnit(*p, u - small, log)); break;
+            case View::Key::pageUp: set(params, *p, fromUnit(*p, u + 0.1, log)); break;
+            case View::Key::pageDown: set(params, *p, fromUnit(*p, u - 0.1, log)); break;
+            case View::Key::home: set(params, *p, p->min); break;
+            case View::Key::end: set(params, *p, p->max); break;
+            case View::Key::enter: startEditing(nid.id, typed, true); break;
+            case View::Key::escape:
+                if (numberDrag == nid.id) params.change(*p, numberStart), endDrag(); // cancel the drag
+                else set(params, *p, p->defaultValue);
+                break;
+            case View::Key::backspace: case View::Key::deleteForward: set(params, *p, p->defaultValue); break;
+            default: break;
+            }
+        }
+        if (!typedToFocus.empty() && editing != nid.id) startEditing(nid.id, std::exchange(typedToFocus, {}));
     }
     if (editKeys(nid.id, typed, Clay_PointerOver(nid)) || typed != before)
     {
         if (double value; parseNumber(typed, value)) set(params, *p, value);
     }
-    const bool edit = editing == nid.id, hot = Clay_PointerOver(nid);
-    CLAY({.id = nid, .layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_FIT(0)}, .padding = {5, 5, 2, 2},
-                                .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
-          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius), .clip = {.horizontal = true},
-          .border = {.color = clayColor(edit || a.held ? theme.accent : hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+    // An edit ended with Enter or Escape leaves the keys with the box (a
+    // click elsewhere takes them away as usual).
+    if (edit && editing != nid.id && !mouse.pressed) focus = me;
+    // The value as a bar filling the box, the number over it (compost's look).
+    const bool editNow = editing == nid.id, hot = Clay_PointerOver(nid);
+    const float lineHeight = theme.textSize * 1.25f;
+    const Color fill = {theme.accent.r, theme.accent.g, theme.accent.b, 0.3f};
+    CLAY({.id = nid, .layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_FIXED(lineHeight + 4)}},
+          .backgroundColor = clayColor(theme.background), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+          .clip = {.horizontal = true},
+          .border = {.color = clayColor(editNow || a.held ? theme.accent : hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
     {
-        fieldText(shown, edit);
+        if (!editNow)
+            CLAY({.layout = {.sizing = {CLAY_SIZING_PERCENT(float(std::clamp(toUnit(*p, p->value, log), 0.0, 1.0))), CLAY_SIZING_GROW(0)}},
+                  .backgroundColor = clayColor(fill)}) {}
+        CLAY({.layout = {.padding = {5, 5, 0, 0}},
+              .floating = {.attachPoints = {CLAY_ATTACH_POINT_CENTER_CENTER, CLAY_ATTACH_POINT_CENTER_CENTER},
+                           .pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH,
+                           .attachTo = CLAY_ATTACH_TO_PARENT, .clipTo = CLAY_CLIP_TO_ATTACHED_PARENT}})
+        {
+            fieldText(shown, editNow);
+        }
     }
     lastElement = nid.id;
 }

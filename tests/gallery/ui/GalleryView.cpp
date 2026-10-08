@@ -412,7 +412,7 @@ private:
         static const char *const names[] = {"Gain", "Mix", "Cutoff", "Drive"};
         static const char *const formats[] = {"%.1f dB", "%.0f %%", "%.0f Hz", "%.1f"};
         row([&] {
-            cell("Number boxes: drag up/down, Shift fine, double-click to type", [&] {
+            cell("Number boxes: drag right or up, Shift fine, double-click resets, type a number or Enter to edit", [&] {
                 for (int i = 0; i < 4; ++i) ui.numberBox(params, params.find(names[i]), formats[i], i == 2);
             });
             cell("Envelope: drag points; double-click adds or removes", [&] { ui.envelope(envelope); });

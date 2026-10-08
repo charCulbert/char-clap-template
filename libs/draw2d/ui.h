@@ -267,7 +267,9 @@ private:
 
     const void *focus = nullptr; // the control keys go to
     bool focusVisible = false;   // after a key, until the next click
-    bool focusTakesEnter = false; // the focused control is a button, toggle or dropdown
+    unsigned focusUses = 0;      // the keys the focused control uses: a bit per View::Key
+    bool focusTakesDigits = false; // it's a number box: typing a number starts editing it
+    std::string typedToFocus;    // that typing, until the number box takes it
     bool pressFocused = false;   // this frame's press focused a control
     bool wheelUsed = false;      // a control turned with this frame's wheel
     bool scrollWaiting = false;  // the wheel scrolls, in the next frame
@@ -290,6 +292,8 @@ private:
     Notes pianoNotes;           // what the piano drawn last frame reported
     int grabbedPoint = -1;      // the envelope point being dragged
     uint32_t numberDrag = 0;    // the number box being dragged
+    bool numberMoved = false;   // past its dead zone
+    double numberStart = 0;     // its value when the drag began, for Escape
     int lastStep = -1;          // the step painted last in a drag
     std::vector<const void *> changedNow, changedLast; // envelopes and steps (by their data) changed in this end() and the last
     struct

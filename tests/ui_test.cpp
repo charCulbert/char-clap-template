@@ -535,6 +535,51 @@ static void longUndoHistory()
     CHECK(!value.empty());
 }
 
+// Number boxes as compost's: a drag right or up past a dead zone, a
+// double-click resets, typing a number while focused edits it, and keys
+// step, reset and edit.
+static void numberBoxLikeCompost()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A");
+    auto draw = [&] { frame(ui, [&] { ui.numberBox(params, a, "%.2f"); }); };
+    draw();
+    const Clay_BoundingBox b = box("Number", int(a->id));
+    const float x = b.x + b.width / 2, y = b.y + b.height / 2;
+    pointer(ui, View::Pointer::move, x, y);
+    draw();
+    pointer(ui, View::Pointer::down, x, y);
+    draw();
+    pointer(ui, View::Pointer::move, x + 3, y); // inside the dead zone
+    draw();
+    CHECK(std::abs(a->value - 0.5) < 1e-9);
+    pointer(ui, View::Pointer::move, x + 36, y); // a fifth of 180 points
+    draw();
+    CHECK(std::abs(a->value - 0.7) < 1e-6);
+    pointer(ui, View::Pointer::up, x + 36, y);
+    draw();
+    for (int i = 0; i < 2; ++i) // double-click: back to the default
+    {
+        pointer(ui, View::Pointer::down, x, y);
+        pointer(ui, View::Pointer::up, x, y);
+    }
+    draw();
+    CHECK(std::abs(a->value - 0.5) < 1e-9);
+    CHECK(ui.text("0") && ui.text(".") && ui.text("2")); // focused: typing edits it
+    draw();
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(std::abs(a->value - 0.2) < 1e-9);
+    CHECK(ui.key(View::Key::up, 0)); // still focused after the edit
+    draw();
+    CHECK(std::abs(a->value - 0.21) < 1e-9);
+    CHECK(ui.key(View::Key::escape, 0)); // resets
+    draw();
+    CHECK(std::abs(a->value - 0.5) < 1e-9);
+}
+
 // A press and a quick flick before the next frame: the press lands where it
 // was made, and the drag follows from there.
 static void flickAfterPress()
@@ -656,6 +701,7 @@ int main()
     longUndoHistory();
     keysBackToHost();
     flickAfterPress();
+    numberBoxLikeCompost();
     pianoNotes();
     editors();
     for (uint32_t seed = 1; seed <= 4 && !failures; ++seed) randomInput(seed);
