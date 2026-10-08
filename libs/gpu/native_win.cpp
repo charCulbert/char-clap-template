@@ -220,7 +220,38 @@ static std::string clipboardText(HWND hwnd)
     return text;
 }
 
-void textInput(Window *, bool) {}
+// While a text field is edited, keyboard messages for our window are sent to
+// it straight from the thread's queue: some hosts (Ableton) handle keys in
+// their own message loop and never dispatch them to a plugin's window.
+static HHOOK keyHook = nullptr;
+static HWND editingWindow = nullptr;
+
+static LRESULT CALLBACK keyHookProc(int code, WPARAM removed, LPARAM message)
+{
+    auto *m = reinterpret_cast<MSG *>(message);
+    if (code == HC_ACTION && removed == PM_REMOVE && m->hwnd == editingWindow
+        && (m->message == WM_KEYDOWN || m->message == WM_KEYUP || m->message == WM_CHAR))
+    {
+        TranslateMessage(m); // WM_CHAR for WM_KEYDOWN, which comes back through here
+        DispatchMessageW(m);
+        m->message = WM_NULL; // handled: the host's loop sees nothing
+    }
+    return CallNextHookEx(keyHook, code, removed, message);
+}
+
+void textInput(Window *window, bool editing)
+{
+    if (editing && !keyHook)
+    {
+        keyHook = SetWindowsHookExW(WH_GETMESSAGE, keyHookProc, nullptr, GetCurrentThreadId());
+        editingWindow = window->hwnd;
+    }
+    else if (!editing && keyHook && editingWindow == window->hwnd)
+    {
+        UnhookWindowsHookEx(keyHook);
+        keyHook = nullptr, editingWindow = nullptr;
+    }
+}
 
 bool onScreen(Window *window) { return IsWindowVisible(window->hwnd) && !IsIconic(GetAncestor(window->hwnd, GA_ROOT)); }
 
@@ -377,8 +408,13 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     RegisterClassExW(&windowClass); // fails harmlessly when already registered
 
     auto *window = new Window{nullptr, std::move(callbacks)};
+    // Our window takes its parent's DPI awareness: hosts that scale plugins
+    // as DPI-unaware (Ableton's "Auto scale plugin window") would otherwise
+    // get a view drawn at the screen's DPI into a 96 DPI window.
+    const DPI_AWARENESS_CONTEXT awareness = SetThreadDpiAwarenessContext(GetWindowDpiAwarenessContext(host));
     window->hwnd = CreateWindowExW(0, className, L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 0, 0,
                                    int(width), int(height), host, nullptr, thisModule(), nullptr);
+    if (awareness) SetThreadDpiAwarenessContext(awareness);
     if (!window->hwnd)
     {
         delete window;
@@ -419,6 +455,7 @@ void lockPointer(Window *window, bool locked)
 void destroy(Window *window)
 {
     lockPointer(window, false);
+    textInput(window, false);
     KillTimer(window->hwnd, 1);
     if (window->dropTarget) RevokeDragDrop(window->hwnd), window->dropTarget->Release();
     if (window->ole) OleUninitialize();
