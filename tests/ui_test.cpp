@@ -511,8 +511,8 @@ static void keysBackToHost()
 }
 
 // Long pastes over selections, undone and redone over and over: stb_textedit's
-// undo history fills and discards records (under ASan in CI, an overrun of
-// its record array would show here).
+// undo history fills and discards records, the path draw2d.cmake patches. (Its
+// overrun lands inside the same struct, which ASan doesn't see.)
 static void longUndoHistory()
 {
     Ui ui;
