@@ -42,7 +42,8 @@ make_clapfirst_plugins(
     OUTPUT_NAME "GUI Gallery"
     BUNDLE_IDENTIFIER "com.charlieculbert.guigallery"
     BUNDLE_VERSION "${PROJECT_VERSION}"
-    PLUGIN_FORMATS CLAP
+    PLUGIN_FORMATS CLAP VST3 # VST3 for the hosts without CLAP (Ableton Live)
+    WINDOWS_FOLDER_VST3 TRUE # a folder, so its resources can travel inside it
     STANDALONE_CONFIGURATIONS standalone "GUI Gallery" "com.charlieculbert.guigallery"
     COPY_AFTER_BUILD FALSE)
 
