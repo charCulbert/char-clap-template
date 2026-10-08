@@ -27,7 +27,9 @@ struct Rect
 class Layout
 {
 public:
-    Layout();
+    // Room for maxElements boxes a frame (text runs count too). Clay's
+    // default, 8192, takes 6 MB; a plugin's interface needs far fewer.
+    explicit Layout(int maxElements = 2048);
     ~Layout();
 
     // Starts declaring a frame: the canvas in pixels, and pixels per point.

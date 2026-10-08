@@ -4,11 +4,13 @@
 
 namespace gpu {
 
-Layout::Layout()
+Layout::Layout(int maxElements)
 {
     // Clay_MinMemorySize and Clay_Initialize read Clay's global current
-    // context, which may belong to another instance: size from the defaults.
+    // context, which may belong to another instance: size from the defaults,
+    // which with no context current are what Clay_SetMaxElementCount sets.
     Clay_SetCurrentContext(nullptr);
+    Clay_SetMaxElementCount(maxElements);
     memory.resize(Clay_MinMemorySize());
     const Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory(memory.size(), memory.data());
     context = Clay_Initialize(arena, {1, 1}, {[](Clay_ErrorData error) {
