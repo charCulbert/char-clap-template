@@ -3,12 +3,14 @@
 #include <X11/keysym.h>
 #include <X11/Xatom.h>
 #include <X11/Xutil.h> // XLookupString
+#include <poll.h>
 #include <unistd.h>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -198,7 +200,11 @@ void destroy(Window *window)
     XSync(window->display, False); // its errors, while they're still ours to ignore
     std::erase(ourDisplays, window->display);
     XCloseDisplay(window->display);
-    if (ourDisplays.empty()) XSetErrorHandler(hostHandler);
+    if (ourDisplays.empty())
+    {
+        // Put back the handler we replaced, unless the host has since set its own.
+        if (XErrorHandler current = XSetErrorHandler(hostHandler); current != ignoreOurErrors) XSetErrorHandler(current);
+    }
     delete window;
 }
 
@@ -516,10 +522,19 @@ static std::string clipboardText(Window *window)
         std::vector<XEvent> &events;
         ~PutBack() { for (XEvent &e : events) XPutBackEvent(window->display, &e); }
     } putBack{window, others};
-    for (int tries = 0; tries < 50; ++tries, usleep(2000))
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+    for (;;)
     {
         XEvent event;
-        if (!XCheckTypedWindowEvent(window->display, window->window, SelectionNotify, &event)) continue;
+        if (!XCheckTypedWindowEvent(window->display, window->window, SelectionNotify, &event))
+        {
+            // Nothing yet: sleep until the X connection has something to read.
+            const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+            if (left.count() <= 0) return {};
+            pollfd connection = {ConnectionNumber(window->display), POLLIN, 0};
+            poll(&connection, 1, int(left.count()));
+            continue;
+        }
         if (event.xselection.selection != window->clipboardAtom)
         {
             others.push_back(event);
@@ -536,7 +551,6 @@ static std::string clipboardText(Window *window)
         if (data) XFree(data);
         return text;
     }
-    return {};
 }
 
 // Ctrl+Z, Ctrl+Shift+Z or Y, A, X, C and V, for a text field being edited.
