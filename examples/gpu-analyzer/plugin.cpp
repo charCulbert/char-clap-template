@@ -56,7 +56,7 @@ struct MyPlugin
     uint32_t framesSinceSpectrum = 0; // audio thread only
 
     gpu::Gui gui;
-    uint32_t guiWidth = 560, guiHeight = 300;
+    float guiWidth = 560, guiHeight = 300; // points, so the window keeps its size across scales
     bool uiReady = false; // the interface has said "ready" and not been closed since
 };
 
@@ -206,6 +206,15 @@ static void clampGuiSize(const MyPlugin *plugin, uint32_t &width, uint32_t &heig
     height = clamp(height, GUI_MIN_HEIGHT, GUI_MAX_HEIGHT);
 }
 
+// The size to report to clap.gui, clamped so get_size never reports a size set_size refuses.
+static void guiSize(const MyPlugin *plugin, uint32_t &width, uint32_t &height)
+{
+    const float scale = plugin->gui.pixelsPerPoint();
+    width = uint32_t(std::lround(plugin->guiWidth * scale));
+    height = uint32_t(std::lround(plugin->guiHeight * scale));
+    clampGuiSize(plugin, width, height);
+}
+
 static const clap_plugin_gui_t extensionGui = {
     .is_api_supported = [](const clap_plugin_t *_plugin, const char *api, bool isFloating) -> bool
     { return ((MyPlugin *)_plugin->plugin_data)->gui.isApiSupported(api, isFloating); },
@@ -218,8 +227,9 @@ static const clap_plugin_gui_t extensionGui = {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
         if (!plugin->gui.create(api, isFloating))
             return false;
-        clampGuiSize(plugin, plugin->guiWidth, plugin->guiHeight); // so get_size never reports a size set_size refuses
-        plugin->gui.setSize(plugin->guiWidth, plugin->guiHeight);
+        uint32_t width, height;
+        guiSize(plugin, width, height);
+        plugin->gui.setSize(width, height);
         return true;
     },
 
@@ -236,8 +246,7 @@ static const clap_plugin_gui_t extensionGui = {
     .get_size = [](const clap_plugin_t *_plugin, uint32_t *width, uint32_t *height) -> bool
     {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-        *width = plugin->guiWidth;
-        *height = plugin->guiHeight;
+        guiSize(plugin, *width, *height);
         return true;
     },
 
@@ -264,8 +273,8 @@ static const clap_plugin_gui_t extensionGui = {
         clampGuiSize(plugin, allowedWidth, allowedHeight);
         if (allowedWidth != width || allowedHeight != height)
             return false;
-        plugin->guiWidth = width;
-        plugin->guiHeight = height;
+        plugin->guiWidth = width / plugin->gui.pixelsPerPoint();
+        plugin->guiHeight = height / plugin->gui.pixelsPerPoint();
         plugin->gui.setSize(width, height);
         return true;
     },
