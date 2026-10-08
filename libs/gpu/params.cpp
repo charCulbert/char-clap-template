@@ -1,5 +1,6 @@
 #include "params.h"
 #include <algorithm>
+#include <cmath>
 
 namespace gpu {
 
@@ -35,19 +36,21 @@ Param *Params::find(std::string_view name)
 void Params::begin(Param &p)
 {
     p.dragging = true;
-    send(core::Value::Map{{"type", "begin"}, {"id", p.id}});
+    if (p.gestures++ == 0) send(core::Value::Map{{"type", "begin"}, {"id", p.id}});
 }
 
 void Params::change(Param &p, double value)
 {
+    if (std::isnan(value)) return; // typed "nan": clamp would let it through
     p.value = std::clamp(value, p.min, p.max);
     send(core::Value::Map{{"type", "change"}, {"id", p.id}, {"value", p.value}});
 }
 
 void Params::end(Param &p)
 {
-    p.dragging = false;
-    send(core::Value::Map{{"type", "end"}, {"id", p.id}});
+    if (p.gestures == 0) return;
+    p.dragging = --p.gestures > 0;
+    if (!p.dragging) send(core::Value::Map{{"type", "end"}, {"id", p.id}});
 }
 
 }

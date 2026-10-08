@@ -15,7 +15,8 @@ struct Param
     int id = -1;
     std::string name;
     double min = 0, max = 1, defaultValue = 0, value = 0;
-    bool dragging = false;
+    bool dragging = false; // in a gesture
+    int gestures = 0;      // nested begins: several controls (or keys mid-drag) can share one
 };
 
 class Params
