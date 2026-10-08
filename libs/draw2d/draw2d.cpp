@@ -58,6 +58,20 @@ struct Varyings {
 }
 )";
 
+// Fills: plain triangles, a colour per vertex.
+constexpr const char *fillShader = R"(
+struct Uniforms { size: vec4f };
+@group(0) @binding(0) var<uniform> u: Uniforms;
+struct Varyings { @builtin(position) position: vec4f, @location(0) color: vec4f };
+@vertex fn vs(@location(0) xy: vec2f, @location(1) color: vec4f) -> Varyings {
+    var out: Varyings;
+    out.position = vec4f(xy / u.size.xy * vec2f(2.0, -2.0) + vec2f(-1.0, 1.0), 0.0, 1.0);
+    out.color = color;
+    return out;
+}
+@fragment fn fs(in: Varyings) -> @location(0) vec4f { return in.color; }
+)";
+
 constexpr const char *shader = R"(
 struct Uniforms { size: vec4f };
 struct Instance {
@@ -290,6 +304,33 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
     pipelineDescriptor.vertex.bufferCount = 0;
     linePipeline = device.CreateRenderPipeline(&pipelineDescriptor);
 
+    // The fill pipeline: triangles from a vertex buffer.
+    wgpu::ShaderSourceWGSL fillSource;
+    fillSource.code = fillShader;
+    wgpu::ShaderModuleDescriptor fillModuleDescriptor;
+    fillModuleDescriptor.nextInChain = &fillSource;
+    wgpu::ShaderModule fillModule = device.CreateShaderModule(&fillModuleDescriptor);
+    wgpu::VertexAttribute fillAttributes[2] = {{nullptr, wgpu::VertexFormat::Float32x2, 0, 0},
+                                               {nullptr, wgpu::VertexFormat::Float32x4, 8, 1}};
+    wgpu::VertexBufferLayout fillLayout;
+    fillLayout.arrayStride = sizeof(FillVertex);
+    fillLayout.attributeCount = 2;
+    fillLayout.attributes = fillAttributes;
+    fragment.module = fillModule;
+    pipelineDescriptor.vertex.module = fillModule;
+    pipelineDescriptor.vertex.bufferCount = 1;
+    pipelineDescriptor.vertex.buffers = &fillLayout;
+    pipelineDescriptor.primitive.topology = wgpu::PrimitiveTopology::TriangleList;
+    fillPipeline = device.CreateRenderPipeline(&pipelineDescriptor);
+    wgpu::BindGroupEntry fillEntry;
+    fillEntry.binding = 0;
+    fillEntry.buffer = uniforms;
+    wgpu::BindGroupDescriptor fillGroupDescriptor;
+    fillGroupDescriptor.layout = fillPipeline.GetBindGroupLayout(0);
+    fillGroupDescriptor.entryCount = 1;
+    fillGroupDescriptor.entries = &fillEntry;
+    fillBindGroup = device.CreateBindGroup(&fillGroupDescriptor);
+
     wgpu::BindGroupEntry entries[3];
     entries[0].binding = 0;
     entries[0].buffer = uniforms;
@@ -385,6 +426,7 @@ void Draw2D::begin(float width, float height)
     batch.clear();
     styles.clear();
     points.clear();
+    fillVertices.clear();
     runs.clear();
     callbacks.clear();
     clips.assign(1, {0, 0, uint32_t(std::max(width, 0.0f)), uint32_t(std::max(height, 0.0f))});
@@ -398,7 +440,7 @@ Draw2D::Run &Draw2D::run(Run::Kind kind, int image)
     if (runs.empty() || runs.back().kind != kind || kind == Run::custom || runs.back().image != image
         || !std::equal(clip.begin(), clip.end(), runs.back().clip))
     {
-        const uint32_t first = uint32_t(kind == Run::lines ? points.size() : batch.size());
+        const uint32_t first = uint32_t(kind == Run::lines ? points.size() : kind == Run::fills ? fillVertices.size() : batch.size());
         runs.push_back({kind, first, 0, {clip[0], clip[1], clip[2], clip[3]}, 0, image, 0});
     }
     return runs.back();
@@ -454,6 +496,54 @@ void Draw2D::polyline(const float *xy, size_t count, float width, Color color)
     styles.push_back({{color.r, color.g, color.b, color.a}, width / 2, {}});
     for (size_t i = 0; i < count; ++i)
         points.push_back({xy[2 * i], xy[2 * i + 1], style, i == 0 ? 1.0f : 0.0f});
+}
+
+// Triangulates a simple polygon by ear clipping: repeatedly cut off a
+// convex corner with no other point inside it. O(n^2), fine for the few
+// hundred points of a curve.
+void Draw2D::fill(const float *xy, size_t count, Color color)
+{
+    if (count < 3) return;
+    std::vector<size_t> left(count);
+    for (size_t i = 0; i < count; ++i) left[i] = i;
+    auto x = [&](size_t i) { return xy[2 * i]; };
+    auto y = [&](size_t i) { return xy[2 * i + 1]; };
+    float area = 0; // twice the signed area: its sign is the winding
+    for (size_t i = 0, j = count - 1; i < count; j = i++) area += x(j) * y(i) - x(i) * y(j);
+    const float winding = area < 0 ? -1.0f : 1.0f;
+    auto cross = [&](size_t a, size_t b, size_t c) {
+        return ((x(b) - x(a)) * (y(c) - y(a)) - (y(b) - y(a)) * (x(c) - x(a))) * winding;
+    };
+    Run &r = run(Run::fills);
+    auto emit = [&](size_t i) { fillVertices.push_back({x(i), y(i), {color.r, color.g, color.b, color.a}}); };
+    size_t guard = 0;
+    while (left.size() > 3 && guard++ < count * count)
+    {
+        bool cut = false;
+        for (size_t k = 0; k < left.size() && !cut; ++k)
+        {
+            const size_t a = left[(k + left.size() - 1) % left.size()], b = left[k], c = left[(k + 1) % left.size()];
+            if (cross(a, b, c) <= 0) continue; // reflex (or flat): not an ear
+            bool empty = true;
+            for (size_t p : left)
+                if (p != a && p != b && p != c && cross(a, b, p) >= 0 && cross(b, c, p) >= 0 && cross(c, a, p) >= 0)
+                {
+                    empty = false;
+                    break;
+                }
+            if (!empty) continue;
+            emit(a), emit(b), emit(c);
+            r.count += 3;
+            left.erase(left.begin() + std::ptrdiff_t(k));
+            cut = true;
+        }
+        if (!cut) break; // not simple after all: give up on the rest
+    }
+    if (left.size() == 3) emit(left[0]), emit(left[1]), emit(left[2]), r.count += 3;
+    // The edge: a hairline along the outline smooths the triangles' hard edges.
+    std::vector<float> outline(xy, xy + 2 * count);
+    outline.push_back(xy[0]), outline.push_back(xy[1]);
+    polyline(outline.data(), count + 1, 1, color);
 }
 
 void Draw2D::arc(float cx, float cy, float radius, float width, float from, float to, Color color)
@@ -652,6 +742,7 @@ uint64_t Draw2D::signature() const
     add(batch.data(), batch.size() * sizeof(Instance));
     add(styles.data(), styles.size() * sizeof(LineStyle));
     add(points.data(), points.size() * sizeof(LinePoint));
+    add(fillVertices.data(), fillVertices.size() * sizeof(FillVertex));
     for (const Run &r : runs)
         add(&r.kind, sizeof(r.kind)), add(&r.first, 2 * sizeof(uint32_t)), add(r.clip, sizeof(r.clip)), add(&r.image, sizeof(r.image)),
             add(&r.version, sizeof(r.version));
@@ -710,9 +801,23 @@ void Draw2D::flush(const wgpu::RenderPassEncoder &pass)
         device.GetQueue().WriteBuffer(linePoints, 0, points.data(), pointBytes);
     }
 
+    if (!fillVertices.empty())
+    {
+        const size_t bytes = fillVertices.size() * sizeof(FillVertex);
+        reserve(device, fillBuffer, fillCapacity, bytes, wgpu::BufferUsage::Vertex);
+        device.GetQueue().WriteBuffer(fillBuffer, 0, fillVertices.data(), bytes);
+    }
+
     for (const Run &r : runs)
     {
         if (r.clip[2] == 0 || r.clip[3] == 0) continue; // clipped away entirely
+        if (r.kind == Run::fills && r.count)
+        {
+            pass.SetPipeline(fillPipeline);
+            pass.SetBindGroup(0, fillBindGroup);
+            pass.SetVertexBuffer(0, fillBuffer);
+            pass.Draw(r.count, 1, r.first);
+        }
         pass.SetScissorRect(r.clip[0], r.clip[1], r.clip[2], r.clip[3]);
         if (r.kind == Run::shapes && r.count)
         {

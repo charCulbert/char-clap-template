@@ -222,6 +222,13 @@ int main(int argc, char **argv)
         CHECK(is(px, 32, 32, white) && is(px, 1, 32, black) && edge >= 90 && edge <= 165);
     }
 
+    // A concave fill: inside both arms of an L, not in its notch.
+    px = gpu.render(draw, [&] {
+        const float l[] = {8, 8, 56, 8, 56, 24, 24, 24, 24, 56, 8, 56};
+        draw.fill(l, 6, red);
+    });
+    CHECK(is(px, 40, 16, red) && is(px, 16, 40, red) && is(px, 40, 40, black) && is(px, 2, 2, black));
+
     // changed(): the same drawing again is unchanged, a different one isn't,
     // and a custom draw is judged by its version.
     {

@@ -55,6 +55,10 @@ public:
     // Strokes with round ends and joins.
     void line(float x0, float y0, float x1, float y1, float width, Color color);
     void polyline(const float *xy, size_t points, float width, Color color);
+    // A filled polygon (points x, y, ...; simple: edges may not cross),
+    // antialiased by a hairline along its outline. For curves' fills, plots,
+    // envelopes. Concave is fine.
+    void fill(const float *xy, size_t points, Color color);
     // A ring sector: angles in radians, 0 pointing up, increasing clockwise.
     void arc(float cx, float cy, float radius, float width, float from, float to, Color color);
     // y is the text's baseline; text is UTF-8; returns the text's width.
@@ -123,8 +127,8 @@ private:
     // A stretch of draws of one kind under one clip, drawn in order by flush.
     struct Run
     {
-        enum Kind { shapes, lines, custom } kind;
-        uint32_t first, count; // instances or points
+        enum Kind { shapes, lines, custom, fills } kind;
+        uint32_t first, count; // instances, points or (fills) vertices
         uint32_t clip[4];      // scissor rectangle, pixels
         size_t callback;       // for custom: index into callbacks
         int image;             // for shapes: the image bound, or -1 for the glyph atlas
@@ -140,9 +144,12 @@ private:
     const Glyph &glyph(int font, uint32_t codepoint, int pixelSize = 0, int phase = 0);
 
     wgpu::Device device;
-    wgpu::RenderPipeline pipeline, linePipeline;
-    wgpu::Buffer uniforms, instances, lineStyles, linePoints;
-    wgpu::BindGroup bindGroup, lineBindGroup;
+    wgpu::RenderPipeline pipeline, linePipeline, fillPipeline;
+    wgpu::Buffer uniforms, instances, lineStyles, linePoints, fillBuffer;
+    wgpu::BindGroup bindGroup, lineBindGroup, fillBindGroup;
+    struct FillVertex { float x, y, color[4]; };
+    std::vector<FillVertex> fillVertices;
+    size_t fillCapacity = 0;
     wgpu::Texture atlasTexture;
     wgpu::Sampler sampler;
     std::vector<wgpu::BindGroup> images; // each image's textures, bound in place of the atlas

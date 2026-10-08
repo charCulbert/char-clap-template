@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -105,7 +106,7 @@ public:
 
 private:
     // Custom cells: what drawCell draws in each.
-    enum Cell { radii, borders, circles, arcs, widths, polyline, lineUnderBox, alpha, sizes, aligned, clipped, customPass, gradients, shadows };
+    enum Cell { radii, borders, circles, arcs, widths, polyline, lineUnderBox, alpha, sizes, aligned, clipped, customPass, gradients, shadows, fills };
 
     template <typename F> void row(F &&cells)
     {
@@ -168,6 +169,7 @@ private:
         row([&] {
             custom("Gradients: linear, radial; even, no banding", gradients);
             custom("Shadows: soft, offset, under the box", shadows);
+            custom("Fills: a concave L; the area under a curve", fills);
             cell("Clay box with Layout::shadow", [&] {
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .backgroundColor = gpu::clayColor(ui.theme.background),
                       .cornerRadius = CLAY_CORNER_RADIUS(6), .userData = ui.layout.shadow(ui.theme.shadow, 12, 0, 4)}) {}
@@ -454,6 +456,25 @@ private:
             d.rect(r.x + r.w * 0.25f - side / 2, cy - side / 2, side, side, 6 * s, ui.theme.panel);
             d.shadow(r.x + r.w * 0.75f - side / 2, cy - side / 2, side, side, side / 2, 6 * s, {0, 0, 0, 0.8f});
             d.circle(r.x + r.w * 0.75f, cy, side / 2, a);
+            break;
+        }
+        case fills:
+        {
+            const float side = std::min(r.h, r.w / 2.2f);
+            const float l[] = {r.x, r.y, r.x + side, r.y, r.x + side, r.y + side * 0.35f, r.x + side * 0.35f, r.y + side * 0.35f,
+                               r.x + side * 0.35f, r.y + side, r.x, r.y + side};
+            d.fill(l, 6, a);
+            std::vector<float> curve;
+            const float x0 = r.x + side + 10 * s, w = r.x + r.w - x0;
+            for (int i = 0; i <= 48; ++i)
+            {
+                const float t = i / 48.0f;
+                curve.push_back(x0 + w * t);
+                curve.push_back(r.y + r.h * (0.55f - 0.4f * std::sin(t * 6.2831853f) * std::exp(-2 * t)));
+            }
+            curve.insert(curve.end(), {x0 + w, r.y + r.h, x0, r.y + r.h});
+            d.fill(curve.data(), curve.size() / 2, {a.r, a.g, a.b, 0.35f});
+            d.polyline(curve.data(), 49, 1.5f * s, a);
             break;
         }
         case customPass:
