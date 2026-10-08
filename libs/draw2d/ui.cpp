@@ -1,5 +1,6 @@
 #include "ui.h"
 #include <algorithm>
+#include <clocale>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -791,9 +792,25 @@ void Ui::startEditing(uint32_t field, std::string text, bool selectAll)
 }
 
 // A value as it's typed: 2.5, not 2.500000.
+// Typed and shown values use '.' whatever locale the host set (a decimal
+// comma would show "2,5" and read "2.5" as 2); a typed ',' counts as '.'.
+static char decimalPoint() { return *std::localeconv()->decimal_point; }
+
+static bool parseNumber(std::string text, double &value)
+{
+    for (char &c : text)
+        if (c == '.' || c == ',') c = decimalPoint();
+    char *end = nullptr;
+    value = std::strtod(text.c_str(), &end);
+    return end != text.c_str();
+}
+
 std::string Ui::plainNumber(double value)
 {
-    std::string text = std::to_string(value);
+    char formatted[64];
+    std::snprintf(formatted, sizeof(formatted), "%.6f", value);
+    std::string text = formatted;
+    std::replace(text.begin(), text.end(), decimalPoint(), '.');
     text.erase(text.find_last_not_of('0') + 1);
     if (!text.empty() && text.back() == '.') text.pop_back();
     return text == "-0" ? "0" : text;
@@ -810,9 +827,7 @@ bool Ui::valueEntry(Params &params, Param &p, const void *id, Rect r, Draw2D::Al
     std::string typed = plainNumber(p.value);
     if (editKeys(field, typed, isOver))
     {
-        char *end = nullptr;
-        const double value = std::strtod(typed.c_str(), &end);
-        if (end != typed.c_str()) set(params, p, value);
+        if (double value; parseNumber(typed, value)) set(params, p, value);
     }
     if (editing != field) return false;
     const float size = theme.textSize * s, width = draw.measure(size, draft, theme.valueFont);
@@ -925,9 +940,7 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
     }
     if (editKeys(nid.id, typed, Clay_PointerOver(nid)) || typed != before)
     {
-        char *end = nullptr;
-        const double value = std::strtod(typed.c_str(), &end);
-        if (end != typed.c_str()) set(params, *p, value);
+        if (double value; parseNumber(typed, value)) set(params, *p, value);
     }
     const bool edit = editing == nid.id, hot = Clay_PointerOver(nid);
     CLAY({.id = nid, .layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_FIT(0)}, .padding = {5, 5, 2, 2},

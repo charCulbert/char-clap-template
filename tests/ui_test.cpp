@@ -2,6 +2,7 @@
 // and key events in, element rectangles, values and parameter messages out.
 // Draw2D records draws but never flushes them, having no device.
 #include "../libs/draw2d/ui.h"
+#include <clocale>
 #include <cstring>
 #include <iterator>
 #include <cmath>
@@ -220,6 +221,23 @@ static void knobDragAndKeys()
     ui.key(View::Key::enter, 0);
     draw();
     CHECK(std::abs(a->value - 0.25) < 1e-9);
+    // Where the host set a decimal-comma locale, both separators still read
+    // as a decimal point (if this system has such a locale to try).
+    if (std::setlocale(LC_NUMERIC, "de_DE.UTF-8") || std::setlocale(LC_NUMERIC, "de_DE"))
+    {
+        for (const char *typed : {"0,5", "0.75"})
+        {
+            pointer(ui, View::Pointer::down, 50, 110);
+            draw();
+            pointer(ui, View::Pointer::up, 50, 110);
+            draw();
+            ui.text(typed);
+            ui.key(View::Key::enter, 0);
+            draw();
+        }
+        CHECK(std::abs(a->value - 0.75) < 1e-9);
+        std::setlocale(LC_NUMERIC, "C");
+    }
 }
 
 static void textFieldEdits()
