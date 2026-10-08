@@ -18,6 +18,8 @@ struct Context
     // Set when the device is lost (a driver reset, a GPU removed): the
     // presenter then starts again with a new one. Not for our own teardown.
     std::shared_ptr<std::atomic<bool>> lost = std::make_shared<std::atomic<bool>>(false);
+    // WebGPU validation errors so far (each is also printed): tests expect none.
+    std::shared_ptr<std::atomic<int>> errors = std::make_shared<std::atomic<int>>(0);
 
     // Natively this blocks until the device exists; it returns false without one.
     bool createDevice();

@@ -32,7 +32,7 @@ add_executable(ui_test ui_test.cpp ../libs/gpu/params.cpp ../libs/core/messages.
 draw2d_add_to(ui_test)
 target_link_libraries(ui_test PRIVATE dawn::webgpu_dawn)
 add_test(NAME ui COMMAND ui_test)
-add_executable(draw2d_test draw2d_test.cpp ../libs/gpu/params.cpp ../libs/core/messages.cpp)
+add_executable(draw2d_test draw2d_test.cpp ../libs/gpu/context.cpp ../libs/gpu/params.cpp ../libs/core/messages.cpp)
 draw2d_add_to(draw2d_test)
 target_link_libraries(draw2d_test PRIVATE dawn::webgpu_dawn)
 add_test(NAME draw2d COMMAND draw2d_test "${CMAKE_CURRENT_SOURCE_DIR}/gallery/resources/fonts/BarlowSemiCondensed-Medium.ttf")

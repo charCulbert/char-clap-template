@@ -5,6 +5,7 @@
 // Skips (exit code 77) where there's no WebGPU adapter at all.
 // Usage: draw2d_test <font.ttf>
 #include "../libs/draw2d/draw2d.h"
+#include "../libs/gpu/context.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -25,42 +26,20 @@ constexpr wgpu::TextureFormat format = wgpu::TextureFormat::RGBA8Unorm;
 constexpr float pi = 3.14159265f;
 const Color red{1, 0, 0}, green{0, 1, 0}, blue{0, 0, 1}, white{1, 1, 1};
 
+// The device as the plugins make it (gpu::Context), drawing into a texture
+// the test reads back.
 struct Gpu
 {
-    wgpu::Instance instance;
-    wgpu::Adapter adapter;
+    gpu::Context context;
     wgpu::Device device;
+    wgpu::Instance instance;
     wgpu::Texture target;
     wgpu::Buffer readback;
 
     bool create()
     {
-        static const wgpu::InstanceFeatureName features[] = {wgpu::InstanceFeatureName::TimedWaitAny};
-        wgpu::InstanceDescriptor instanceDescriptor;
-        instanceDescriptor.requiredFeatureCount = 1;
-        instanceDescriptor.requiredFeatures = features;
-        instance = wgpu::CreateInstance(&instanceDescriptor);
-        for (bool fallback : {false, true})
-        {
-            wgpu::RequestAdapterOptions options;
-            options.forceFallbackAdapter = fallback;
-            instance.WaitAny(instance.RequestAdapter(&options, wgpu::CallbackMode::WaitAnyOnly,
-                [](wgpu::RequestAdapterStatus status, wgpu::Adapter result, wgpu::StringView, Gpu *self) {
-                    if (status == wgpu::RequestAdapterStatus::Success) self->adapter = std::move(result);
-                }, this), UINT64_MAX);
-            if (adapter) break;
-        }
-        if (!adapter) return false;
-        wgpu::DeviceDescriptor deviceDescriptor;
-        deviceDescriptor.SetUncapturedErrorCallback([](const wgpu::Device &, wgpu::ErrorType, wgpu::StringView message) {
-            std::fprintf(stderr, "WebGPU error: %.*s\n", int(message.length), message.data);
-            ++failures;
-        });
-        instance.WaitAny(adapter.RequestDevice(&deviceDescriptor, wgpu::CallbackMode::WaitAnyOnly,
-            [](wgpu::RequestDeviceStatus status, wgpu::Device result, wgpu::StringView, Gpu *self) {
-                if (status == wgpu::RequestDeviceStatus::Success) self->device = std::move(result);
-            }, this), UINT64_MAX);
-        if (!device) return false;
+        if (!context.createDevice()) return false;
+        device = context.device, instance = context.instance;
         wgpu::TextureDescriptor textureDescriptor;
         textureDescriptor.size = {size, size, 1};
         textureDescriptor.format = format;
@@ -305,6 +284,7 @@ int main(int argc, char **argv)
         CHECK(ink > 20 && !draw.atlasRefilling());
     }
 
+    CHECK(*gpu.context.errors == 0); // no WebGPU validation errors along the way
     if (failures) std::fprintf(stderr, "%d failed\n", failures);
     return failures ? 1 : 0;
 }

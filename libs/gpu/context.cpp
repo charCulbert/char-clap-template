@@ -61,9 +61,12 @@ bool Context::createDevice()
             std::fprintf(stderr, "WebGPU device lost: %.*s\n", int(message.length), message.data);
             *lost = true;
         });
-    deviceDescriptor.SetUncapturedErrorCallback([](const wgpu::Device &, wgpu::ErrorType, wgpu::StringView message) {
-        std::fprintf(stderr, "WebGPU error: %.*s\n", int(message.length), message.data);
-    });
+    deviceDescriptor.SetUncapturedErrorCallback(
+        [](const wgpu::Device &, wgpu::ErrorType, wgpu::StringView message, std::atomic<int> *errors) {
+            std::fprintf(stderr, "WebGPU error: %.*s\n", int(message.length), message.data);
+            ++*errors;
+        },
+        errors.get());
     instance.WaitAny(adapter.RequestDevice(&deviceDescriptor, wgpu::CallbackMode::WaitAnyOnly,
         [](wgpu::RequestDeviceStatus status, wgpu::Device result, wgpu::StringView message, Context *self) {
             if (status == wgpu::RequestDeviceStatus::Success) self->device = std::move(result);
