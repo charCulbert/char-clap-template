@@ -232,6 +232,15 @@ int main(int argc, char **argv)
         draw.fill(l, 8, red);
     });
     CHECK(is(px, 40, 16, red) && is(px, 16, 40, red) && is(px, 40, 40, black) && is(px, 2, 2, black));
+    // A fill keeps to the clip it was drawn in, after a shape outside it.
+    px = gpu.render(draw, [&] {
+        draw.rect(0, 0, 4, 4, 0, white);
+        draw.pushClip(0, 0, 32, 64);
+        const float square[] = {8, 8, 56, 8, 56, 56, 8, 56};
+        draw.fill(square, 4, red);
+        draw.popClip();
+    });
+    CHECK(is(px, 16, 16, red) && is(px, 40, 16, black));
 
     // changed(): the same drawing again is unchanged, a different one isn't,
     // and a custom draw is judged by its version.

@@ -827,6 +827,7 @@ void Draw2D::flush(const wgpu::RenderPassEncoder &pass)
     for (const Run &r : runs)
     {
         if (r.clip[2] == 0 || r.clip[3] == 0) continue; // clipped away entirely
+        pass.SetScissorRect(r.clip[0], r.clip[1], r.clip[2], r.clip[3]);
         if (r.kind == Run::fills && r.count)
         {
             pass.SetPipeline(fillPipeline);
@@ -834,7 +835,6 @@ void Draw2D::flush(const wgpu::RenderPassEncoder &pass)
             pass.SetVertexBuffer(0, fillBuffer);
             pass.Draw(r.count, 1, r.first);
         }
-        pass.SetScissorRect(r.clip[0], r.clip[1], r.clip[2], r.clip[3]);
         if (r.kind == Run::shapes && r.count)
         {
             pass.SetPipeline(pipeline);
