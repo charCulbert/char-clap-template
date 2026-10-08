@@ -26,10 +26,19 @@ WebGPU by our own drawing code.
 ## Build
 
 ```sh
-cmake -B build && cmake --build build
+cmake -B build && cmake --build build --config Release
 ```
 
-That builds CLAP, VST3, AU (macOS) and a standalone app into `build/`. It needs CMake 3.28+ and a C++20 compiler (on Linux also `libx11-dev`).
+That builds CLAP, VST3, AU (macOS) and a standalone app. It needs CMake 3.28+
+and a C++20 compiler (on Linux also `libasound2-dev` and `libx11-dev`). `--config Release` is for
+Windows, where Visual Studio would build Debug; elsewhere the build is Release
+already. The plugins land here:
+
+| | CLAP | VST3 | Standalone | AU |
+|---|---|---|---|---|
+| macOS | `build/GPU Analyzer.clap` | `build/GPU Analyzer.vst3` | `build/GPU Analyzer.app` | `build/GPU Analyzer.component` |
+| Windows | `build/CLAP/Release/GPU Analyzer.clap` | `build/Release/GPU Analyzer.vst3` | `build/Release/GPU Analyzer.exe` | |
+| Linux | `build/GPU Analyzer.clap` | `build/Release/GPU Analyzer.vst3` | `build/GPU Analyzer` | |
 
 **WCLAP** (for browser hosts) needs the [WASI SDK](https://github.com/WebAssembly/wasi-sdk/releases) and [Emscripten](https://emscripten.org) (`emcmake` on your PATH) for the page:
 
@@ -40,9 +49,19 @@ cmake --build build-wclap        # makes build-wclap/GpuAnalyzer.wclap.tar.gz
 
 ## Test
 
-The workflow in `.github/workflows/` builds every push on macOS, Windows and
-Linux, checks the plugins with clap-validator, pluginval and (macOS) auval,
-and uploads them only if they pass.
+On your machine (paths for macOS; see the table above for the others):
+
+```sh
+clap-validator validate "build/GPU Analyzer.clap"                       # CLAP
+pluginval --validate "build/GPU Analyzer.vst3" --strictness-level 5     # VST3, opens the interface too
+auval -v aufx GpAn ChCu                                     # AU (macOS)
+```
+
+[clap-validator](https://github.com/free-audio/clap-validator) and
+[pluginval](https://github.com/Tracktion/pluginval) are free downloads.
+
+The workflow in `.github/workflows/` runs the same checks on every push, on
+macOS, Windows and Linux, and uploads the plugins only if they pass.
 
 `libs/` holds the reusable parts; see the comment at the top of each `.cmake`
 file there.

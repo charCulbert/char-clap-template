@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Checks tools/new-plugin.py: makes a project from every example in
-build-templates/, builds each with plain `cmake -B build && cmake --build build`,
+build-templates/, builds each with `cmake -B build && cmake --build build --config Release`,
 and, if clap-host is installed, validates its CLAP. Run it after changing an
 example, a library or the generator. (CI doesn't: it's slow and local.)
 
@@ -35,7 +35,7 @@ def main():
         shutil.rmtree(dest, ignore_errors=True)
         ok = run([sys.executable, str(REPO / "tools" / "new-plugin.py"), "--from", example,
                   "--name", f"Check {example.capitalize()}", "--vendor", "Check Vendor", "--dest", str(dest)], REPO)
-        ok = ok and run(["cmake", "-B", "build"], dest) and run(["cmake", "--build", "build", "--parallel"], dest)
+        ok = ok and run(["cmake", "-B", "build"], dest) and run(["cmake", "--build", "build", "--config", "Release", "--parallel"], dest)
         clap = next(dest.glob("build/**/*.clap"), None) if ok else None
         if ok and not clap:
             print("  no .clap was built")

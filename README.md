@@ -9,7 +9,7 @@ standalone and WCLAP (for browser hosts), from the same source.
 |---|---|---|
 | [`examples/headless-gain`](examples/headless-gain) | Gain and pan | None: the host shows its own controls |
 | [`examples/webview-synth`](examples/webview-synth) | Polyphonic sine synth | A web page (HTML, CSS, JS) |
-| [`examples/gpu-analyzer`](examples/gpu-analyzer) | Spectrum analyzer | Our own WebGPU drawing (`libs/draw2d`) |
+| [`examples/gpu-analyzer`](examples/gpu-analyzer) | Spectrum analyzer | Our own WebGPU drawing: Draw2D shapes and text, Clay layout and the controls (`libs/draw2d`) |
 | [`examples/imgui-filter`](examples/imgui-filter) | Lowpass/bandpass/highpass filter | Dear ImGui on WebGPU |
 
 Pick the one closest to what you want to make. The interfaces aren't tied to
@@ -23,7 +23,10 @@ python3 tools/new-plugin.py --from filter --name "Warm Filter" --vendor "Charlie
     --dest ~/Development/warm-filter
 ```
 
-`--from` is `gain`, `synth`, `analyzer` or `filter`. Leave any option out and it
+It needs Python 3.8 or later and nothing else (on Windows, where Python's
+installer doesn't add `python3`, run it as `py tools\new-plugin.py ...`).
+`--from` is `gain` (no interface), `synth` (a web page), `analyzer` (Draw2D
+and Clay on WebGPU, our own drawing) or `filter` (Dear ImGui). Leave any option out and it
 asks. It also takes `--id` (default `com.<vendor>.<name>`), `--au-subtype` and
 `--au-manufacturer` (4 letters each, made from the name and vendor if you don't
 give them), `--url`, and `--license` (MIT unless you say `none`).
@@ -45,7 +48,7 @@ make a git repository either; when you want one:
 
 ```sh
 cd ~/Development/warm-filter
-cmake -B build && cmake --build build        # check it builds
+cmake -B build && cmake --build build --config Release   # check it builds
 git init && git add -A && git commit -m "Start Warm Filter"
 gh repo create warm-filter --private --source . --push     # or make it on github.com
 ```
@@ -165,10 +168,19 @@ for the GPU examples.)
 In an example's folder (or your own project):
 
 ```sh
-cmake -B build && cmake --build build
+cmake -B build && cmake --build build --config Release
 ```
 
-That builds CLAP, VST3, a standalone app, and AU on macOS, into `build/`.
+That builds CLAP, VST3, a standalone app, and AU on macOS. `--config Release`
+is for Windows, where Visual Studio would build Debug; elsewhere the build is
+Release already. The plugins land here:
+
+| | CLAP | VST3 | Standalone | AU |
+|---|---|---|---|---|
+| macOS | `build/Warm Filter.clap` | `build/Warm Filter.vst3` | `build/Warm Filter.app` | `build/Warm Filter.component` |
+| Windows | `build/CLAP/Release/Warm Filter.clap` | `build/Release/Warm Filter.vst3` | `build/Release/Warm Filter.exe` | |
+| Linux | `build/Warm Filter.clap` | `build/Release/Warm Filter.vst3` | `build/Warm Filter` | |
+
 The first build downloads the dependencies (roughly 65 to 100 MB) and takes a
 few minutes; after that it only rebuilds what changed. To build one format:
 `cmake --build build --target WarmFilter_clap` (or `_vst3`, `_auv2`,
@@ -204,13 +216,14 @@ device needs your team in Xcode, and shipping AAX needs PACE signing.
 
 ### Everything at once
 
-At the top of this repository, `cmake -B build && cmake --build build` builds all
+At the top of this repository, `cmake -B build && cmake --build build --config Release` builds all
 four examples and the tests in one go (downloading once), and
 `ctest --test-dir build` runs the tests.
 
 ## Test
 
-The same checks CI runs, on your own machine:
+The same checks CI runs, on your own machine (paths for macOS; the table under
+[The usual formats](#the-usual-formats) has the others):
 
 ```sh
 clap-validator validate build/Warm\ Filter.clap                  # CLAP

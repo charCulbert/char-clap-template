@@ -7,7 +7,7 @@
 Anything left out is asked for. The new folder gets the example's files with
 its names swapped for yours, only the libraries it uses (libs/), a GitHub
 Actions workflow, a README, a licence and the third-party notices. It builds
-with `cmake -B build && cmake --build build`. It is not made a git repository:
+with `cmake -B build && cmake --build build --config Release`. It is not made a git repository:
 do that yourself when you're ready.
 
 Uses only Python's standard library (3.8+).
@@ -102,7 +102,8 @@ def ask(label, default=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--from", dest="example", choices=EXAMPLES,
-                        help="synth (WebView UI), analyzer (our WebGPU drawing), filter (Dear ImGui), gain (no UI)")
+                        help="gain (no UI), synth (web page UI), analyzer (Draw2D and Clay on WebGPU: our own drawing), "
+                             "filter (Dear ImGui)")
     parser.add_argument("--name", help='the plugin\'s name, e.g. "Warm Filter"')
     parser.add_argument("--vendor", help="you or your company")
     parser.add_argument("--dest", help="the new project's folder (must not exist yet, or be empty)")
@@ -145,7 +146,8 @@ def main():
     }.items(), key=lambda item: -len(item[0]))
     # AudioUnit codes are short, so only where they are codes: quoted, or auval's arguments.
     code_replacements = [(f'"{old["subtype"]}"', f'"{subtype}"'), (f'"{OLD_VENDOR_CODE}"', f'"{vendor_code}"'),
-                         (f' {old["subtype"]} {OLD_VENDOR_CODE}"', f' {subtype} {vendor_code}"')]
+                         (f' {old["subtype"]} {OLD_VENDOR_CODE}"', f' {subtype} {vendor_code}"'),
+                         (f' {old["subtype"]} {OLD_VENDOR_CODE} ', f' {subtype} {vendor_code} ')]  # auval in the README
 
     def copy(source, destination, rewrite=None):
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -193,10 +195,11 @@ def main():
         (dest / ".vscode" / "clap-host.txt").write_text(
             "panel\n" + ("" if example == "gain" else "gui.open\n"), encoding="utf-8")
         (dest / ".vscode" / "tasks.json").write_text(json.dumps({"version": "2.0.0", "tasks": [
-            {"label": "Build", "type": "shell", "command": "cmake -B build && cmake --build build --parallel",
+            {"label": "Build", "type": "shell", "command": "cmake -B build && cmake --build build --config Release --parallel",
              "group": {"kind": "build", "isDefault": True}, "problemMatcher": ["$gcc"]},
             {"label": "Run in clap-host", "type": "shell", "command": "clap-host",
              "args": [f"build/{name}.clap", "--script", ".vscode/clap-host.txt"],
+             "windows": {"args": [f"build/CLAP/Release/{name}.clap", "--script", ".vscode/clap-host.txt"]},
              "dependsOn": "Build", "problemMatcher": []},
         ]}, indent=2) + "\n", encoding="utf-8")
 
@@ -214,7 +217,7 @@ def main():
 
 Next:
   cd "{dest}"
-  cmake -B build && cmake --build build
+  cmake -B build && cmake --build build --config Release
   git init && git add -A && git commit -m "Start {name}"    # when you're ready
 """)
 
