@@ -276,6 +276,17 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
         else if (back) focus = at == order.begin() ? order.back() : *(at - 1);
         else focus = at + 1 == order.end() ? order.front() : *(at + 1);
     }
+    // The control being dragged wasn't declared this frame (it moved, its
+    // drawer closed, the page changed): let go of it, or nothing else could
+    // be pressed, its gesture would stay open and the pointer locked.
+    if (active && !activeSeen)
+    {
+        if (held.params && held.first) held.params->end(*held.first);
+        if (held.params && held.second) held.params->end(*held.second);
+        if (held.locked && lockPointer) lockPointer(false);
+        active = nullptr, numberDrag = 0, held = {};
+    }
+    activeSeen = false;
     // Each press, release, wheel turn and key is seen by one frame.
     mouse.pressed = mouse.released = mouse.doubleClicked = false;
     mouse.wheel = 0;
@@ -337,6 +348,7 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
             grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = fine;
             params.begin(p);
             if (lockPointer) lockPointer(true);
+            held = {&params, &p, nullptr, true};
         }
         else if (mouse.wheel != 0)
             set(params, p, fromUnit(p, unit + mouse.wheel * (fine ? 0.002 : 0.02), log));
@@ -359,6 +371,7 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
         }
 
     if (active != me) return false;
+    activeSeen = true;
     // Switching to or from fine mid-drag continues from where the value is.
     if (fine != grabFine) grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = fine;
     const double moved = (vertical ? grabY - mouse.y : mouse.x - grabX) / (travel * (fine ? 10 : 1));
@@ -367,7 +380,7 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
     if (!mouse.down)
     {
         params.end(p);
-        active = nullptr;
+        active = nullptr, held = {};
         if (lockPointer) lockPointer(false);
     }
     return true;
@@ -464,6 +477,7 @@ Ui::Area Ui::press(const void *id, bool isOver)
         result.wheel = mouse.wheel;
     }
     if (active != id) return result;
+    activeSeen = true;
     result.held = true, result.x = mouse.x, result.y = mouse.y;
     if (!mouse.down) result.released = true, result.clicked = isOver, active = nullptr;
     return result;
@@ -895,6 +909,7 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
         numberDrag = nid.id;
         params.begin(*p);
         if (lockPointer) lockPointer(true);
+        held = {&params, p, nullptr, true};
     }
     else if (a.held && numberDrag == nid.id)
     {
@@ -904,7 +919,7 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
     }
     if (a.released && numberDrag == nid.id)
     {
-        numberDrag = 0;
+        numberDrag = 0, held = {};
         params.end(*p);
         if (lockPointer) lockPointer(false);
     }
@@ -999,9 +1014,9 @@ void Ui::xyPad(Params &params, Param *px, Param *py, Rect r)
         params.change(*py, fromUnit(*py, 1 - (y - r.y) / r.h, false));
     };
     if (a.doubleClicked) set(params, *px, px->defaultValue), set(params, *py, py->defaultValue);
-    if (a.pressed) params.begin(*px), params.begin(*py);
+    if (a.pressed) params.begin(*px), params.begin(*py), held = {&params, px, py, false};
     if (a.held) setFrom(a.x, a.y);
-    if (a.released) params.end(*px), params.end(*py);
+    if (a.released) params.end(*px), params.end(*py), held = {};
     const float x = r.x + r.w * float(toUnit(*px, px->value, false)), y = r.y + r.h * (1 - float(toUnit(*py, py->value, false)));
     draw.rect(r.x, r.y, r.w, r.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.edge);
     draw.line(x, r.y, x, r.y + r.h, 1 * s, theme.edge);

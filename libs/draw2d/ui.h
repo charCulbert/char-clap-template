@@ -251,6 +251,13 @@ private:
     float lastPressX = -1e9f, lastPressY = -1e9f;
 
     const void *active = nullptr; // the control being dragged
+    bool activeSeen = false;      // it was declared this frame
+    struct Held
+    {
+        Params *params = nullptr;
+        Param *first = nullptr, *second = nullptr; // the gesture it began
+        bool locked = false;                       // it locked the pointer
+    } held;
     float grabX = 0, grabY = 0;
     float gripOffsetX = 0, gripOffsetY = 0; // from the pointer to the view's corner
     double grabUnit = 0;

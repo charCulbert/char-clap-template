@@ -456,6 +456,41 @@ static void textFieldShortcuts()
     CHECK(value == "abc");
 }
 
+// A knob that goes away mid-drag (a drawer closed, the page changed) lets
+// go: its gesture ends, the pointer unlocks, and other controls work again.
+static void dragOfVanishedControl()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A"), *b = params.find("B");
+    bool locked = false;
+    ui.lockPointer = [&](bool on) { locked = on; };
+    auto draw = [&](bool withA) {
+        ui.begin(400, 300, 1);
+        if (withA) ui.knob(params, a, gpu::Rect{0, 0, 100, 140}, "%.2f");
+        ui.knob(params, b, gpu::Rect{200, 0, 100, 140}, "%.2f");
+        ui.end(wgpu::RenderPassEncoder{});
+    };
+    draw(true);
+    sent.clear();
+    pointer(ui, View::Pointer::down, 50, 50);
+    draw(true);
+    CHECK(locked && ui.dragging());
+    draw(false);
+    CHECK(!locked && !ui.dragging() && !sent.empty() && sent.back() == "end");
+    pointer(ui, View::Pointer::up, 50, 50);
+    draw(false);
+    const double before = b->value;
+    pointer(ui, View::Pointer::down, 250, 50);
+    draw(false);
+    pointer(ui, View::Pointer::move, 250, 0);
+    draw(false);
+    CHECK(b->value > before);
+    pointer(ui, View::Pointer::up, 250, 0);
+    draw(false);
+}
+
 // Files dragged in land on the box under them; a press on a source that
 // moves past 4 points drags its files out, once.
 static void fileDrags()
@@ -513,6 +548,7 @@ int main()
     textFieldEdits();
     textFieldShortcuts();
     fileDrags();
+    dragOfVanishedControl();
     pianoNotes();
     editors();
     for (uint32_t seed = 1; seed <= 4 && !failures; ++seed) randomInput(seed);
