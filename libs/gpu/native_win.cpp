@@ -4,6 +4,7 @@
 #include <shellapi.h> // DragQueryFileW
 #include <shlobj.h>   // SHCreateDataObject
 #include "native.h"
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -220,38 +221,33 @@ static std::string clipboardText(HWND hwnd)
     return text;
 }
 
-// While a text field is edited, keyboard messages for our window are sent to
-// it straight from the thread's queue: some hosts (Ableton) handle keys in
-// their own message loop and never dispatch them to a plugin's window.
+// Keyboard messages for our windows are taken straight from the thread's
+// queue and handled here, while any of them is open: some hosts act on keys
+// before a focused plugin window sees them. Ableton subclasses the plugin's
+// window and keeps any key the plugin's VST3 view doesn't claim, so the key
+// goes to our window procedure itself, not through DispatchMessage. JUCE,
+// baseview and Visage do the same.
 static HHOOK keyHook = nullptr;
-static HWND editingWindow = nullptr;
+static std::vector<HWND> ourWindows;
+static LRESULT CALLBACK windowProc(HWND, UINT, WPARAM, LPARAM);
 
 static LRESULT CALLBACK keyHookProc(int code, WPARAM removed, LPARAM message)
 {
     auto *m = reinterpret_cast<MSG *>(message);
-    if (code == HC_ACTION && removed == PM_REMOVE && m->hwnd == editingWindow
-        && (m->message == WM_KEYDOWN || m->message == WM_KEYUP || m->message == WM_CHAR))
+    const bool keyboard = m->message == WM_KEYDOWN || m->message == WM_KEYUP || m->message == WM_SYSKEYDOWN
+                       || m->message == WM_SYSKEYUP || m->message == WM_CHAR || m->message == WM_SYSCHAR;
+    if (code == HC_ACTION && removed == PM_REMOVE && keyboard
+        && std::find(ourWindows.begin(), ourWindows.end(), m->hwnd) != ourWindows.end())
     {
-        TranslateMessage(m); // WM_CHAR for WM_KEYDOWN, which comes back through here
-        DispatchMessageW(m);
+        TranslateMessage(m); // WM_CHAR for a WM_KEYDOWN, which comes back through here
+        windowProc(m->hwnd, m->message, m->wParam, m->lParam);
         m->message = WM_NULL; // handled: the host's loop sees nothing
+        return 0;
     }
     return CallNextHookEx(keyHook, code, removed, message);
 }
 
-void textInput(Window *window, bool editing, View::Caret)
-{
-    if (editing && !keyHook)
-    {
-        keyHook = SetWindowsHookExW(WH_GETMESSAGE, keyHookProc, nullptr, GetCurrentThreadId());
-        editingWindow = window->hwnd;
-    }
-    else if (!editing && keyHook && editingWindow == window->hwnd)
-    {
-        UnhookWindowsHookEx(keyHook);
-        keyHook = nullptr, editingWindow = nullptr;
-    }
-}
+void textInput(Window *, bool, View::Caret) {}
 
 bool onScreen(Window *window) { return IsWindowVisible(window->hwnd) && !IsIconic(GetAncestor(window->hwnd, GA_ROOT)); }
 
@@ -426,6 +422,8 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     }
     SetWindowLongPtrW(window->hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(window));
     SetTimer(window->hwnd, 1, 16, nullptr);
+    if (ourWindows.empty()) keyHook = SetWindowsHookExW(WH_GETMESSAGE, keyHookProc, nullptr, GetCurrentThreadId());
+    ourWindows.push_back(window->hwnd);
     // Files dragged in. OLE needs a single-threaded apartment, which hosts'
     // UI threads are; where it can't start, the view just takes no drops.
     const HRESULT ole = OleInitialize(nullptr);
@@ -459,7 +457,8 @@ void lockPointer(Window *window, bool locked)
 void destroy(Window *window)
 {
     lockPointer(window, false);
-    textInput(window, false, {});
+    std::erase(ourWindows, window->hwnd);
+    if (ourWindows.empty() && keyHook) UnhookWindowsHookEx(keyHook), keyHook = nullptr;
     KillTimer(window->hwnd, 1);
     if (window->dropTarget) RevokeDragDrop(window->hwnd), window->dropTarget->Release();
     if (window->ole) OleUninitialize();
