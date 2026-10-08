@@ -1,7 +1,12 @@
 #define NOMINMAX // keep std::min usable
 #include <windows.h>
+#include <ole2.h>
+#include <shellapi.h> // DragQueryFileW
+#include <shlobj.h>   // SHCreateDataObject
 #include "native.h"
+#include <cstring>
 #include <string>
+#include <vector>
 
 // A child HWND in the host's window. Dawn draws into it with D3D12; a Win32
 // timer on it drives frames, and its window procedure forwards the mouse and keys.
@@ -10,15 +15,153 @@ namespace gpu::platform {
 const char *const windowApi = CLAP_WINDOW_API_WIN32;
 const bool needsTimer = false;
 
+struct DropTarget;
+
 struct Window
 {
     HWND hwnd = nullptr;
     Callbacks callbacks;
+    DropTarget *dropTarget = nullptr;         // files dragged in, where OLE works on this thread
+    bool ole = false;                         // OleInitialize succeeded, so OleUninitialize
+    std::vector<std::string> dragging;        // files to drag out, from the next WM_APP_DRAG
     bool locked = false;
     POINT anchor = {};       // screen position the cursor is held at while locked
     float x = 0, y = 0;      // pointer position reported to the view (pixels)
     bool tracking = false;   // asked for WM_MOUSELEAVE
 };
+
+static const UINT WM_APP_DRAG = WM_APP + 1; // drag `dragging` out, outside any frame (DoDragDrop is modal)
+
+static std::string toUtf8(const wchar_t *text)
+{
+    const int size = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
+    std::string utf8(size > 0 ? size - 1 : 0, '\0');
+    if (size > 1) WideCharToMultiByte(CP_UTF8, 0, text, -1, utf8.data(), size, nullptr, nullptr);
+    return utf8;
+}
+
+static std::wstring toWide(const std::string &utf8)
+{
+    const int size = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
+    std::wstring wide(size > 0 ? size - 1 : 0, L'\0');
+    if (size > 1) MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, wide.data(), size);
+    return wide;
+}
+
+// Files dragged in (Explorer's CF_HDROP), passed to View::files.
+struct DropTarget : IDropTarget
+{
+    Window *window;
+    std::vector<std::string> paths; // of the drag over us now
+    ULONG references = 1;
+
+    explicit DropTarget(Window *w) : window(w) {}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void **object) override
+    {
+        *object = id == IID_IUnknown || id == IID_IDropTarget ? this : nullptr;
+        if (!*object) return E_NOINTERFACE;
+        AddRef();
+        return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++references; }
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const ULONG left = --references;
+        if (!left) delete this;
+        return left;
+    }
+    DWORD files(View::FileDrag type, POINTL at)
+    {
+        POINT p = {at.x, at.y};
+        ScreenToClient(window->hwnd, &p);
+        return window->callbacks.files(type, float(p.x), float(p.y), paths) ? DROPEFFECT_COPY : DROPEFFECT_NONE;
+    }
+    HRESULT STDMETHODCALLTYPE DragEnter(IDataObject *data, DWORD, POINTL at, DWORD *effect) override
+    {
+        paths.clear();
+        FORMATETC format = {CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+        STGMEDIUM medium = {};
+        if (SUCCEEDED(data->GetData(&format, &medium)))
+        {
+            auto drop = static_cast<HDROP>(GlobalLock(medium.hGlobal));
+            const UINT count = drop ? DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0) : 0;
+            for (UINT i = 0; i < count; ++i)
+            {
+                std::wstring path(DragQueryFileW(drop, i, nullptr, 0), L'\0');
+                DragQueryFileW(drop, i, path.data(), UINT(path.size() + 1));
+                paths.push_back(toUtf8(path.c_str()));
+            }
+            if (drop) GlobalUnlock(medium.hGlobal);
+            ReleaseStgMedium(&medium);
+        }
+        *effect = paths.empty() ? DROPEFFECT_NONE : files(View::FileDrag::over, at);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DragOver(DWORD, POINTL at, DWORD *effect) override
+    {
+        *effect = paths.empty() ? DROPEFFECT_NONE : files(View::FileDrag::over, at);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DragLeave() override
+    {
+        window->callbacks.files(View::FileDrag::leave, 0, 0, {});
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Drop(IDataObject *, DWORD, POINTL at, DWORD *effect) override
+    {
+        *effect = paths.empty() ? DROPEFFECT_NONE : files(View::FileDrag::drop, at);
+        return S_OK;
+    }
+};
+
+// Files dragged out: the drag goes on while the left button is held.
+struct DropSource : IDropSource
+{
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void **object) override
+    {
+        *object = id == IID_IUnknown || id == IID_IDropSource ? this : nullptr;
+        return *object ? S_OK : E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return 1; } // lives on the stack for the drag
+    ULONG STDMETHODCALLTYPE Release() override { return 1; }
+    HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL escape, DWORD keys) override
+    {
+        return escape ? DRAGDROP_S_CANCEL : keys & MK_LBUTTON ? S_OK : DRAGDROP_S_DROP;
+    }
+    HRESULT STDMETHODCALLTYPE GiveFeedback(DWORD) override { return DRAGDROP_S_USEDEFAULTCURSORS; }
+};
+
+static void dragOut(Window *window)
+{
+    std::wstring list; // DROPFILES: each path and a nul, then one more nul
+    for (const std::string &path : window->dragging) list += toWide(path) + L'\0';
+    window->dragging.clear();
+    if (list.empty()) return;
+    list += L'\0';
+    HGLOBAL memory = GlobalAlloc(GHND, sizeof(DROPFILES) + list.size() * sizeof(wchar_t));
+    if (!memory) return;
+    auto *files = static_cast<DROPFILES *>(GlobalLock(memory));
+    files->pFiles = sizeof(DROPFILES);
+    files->fWide = TRUE;
+    std::memcpy(files + 1, list.data(), list.size() * sizeof(wchar_t));
+    GlobalUnlock(memory);
+    IDataObject *data = nullptr;
+    FORMATETC format = {CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    STGMEDIUM medium = {TYMED_HGLOBAL};
+    medium.hGlobal = memory;
+    if (FAILED(SHCreateDataObject(nullptr, 0, nullptr, nullptr, IID_PPV_ARGS(&data))) || FAILED(data->SetData(&format, &medium, TRUE)))
+    {
+        if (data) data->Release();
+        GlobalFree(memory);
+        return;
+    }
+    DropSource source;
+    DWORD effect = DROPEFFECT_NONE;
+    DoDragDrop(data, &source, DROPEFFECT_COPY, &effect);
+    data->Release();
+    // The drag had the mouse, so the view never saw it let go.
+    window->callbacks.pointer({View::Pointer::up, window->x, window->y, 0});
+}
 
 static HINSTANCE thisModule()
 {
@@ -77,7 +220,11 @@ static std::string clipboardText(HWND hwnd)
 
 void textInput(Window *, bool) {}
 
-void dragFiles(Window *, const std::vector<std::string> &) {}
+void dragFiles(Window *window, const std::vector<std::string> &paths)
+{
+    window->dragging = paths;
+    PostMessageW(window->hwnd, WM_APP_DRAG, 0, 0);
+}
 
 void copyText(Window *window, const std::string &utf8)
 {
@@ -143,6 +290,7 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
     switch (message)
     {
     case WM_TIMER: window->callbacks.frame(); return 0;
+    case WM_APP_DRAG: dragOut(window); return 0;
     case WM_LBUTTONDOWN:
         SetFocus(hwnd); // for keys
         SetCapture(hwnd);
@@ -219,6 +367,15 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     }
     SetWindowLongPtrW(window->hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(window));
     SetTimer(window->hwnd, 1, 16, nullptr);
+    // Files dragged in. OLE needs a single-threaded apartment, which hosts'
+    // UI threads are; where it can't start, the view just takes no drops.
+    const HRESULT ole = OleInitialize(nullptr);
+    window->ole = SUCCEEDED(ole);
+    if (window->ole)
+    {
+        window->dropTarget = new DropTarget(window);
+        if (FAILED(RegisterDragDrop(window->hwnd, window->dropTarget))) window->dropTarget->Release(), window->dropTarget = nullptr;
+    }
     return window;
 }
 
@@ -244,6 +401,8 @@ void destroy(Window *window)
 {
     lockPointer(window, false);
     KillTimer(window->hwnd, 1);
+    if (window->dropTarget) RevokeDragDrop(window->hwnd), window->dropTarget->Release();
+    if (window->ole) OleUninitialize();
     SetWindowLongPtrW(window->hwnd, GWLP_USERDATA, 0);
     DestroyWindow(window->hwnd);
     delete window;
