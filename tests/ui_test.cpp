@@ -580,6 +580,33 @@ static void numberBoxLikeCompost()
     CHECK(std::abs(a->value - 0.5) < 1e-9);
 }
 
+// While a knob is dragged nothing else is hovered, however far the pointer
+// goes; after the release the button under it is.
+static void noHoverWhileDragging()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A");
+    auto draw = [&] {
+        ui.begin(400, 300, 1);
+        ui.knob(params, a, gpu::Rect{0, 0, 100, 140}, "%.2f");
+        CLAY({.layout = {.padding = {200, 0, 200, 0}}}) { ui.button("Go"); }
+        ui.end(wgpu::RenderPassEncoder{});
+    };
+    const Clay_ElementId go = Clay_GetElementIdWithIndex({false, 2, "Go"}, 0);
+    draw();
+    const Clay_BoundingBox b = box("Go");
+    pointer(ui, View::Pointer::down, 50, 50);
+    draw();
+    pointer(ui, View::Pointer::move, b.x + 5, b.y + 5);
+    draw();
+    CHECK(!Clay_PointerOver(go));
+    pointer(ui, View::Pointer::up, b.x + 5, b.y + 5);
+    draw();
+    CHECK(Clay_PointerOver(go));
+}
+
 // A press and a quick flick before the next frame: the press lands where it
 // was made, and the drag follows from there.
 static void flickAfterPress()
@@ -701,6 +728,7 @@ int main()
     longUndoHistory();
     keysBackToHost();
     flickAfterPress();
+    noHoverWhileDragging();
     numberBoxLikeCompost();
     pianoNotes();
     editors();

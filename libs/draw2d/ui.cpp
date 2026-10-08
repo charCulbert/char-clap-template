@@ -135,7 +135,10 @@ void Ui::pointer(const View::PointerEvent &event)
     mouse.modifiers = event.modifiers;
     if (event.type == View::Pointer::down) mouse.down = true;
     if (event.type == View::Pointer::up) mouse.down = false;
-    layout.pointer(mouse.x, mouse.y, mouse.down);
+    // While a control is dragged, nothing else is hovered (as in ImGui): Clay
+    // keeps the pointer where the press was, however far the drag goes.
+    if (active && mouse.down) layout.pointer(lastPressX, lastPressY, true);
+    else layout.pointer(mouse.x, mouse.y, mouse.down);
     if (event.type == View::Pointer::leave && !mouse.down) // over nothing now
     {
         mouse.x = mouse.y = -1e9f;
