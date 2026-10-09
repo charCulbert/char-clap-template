@@ -13,7 +13,8 @@ namespace gpu {
 struct Accessible
 {
     enum class Role { window, group, button, checkBox, radioGroup, radioButton, comboBox, slider, spinButton,
-                      textInput, label, image, listBox, option, splitter, dialog }; // label: text to read (a caption), its words in value
+                      textInput, label, image, listBox, option, splitter, dialog, tabList, tab, tabPanel };
+    // label: text to read (a caption), its words in value; tab: one of a tab list's, selected when it's shown
     // What a screen reader may ask of it: bits.
     enum Action : unsigned { focus = 1, click = 2, increment = 4, decrement = 8, setValue = 16, expand = 32, collapse = 64 };
 
@@ -25,7 +26,7 @@ struct Accessible
     bool numeric = false; // number, min, max and step mean something (sliders)
     double number = 0, min = 0, max = 0, step = 0;
     int checked = -1; // check boxes and radio buttons: 0 or 1; -1 for others
-    bool selected = false; // a list's chosen option
+    bool selected = false; // a list's chosen option, a tab list's shown tab
     bool expanded = false; // a combo box's list is open
     bool live = false;     // read out whenever its value changes (aria-live): announcements
     int orientation = 0;   // sliders: 1 horizontal, 2 vertical (aria-orientation); 0 not said

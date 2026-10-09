@@ -1024,6 +1024,69 @@ bool Ui::segmented(const char *const *items, int count, int &selected, int index
     return changed;
 }
 
+Ui::Tabs Ui::tabs(const char *const *items, int count, int &selected, int index)
+{
+    Tabs result;
+    const Clay_ElementId lid = id("TabList", index);
+    const void *me = reinterpret_cast<const void *>(uintptr_t(lid.id));
+    // Presses and keys first, so every tab draws the new choice.
+    Area any;
+    for (int i = 0; i < count; ++i)
+    {
+        const Area a = element(id("Tab", index * 64 + i), eachPress);
+        if (a.pressed && selected != i) selected = i, result.changed = true;
+        if (a.held) result.held = i, result.x = a.x, result.y = a.y, result.released = a.released;
+        any.pressed |= a.pressed;
+    }
+    order.push_back(me);
+    if (any.pressed) focus = me, pressFocused = true;
+    if (focus == me)
+    {
+        focusUses = keyBit(View::Key::left) | keyBit(View::Key::right) | keyBit(View::Key::home) | keyBit(View::Key::end)
+                  | keyBit(View::Key::up) | keyBit(View::Key::down) | keyBit(View::Key::enter);
+        focusTakesDigits = false;
+        for (auto [key, modifiers] : keys)
+        {
+            if (modifiers & View::alt)
+            {
+                result.altKey = true, result.key = key;
+                continue;
+            }
+            // The arrows wrap, as APG's tabs do.
+            int next = selected;
+            if (key == View::Key::right) next = (selected + 1) % count;
+            else if (key == View::Key::left) next = (selected + count - 1) % count;
+            else if (key == View::Key::home) next = 0;
+            else if (key == View::Key::end) next = count - 1;
+            if (next != selected) selected = next, result.changed = true;
+        }
+    }
+    describe(me, Accessible::Role::tabList, nullptr).element = lid.id;
+    for (int i = 0; i < count; ++i)
+    {
+        const Clay_ElementId tab = id("Tab", index * 64 + i);
+        Described &d = describe(reinterpret_cast<const void *>(uintptr_t(tab.id)), Accessible::Role::tab, items[i], accessId(me));
+        d.element = tab.id, d.node.selected = selected == i, d.node.actions |= Accessible::click;
+    }
+    CLAY({.id = lid, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}},
+          .border = {.color = clayColor(focusShown(me) ? theme.accent : theme.edge), .width = {.bottom = 1}}})
+    {
+        for (int i = 0; i < count; ++i)
+        {
+            const Clay_ElementId tab = id("Tab", index * 64 + i);
+            const bool on = selected == i, hot = Clay_PointerOver(tab);
+            CLAY({.id = tab, .layout = {.padding = {10, 10, 4, 4}}, .backgroundColor = clayColor(on ? theme.panel : Color{0, 0, 0, 0}),
+                  .cornerRadius = {theme.radius, theme.radius, 0, 0},
+                  .border = {.color = clayColor(on ? theme.edge : Color{0, 0, 0, 0}), .width = {1, 1, 1, 0}}})
+            {
+                CLAY_TEXT(layout.text(items[i]), textConfig(on || hot ? theme.text : theme.dim));
+            }
+        }
+    }
+    lastElement = lid.id;
+    return result;
+}
+
 bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
 {
     bool changed = false;
@@ -1725,7 +1788,8 @@ bool Ui::drawer(const char *title, bool &open, float &size, const std::function<
     return open;
 }
 
-bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<void()> &contents, WindowLimits limits, int index)
+bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<void()> &contents, WindowLimits limits, int index,
+                Area *headerArea)
 {
     if (!open) return false;
     const Clay_ElementId wid = id(title, index), hid = id("WindowHeader", wid.id), gid = id("WindowGrip", wid.id),
@@ -1746,6 +1810,7 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
     const Area close = limits.closable ? element(cid, eachPress) : Area{};
     // Dragged by its header.
     const Area header = element(hid);
+    if (headerArea) *headerArea = header; // a dock moving it watches this
     if (header.pressed) windowGrabX = mouse.x / s - frame.x, windowGrabY = mouse.y / s - frame.y;
     if (header.held) frame.x = mouse.x / s - windowGrabX, frame.y = mouse.y / s - windowGrabY;
     // The move pointer over the header, not over its close button (an arrow, as buttons have).

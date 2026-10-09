@@ -23,6 +23,9 @@ static accesskit_role role(Accessible::Role role)
     case Accessible::Role::option: return ACCESSKIT_ROLE_LIST_BOX_OPTION;
     case Accessible::Role::splitter: return ACCESSKIT_ROLE_SPLITTER;
     case Accessible::Role::dialog: return ACCESSKIT_ROLE_DIALOG;
+    case Accessible::Role::tabList: return ACCESSKIT_ROLE_TAB_LIST;
+    case Accessible::Role::tab: return ACCESSKIT_ROLE_TAB;
+    case Accessible::Role::tabPanel: return ACCESSKIT_ROLE_TAB_PANEL;
     }
     return ACCESSKIT_ROLE_GENERIC_CONTAINER;
 }
@@ -54,7 +57,7 @@ accesskit_tree_update *update(const Accessibility &tree)
         // A dropdown or a disclosure (a drawer's header): open or closed, as aria-expanded.
         if (a.role == Accessible::Role::comboBox || a.actions & (Accessible::expand | Accessible::collapse))
             accesskit_node_set_expanded(node, a.expanded);
-        if (a.role == Accessible::Role::option) accesskit_node_set_selected(node, a.selected);
+        if (a.role == Accessible::Role::option || a.role == Accessible::Role::tab) accesskit_node_set_selected(node, a.selected);
         if (a.width > 0 && a.height > 0)
             accesskit_node_set_bounds(node, {a.x, a.y, a.x + a.width, a.y + a.height});
         for (auto [bit, kind] : {std::pair{Accessible::focus, ACCESSKIT_ACTION_FOCUS}, {Accessible::click, ACCESSKIT_ACTION_CLICK},

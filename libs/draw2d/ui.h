@@ -150,6 +150,20 @@ public:
     bool toggle(const char *label, bool &on, int index = 0);
     bool segmented(const char *const *items, int count, int &selected, int index = 0);
     bool dropdown(const char *const *items, int count, int &selected, int index = 0);
+    // Tabs, as ARIA's tab list: one shown at a time. A press or the arrows,
+    // Home and End choose one. Also says, for a dock moving them: the tab held
+    // down (and where the pointer is), and a key pressed with Alt on the
+    // focused list (Alt and the arrows, Alt and Enter).
+    struct Tabs
+    {
+        bool changed = false;
+        int held = -1; // the tab held down, or -1
+        float x = 0, y = 0; // the pointer while one is held, pixels
+        bool released = false; // let go this frame
+        bool altKey = false;
+        View::Key key = View::Key::enter; // with altKey
+    };
+    Tabs tabs(const char *const *items, int count, int &selected, int index = 0);
     // The same three for a parameter, sending its gesture (begin, change, end)
     // when clicked. A toggle is on in the upper half of the range; a segmented
     // control or dropdown's item i is the value min + i.
@@ -197,8 +211,9 @@ public:
     // the arrows resize it, Escape closes it. Screen readers see a dialog
     // named by its title. contents declares what's in it, while it's open.
     // Returns true while it's open.
+    struct Area; // below
     bool window(const char *title, Rect &frame, bool &open, const std::function<void()> &contents, WindowLimits limits = {},
-                int index = 0);
+                int index = 0, Area *header = nullptr);
     // Controls of their own size, in the layout.
     void knob(Params &params, Param *p, const char *format, bool log = false, float diameter = 44);
     void slider(Params &params, Param *p, const char *format, bool log = false);
