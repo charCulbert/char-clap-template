@@ -2,6 +2,7 @@
 // framework. Every cell draws one feature and says underneath what it should
 // look like, so a wrong drawing is visible at a glance.
 #include "draw2d/ui.h"
+#include "draw2d/views.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -77,7 +78,7 @@ public:
     void pointer(const PointerEvent &event) override { ui.pointer(event); }
     bool key(Key key, unsigned modifiers) override { return ui.key(key, modifiers); }
     bool text(const char *utf8) override { return ui.text(utf8); }
-    bool animating() const override { return ui.animating() || page == 4; } // the meters move
+    bool animating() const override { return ui.animating() || page >= 4; } // the meters and the views move
     bool editingText() const override { return ui.editingText(); }
     Caret textCaret() const override { return ui.textCaret(); }
     const gpu::Accessibility *accessibility() const override { return ui.accessibility(); }
@@ -101,8 +102,8 @@ public:
         {
             CLAY({.layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .childGap = 12, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
             {
-                static const char *const pages[] = {"Shapes", "Text", "Controls", "Layout", "More"};
-                ui.segmented(pages, 5, page, 0);
+                static const char *const pages[] = {"Shapes", "Text", "Controls", "Layout", "More", "Views"};
+                ui.segmented(pages, 6, page, 0);
                 ui.label("Page");
                 if (ui.toggle("Windows", windowsOpen)) mixerOpen = notesOpen = windowsOpen;
                 ui.tooltip("Two windows over the page: drag, resize, Tab to a header and use the arrows");
@@ -120,6 +121,7 @@ public:
                 if (page == 2) controlsPage();
                 if (page == 3) layoutPage();
                 if (page == 4) morePage();
+                if (page == 5) viewsPage();
             }
         }
         // Windows over the page, as compost's.
@@ -450,6 +452,65 @@ private:
         });
     }
 
+    // Views of a signal, fed made-up data: drawing only, as the views are.
+    void viewsPage()
+    {
+        const float t = std::chrono::duration<float>(std::chrono::steady_clock::now() - started).count();
+        if (stereoPeaks.empty()) // a plucked tone, the right a little later
+            for (int c = 0; c < 2; ++c)
+            {
+                stereoPeaks.emplace_back();
+                for (int i = 0; i < 600; ++i)
+                {
+                    const float x = float(i) / 600 - 0.1f * float(c), level = x < 0 ? 0 : std::exp(-5 * x) * (0.9f - 0.3f * float(c));
+                    const float wobble = 0.8f + 0.2f * std::sin(float(i) * 0.37f);
+                    stereoPeaks.back().push_back({-level * wobble, level});
+                }
+            }
+        for (int i = 0; i < 256; ++i) // two cycles and a harmonic, drifting
+        {
+            const float phase = float(i) / 256 * 4 * 3.14159265f + t * 2;
+            scopeSamples[size_t(i)] = 0.7f * std::sin(phase) + 0.2f * std::sin(3 * phase);
+        }
+        // A tone sweeping up and down, with its harmonics, over a noise floor.
+        const float sweep = 200 * std::pow(20.0f, 0.5f - 0.5f * std::cos(t * 0.8f));
+        for (size_t i = 0; i < binHz.size(); ++i)
+        {
+            binHz[i] = float(i + 1) * 24000 / float(binHz.size());
+            float level = -95 + 6 * std::sin(float(i) * 12.9898f + t * 78.233f);
+            for (int h = 1; h <= 4; ++h)
+            {
+                const float octaves = std::log2(binHz[i] / (sweep * float(h)));
+                level = std::max(level, -6 * float(h) - 400 * octaves * octaves);
+            }
+            binDb[i] = level;
+        }
+        spectrogram.add(binDb.data(), binHz.data(), binDb.size());
+        row([&] {
+            cell("Waveform: a min and max per bucket, left above right", [&] { gpu::waveform(ui, "Pluck", stereoPeaks, {}, 110); });
+            cell("Scope: samples over a grid; 1 at the top, -1 at the bottom", [&] { gpu::scope(ui, "Oscillator", scopeSamples.data(), scopeSamples.size(), {.range = 1}, 110); });
+        });
+        row([&] {
+            cell("Spectrogram: one column a frame, newest on the right; the analysis is the caller's", [&] {
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 8, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+                {
+                    CLAY({.layout = {.childGap = 12, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
+                    {
+                        static const char *const palettes[] = {"System", "Bone", "Inferno", "Viridis", "Magma"};
+                        static const char *const scales[] = {"Linear", "Log", "Mel"};
+                        gpu::Spectrogram::Options o = spectrogram.settings();
+                        int palette = int(o.palette), scale = int(o.scale);
+                        if (ui.segmented(palettes, 5, palette, 7)) o.palette = gpu::Spectrogram::Palette(palette), spectrogram.configure(o);
+                        ui.label("Palette");
+                        if (ui.segmented(scales, 3, scale, 8)) o.scale = gpu::Spectrogram::Scale(scale), spectrogram.configure(o);
+                        ui.label("Frequency scale");
+                    }
+                    spectrogram.draw(ui, "Sweep", 180);
+                }
+            });
+        });
+    }
+
     void morePage()
     {
         static const char *const names[] = {"Gain", "Mix", "Cutoff", "Drive"};
@@ -654,6 +715,10 @@ private:
     std::vector<float> stepValues = {0.8f, 0.2f, 0.5f, 0.2f, 1.0f, 0.2f, 0.5f, 0.3f, 0.7f, 0.2f, 0.5f, 0.2f, 0.9f, 0.4f, 0.6f, 0.3f};
     bool sync = false, advancedOpen = true, oversample = false, linearPhase = true;
     float peaks[6] = {};
+    std::vector<std::vector<gpu::Peak>> stereoPeaks;
+    std::vector<float> scopeSamples = std::vector<float>(256), binHz = std::vector<float>(512), binDb = std::vector<float>(512);
+    gpu::Spectrogram spectrogram;
+    std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
     std::string name = "Preset 1";
     core::Value::Map sent = data(); // the data the plugin has
     gpu::Params params;
