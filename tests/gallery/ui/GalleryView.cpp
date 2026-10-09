@@ -140,6 +140,7 @@ public:
                   ui.theme.text);
         }, {.minWidth = 160, .minHeight = 80});
         if (!mixerOpen && !notesOpen) windowsOpen = false;
+        if (page == 6) dock.windows(ui, dockPanels()); // the dock's windows, over the page
         ui.resizeGrip(width, height);
         const bool changed = ui.record([&](int kind, void *data, gpu::Rect r) { drawCell(kind, data, r); });
         sendEdit();
@@ -524,27 +525,32 @@ private:
         });
     }
 
-    // The Views page's views as panels in a dock, as ImGui's.
+    // The Views page's views as dockable windows, as ImGui's: the
+    // spectrogram starts in the dock space, the rest in windows of their own.
+    std::vector<gpu::Dock::Panel> dockPanels()
+    {
+        return {
+            {"Spectrogram", [&] { spectrogram.draw(ui, "Sweep", 160); }},
+            {"Scope", [&] { gpu::scope(ui, "Oscillator", scopeSamples.data(), scopeSamples.size(), {}, 120); }},
+            {"Waveform", [&] { gpu::waveform(ui, "Pluck", stereoPeaks, {}, 120); }},
+            {"Controls", [&] {
+                 ui.toggle("Oversample", oversample);
+                 ui.toggle("Linear phase", linearPhase);
+                 if (ui.button("Reset")) windowRate = 1;
+             }},
+        };
+    }
+
     void dockPage()
     {
         viewsData();
-        label("Drag a tab along its bar to move it; pull it out to float it. Drop a moving window on a target: "
-              "the middle joins a group, a side splits it, the dock's edges a side of everything. "
-              "Keys: Alt and the arrows on a focused tab; Alt and Enter floats it; closing a window docks it back.",
+        label("Drag a window by its title onto another, or onto the dock space below: the middle target joins it as tabs, "
+              "a side splits it. A tab bar's empty part moves its window; drag a tab along the bar, or out of it into a "
+              "window of its own. Keys: Alt and the arrows on a focused tab; Alt and Enter pulls it out.",
               ui.theme.dim);
-        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
-        {
-            dock.draw(ui, "Gallery", {
-                {"Spectrogram", [&] { spectrogram.draw(ui, "Sweep", 160); }},
-                {"Scope", [&] { gpu::scope(ui, "Oscillator", scopeSamples.data(), scopeSamples.size(), {}, 120); }},
-                {"Waveform", [&] { gpu::waveform(ui, "Pluck", stereoPeaks, {}, 120); }},
-                {"Controls", [&] {
-                     ui.toggle("Oversample", oversample);
-                     ui.toggle("Linear phase", linearPhase);
-                     if (ui.button("Reset")) windowRate = 1;
-                 }},
-            });
-        }
+        if (dock.layout.space.tabs.empty() && dock.layout.space.children.empty() && dock.layout.windows.empty())
+            dock.layout.space.tabs = {"Spectrogram"};
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) { dock.space(ui, "Gallery", dockPanels()); }
     }
 
     void morePage()
