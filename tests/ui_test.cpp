@@ -143,6 +143,12 @@ static void keyboardFocus()
     ui.key(View::Key::enter, 0);
     draw();
     CHECK(on);
+    CHECK(ui.text(" ")); // Space flips it too, as HTML's checkbox
+    draw();
+    CHECK(!on);
+    ui.text(" ");
+    draw();
+    CHECK(on);
     ui.key(View::Key::tab, 0);
     draw();
     ui.key(View::Key::right, 0);

@@ -344,6 +344,7 @@ private:
     bool focusTakesDigits = false; // it's a number box: typing a number starts editing it
     std::string typedToFocus;    // that typing, until the number box takes it
     bool focusTakesLetters = false; // it's a dropdown: letters jump to an option, Space opens or chooses
+    bool focusTakesSpace = false;   // it's a button, toggle or drawer: Space presses it, as Enter does
     int highlight = -1;             // the open dropdown's highlighted option (the keys move it)
     bool pressFocused = false;   // this frame's press focused a control
     bool wheelUsed = false;      // a control turned with this frame's wheel

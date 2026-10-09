@@ -198,6 +198,13 @@ bool Ui::text(const char *utf8)
         typedToFocus += utf8;
         return true;
     }
+    // Space presses a focused button, toggle or drawer (as HTML's do);
+    // it comes as typed text, not a key.
+    if (!editing && focus && focusTakesSpace && std::strcmp(utf8, " ") == 0)
+    {
+        keys.push_back({View::Key::enter, 0});
+        return true;
+    }
     if (!editing) return false;
     edits.push_back({utf8, {}, 0});
     return true;
@@ -266,7 +273,7 @@ void Ui::begin(float width, float height, float scale)
     menuSeen = false;
     lastElement = 0;
     settle = mouse.pressed || mouse.released || !keys.empty() || mouse.wheel != 0;
-    focusTakesLetters = false; // a focused dropdown says so again
+    focusTakesLetters = focusTakesSpace = false; // a focused dropdown, button or toggle says so again
     tooltipWaiting = false;
 }
 
@@ -860,10 +867,10 @@ std::vector<View::Key> Ui::focusable(Clay_ElementId element, const Area &a)
     const void *me = reinterpret_cast<const void *>(uintptr_t(element.id));
     order.push_back(me);
     if (a.pressed) focus = me, pressFocused = true;
-    if (focus == me) // buttons, toggles, segmented, dropdowns: Enter, and arrows to choose
+    if (focus == me) // buttons, toggles, segmented, dropdowns: Enter (and Space), and arrows to choose
         focusUses = keyBit(View::Key::enter) | keyBit(View::Key::left) | keyBit(View::Key::right) | keyBit(View::Key::up)
                   | keyBit(View::Key::down),
-        focusTakesDigits = false;
+        focusTakesDigits = false, focusTakesSpace = true;
     std::vector<View::Key> mine;
     if (focus == me)
         for (auto [key, modifiers] : keys)
