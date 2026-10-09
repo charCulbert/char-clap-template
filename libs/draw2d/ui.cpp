@@ -1036,6 +1036,12 @@ Ui::Tabs Ui::tabs(const char *const *items, int count, int &selected, int index)
         const Area a = element(id("Tab", index * 64 + i), eachPress);
         if (a.pressed && selected != i) selected = i, result.changed = true;
         if (a.held) result.held = i, result.x = a.x, result.y = a.y, result.released = a.released;
+        // Under the pointer now (Clay's hover trails it by a frame): the last frame's box.
+        if (const Clay_ElementData d = Clay_GetElementData(id("Tab", index * 64 + i)); d.found)
+        {
+            const Clay_BoundingBox &b = d.boundingBox;
+            if (mouse.x >= b.x * s && mouse.x < (b.x + b.width) * s && mouse.y >= b.y * s && mouse.y < (b.y + b.height) * s) result.over = i;
+        }
         any.pressed |= a.pressed;
     }
     order.push_back(me);
@@ -1061,6 +1067,8 @@ Ui::Tabs Ui::tabs(const char *const *items, int count, int &selected, int index)
             if (next != selected) selected = next, result.changed = true;
         }
     }
+    if (const Clay_ElementData bar = Clay_GetElementData(lid); bar.found)
+        result.bar = {bar.boundingBox.x * s, bar.boundingBox.y * s, bar.boundingBox.width * s, bar.boundingBox.height * s};
     describe(me, Accessible::Role::tabList, nullptr).element = lid.id;
     for (int i = 0; i < count; ++i)
     {
