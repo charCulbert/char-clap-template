@@ -22,7 +22,7 @@ cmake -B build && cmake --build build --config Release
 ```
 
 That builds CLAP, VST3, AU (macOS) and a standalone app. It needs CMake 3.28+
-and a C++20 compiler (on Linux also `libasound2-dev` and `libx11-dev`). `--config Release` is for
+and a C++20 compiler (on Linux also `libasound2-dev`, `libx11-dev` and `libxrandr-dev`). `--config Release` is for
 Windows, where Visual Studio would build Debug; elsewhere the build is Release
 already. The plugins land here:
 

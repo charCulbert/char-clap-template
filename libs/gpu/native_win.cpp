@@ -3,15 +3,19 @@
 #include <ole2.h>
 #include <shellapi.h> // DragQueryFileW
 #include <shlobj.h>   // SHCreateDataObject
+#include <dxgi.h>     // the monitor's vertical blank, to time frames
 #include "native.h"
 #include "accesskit_tree.h"
 #include <algorithm>
+#include <atomic>
 #include <cstring>
+#include <thread>
 #include <string>
 #include <vector>
 
-// A child HWND in the host's window. Dawn draws into it with D3D12; a Win32
-// timer on it drives frames, and its window procedure forwards the mouse and keys.
+// A child HWND in the host's window. Dawn draws into it with D3D12; a thread
+// waiting for its monitor's vertical blank drives frames (as JUCE's does), and
+// its window procedure forwards the mouse and keys.
 namespace gpu::platform {
 
 const char *const windowApi = CLAP_WINDOW_API_WIN32;
@@ -35,6 +39,8 @@ struct Window
     HCURSOR cursor = LoadCursor(nullptr, IDC_ARROW); // over the view (setCursor)
     accesskit_windows_adapter *access = nullptr; // screen readers, through UI Automation
     Accessibility tree;                          // the view's, as screen readers last had it
+    std::thread vblank;                          // posts WM_APP_FRAME at each vertical blank
+    std::atomic<bool> running{true}, framePosted{false};
 };
 
 // A screen reader's request, carried to the window's thread (AccessKit may
@@ -48,6 +54,52 @@ struct AccessRequest
 
 static const UINT WM_APP_DRAG = WM_APP + 1; // drag `dragging` out, outside any frame (DoDragDrop is modal)
 static const UINT WM_APP_ACCESS = WM_APP + 2; // an AccessRequest *, from accessAction
+static const UINT WM_APP_FRAME = WM_APP + 3;  // draw a frame: from the vblank thread
+
+// The DXGI output showing a monitor, for its vertical blank.
+static IDXGIOutput *outputFor(IDXGIFactory1 *factory, HMONITOR monitor)
+{
+    IDXGIAdapter1 *adapter = nullptr;
+    for (UINT a = 0; factory->EnumAdapters1(a, &adapter) == S_OK; ++a)
+    {
+        IDXGIOutput *output = nullptr;
+        for (UINT o = 0; adapter->EnumOutputs(o, &output) == S_OK; ++o)
+        {
+            DXGI_OUTPUT_DESC desc;
+            if (SUCCEEDED(output->GetDesc(&desc)) && desc.Monitor == monitor)
+            {
+                adapter->Release();
+                return output;
+            }
+            output->Release();
+        }
+        adapter->Release();
+    }
+    return nullptr;
+}
+
+// A frame at each vertical blank of the monitor the window is on (found again
+// when it moves), one at a time: the next waits until the last was drawn.
+static void vblankLoop(Window *window)
+{
+    IDXGIFactory1 *factory = nullptr;
+    CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void **>(&factory));
+    IDXGIOutput *output = nullptr;
+    HMONITOR shownOn = nullptr;
+    while (window->running)
+    {
+        const HMONITOR monitor = MonitorFromWindow(window->hwnd, MONITOR_DEFAULTTONEAREST);
+        if (factory && monitor != shownOn)
+        {
+            if (output) output->Release();
+            output = outputFor(factory, monitor), shownOn = monitor;
+        }
+        if (!output || FAILED(output->WaitForVBlank())) Sleep(16); // no output to wait on (a remote session): about 60 Hz
+        if (!window->framePosted.exchange(true)) PostMessageW(window->hwnd, WM_APP_FRAME, 0, 0);
+    }
+    if (output) output->Release();
+    if (factory) factory->Release();
+}
 
 static accesskit_tree_update *wholeTree(void *window) { return accesskit::update(static_cast<Window *>(window)->tree); }
 
@@ -358,7 +410,10 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
     }
     switch (message)
     {
-    case WM_TIMER: window->callbacks.frame(); return 0;
+    case WM_APP_FRAME:
+        window->framePosted = false;
+        window->callbacks.frame();
+        return 0;
     case WM_APP_DRAG: dragOut(window); return 0;
     case WM_APP_ACCESS:
     {
@@ -480,7 +535,7 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     }
     window->access = accesskit_windows_adapter_new(window->hwnd, GetFocus() == window->hwnd, accessAction, window->hwnd);
     SetWindowLongPtrW(window->hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(window));
-    SetTimer(window->hwnd, 1, 16, nullptr);
+    window->vblank = std::thread(vblankLoop, window);
     if (ourWindows.empty()) keyHook = SetWindowsHookExW(WH_GETMESSAGE, keyHookProc, nullptr, GetCurrentThreadId());
     ourWindows.push_back(window->hwnd);
     // Files dragged in. OLE needs a single-threaded apartment, which hosts'
@@ -540,7 +595,8 @@ void destroy(Window *window)
     lockPointer(window, false);
     std::erase(ourWindows, window->hwnd);
     if (ourWindows.empty() && keyHook) UnhookWindowsHookEx(keyHook), keyHook = nullptr;
-    KillTimer(window->hwnd, 1);
+    window->running = false;
+    window->vblank.join(); // back within a frame
     if (window->dropTarget) RevokeDragDrop(window->hwnd), window->dropTarget->Release();
     if (window->ole) OleUninitialize();
     SetWindowLongPtrW(window->hwnd, GWLP_USERDATA, 0); // WM_GETOBJECT from here on gets the default answer
@@ -570,6 +626,7 @@ float scale(Window *window) { return float(window ? GetDpiForWindow(window->hwnd
 void setVisible(Window *window, bool visible) { ShowWindow(window->hwnd, visible ? SW_SHOW : SW_HIDE); }
 
 void pumpEvents(Window *) {}
+float refreshRate(Window *) { return 0; } // the vertical blank paces frames
 
 // Settings > Personalization > Colors > "Choose your app mode".
 bool darkMode(Window *)

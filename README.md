@@ -161,10 +161,10 @@ You need CMake 3.28 or newer and a C++20 compiler: Xcode on macOS, Visual
 Studio 2022 on Windows, GCC or Clang on Linux. On Linux, also:
 
 ```sh
-sudo apt install libasound2-dev libx11-dev libgtk-3-dev libwebkit2gtk-4.1-dev
+sudo apt install libasound2-dev libx11-dev libxrandr-dev libgtk-3-dev libwebkit2gtk-4.1-dev
 ```
 
-(`libgtk-3-dev` and `libwebkit2gtk-4.1-dev` are for the web page, `libx11-dev`
+(`libgtk-3-dev` and `libwebkit2gtk-4.1-dev` are for the web page, `libx11-dev` and `libxrandr-dev`
 for the GPU examples.)
 
 ### The usual formats

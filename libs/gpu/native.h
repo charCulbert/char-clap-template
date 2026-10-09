@@ -32,6 +32,7 @@ void pixelSize(Window *window, uint32_t &width, uint32_t &height);
 float scale(Window *window); // pixels per logical point
 void setVisible(Window *window, bool visible);
 void pumpEvents(Window *window); // only where needsTimer
+float refreshRate(Window *window); // its monitor's, in Hz (0 if unknown): where needsTimer, the timer's pace
 void lockPointer(Window *window, bool locked); // see View::lockPointer
 void setCursor(Window *window, View::Cursor cursor); // see View::setCursor
 bool darkMode(Window *window); // the system's (or host window's) appearance; polled about once a second

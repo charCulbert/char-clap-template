@@ -1,4 +1,5 @@
 #include "native.h"
+#include <X11/extensions/Xrandr.h>
 #include <X11/Xlib.h> // after webgpu_cpp.h: Xlib defines macros such as Status and None
 #include <X11/keysym.h>
 #include <X11/Xatom.h>
@@ -247,6 +248,37 @@ bool darkMode(Window *)
 {
     const char *theme = std::getenv("GTK_THEME");
     return !(theme && std::strstr(theme, ":light"));
+}
+
+// The refresh rate of the monitor under the window's middle, from XRandR's
+// current mode (as JUCE paces its Linux frames); 0 if it can't tell.
+float refreshRate(Window *window)
+{
+    Display *display = window->display;
+    const ::Window root = DefaultRootWindow(display);
+    XWindowAttributes attributes;
+    int x = 0, y = 0;
+    ::Window child;
+    if (!XGetWindowAttributes(display, window->window, &attributes)
+        || !XTranslateCoordinates(display, window->window, root, attributes.width / 2, attributes.height / 2, &x, &y, &child))
+        return 0;
+    XRRScreenResources *resources = XRRGetScreenResourcesCurrent(display, root);
+    if (!resources) return 0;
+    float rate = 0;
+    for (int i = 0; i < resources->ncrtc && rate == 0; ++i)
+    {
+        XRRCrtcInfo *crtc = XRRGetCrtcInfo(display, resources, resources->crtcs[i]);
+        if (!crtc) continue;
+        if (crtc->mode && x >= crtc->x && y >= crtc->y && x < crtc->x + int(crtc->width) && y < crtc->y + int(crtc->height))
+            for (int m = 0; m < resources->nmode; ++m)
+            {
+                const XRRModeInfo &mode = resources->modes[m];
+                if (mode.id == crtc->mode && mode.hTotal && mode.vTotal) rate = float(double(mode.dotClock) / (double(mode.hTotal) * mode.vTotal));
+            }
+        XRRFreeCrtcInfo(crtc);
+    }
+    XRRFreeScreenResources(resources);
+    return rate;
 }
 
 float scale(Window *window)

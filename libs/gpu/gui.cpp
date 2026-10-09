@@ -175,6 +175,15 @@ bool Gui::setParent(const clap_window_t *parent)
     context->configure(w, h);
     dirty = true;
     view->prepare(context->device, context->format); // sends "ready"
+    // Where the host's timer draws frames, as often as the monitor refreshes
+    // (8 ms at 120 Hz), not just every 16 ms.
+    if (platform::needsTimer && timer != CLAP_INVALID_ID)
+        if (const float rate = platform::refreshRate(window); rate > 0)
+            if (const uint32_t period = uint32_t(std::clamp(1000.0f / rate, 4.0f, 16.0f)); period != 16)
+            {
+                hostTimers->unregister_timer(host, timer);
+                if (!hostTimers->register_timer(host, period, &timer)) hostTimers->register_timer(host, 16, &timer);
+            }
     return true;
 }
 
