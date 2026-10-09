@@ -176,9 +176,12 @@ public:
         upload(ui);
         const double n = options.columns;
         // The history's right edge, in columns added, and how many show: all
-        // of them, or (scrolling smoothly) all but the one being overwritten.
+        // of them, or (scrolling smoothly) all but the ones that may already
+        // be overwritten: the edge lags up to maxLag columns behind the
+        // newest, and the viewport's left end lags with it, so maxLag + 1
+        // of the oldest slots (those the newest columns went into) stay out.
         double end = double(added), count = n;
-        if (options.smooth && options.columns > 1) end = scroll(ui), count = n - 1;
+        if (options.smooth && options.columns > maxLag + 1) end = scroll(ui), count = n - (maxLag + 1);
         const double start = std::fmod(std::fmod(end - count, n) + n, n); // where the left edge is, in the ring
         const double first = std::min(count, n - start);                   // up to the ring's end, then from its start
         if (image >= 0)
@@ -207,7 +210,8 @@ public:
 private:
     // Where the right edge is now (in columns added): moving at the rate they
     // arrive, so a pair arriving together doesn't jump, a column behind the
-    // newest; caught up if it falls three behind; still when they stop.
+    // newest; caught up if it falls maxLag (three) behind; still when they stop.
+    static constexpr int maxLag = 3;
     double scroll(Ui &ui)
     {
         using namespace std::chrono;
@@ -221,8 +225,8 @@ private:
             return edge;
         }
         const double rate = double(arrivals.size() - 1) / std::max(1e-3, duration<double>(arrivals.back() - arrivals.front()).count());
-        edge = std::clamp(edge + dt * rate, double(added) - 3, double(added));
-        if (edge <= double(added) - 3) edge = double(added) - 1.5; // fell behind: back to about a column and a half
+        edge = std::clamp(edge + dt * rate, double(added) - maxLag, double(added));
+        if (edge <= double(added) - maxLag) edge = double(added) - 1.5; // fell behind: back to about a column and a half
         ui.animate();
         return edge;
     }
@@ -317,12 +321,12 @@ private:
     }
 
     // Brings the image up to date: all of it when it's new (or the device was
-    // lost, or the mapping or colours changed), else the columns added since.
+    // lost, or the size, mapping or colours changed), else the columns added since.
     void upload(Ui &ui)
     {
         Color now[5];
         ramp(ui.theme, now);
-        bool all = !mapped || redraw || image < 0 || prepared != ui.draw.prepared() || imageRows != options.rows;
+        bool all = !mapped || redraw || image < 0 || prepared != ui.draw.prepared() || imageColumns != options.columns || imageRows != options.rows;
         for (int i = 0; i < 5; ++i) all |= now[i].r != shown[i].r || now[i].g != shown[i].g || now[i].b != shown[i].b;
         if (all)
         {
@@ -331,8 +335,23 @@ private:
             for (int c = 0; c < options.columns; ++c) colour(c, now);
             std::copy(now, now + 5, shown);
             redraw = false;
-            if (image < 0 || prepared != ui.draw.prepared() || imageRows != options.rows)
-                image = ui.draw.addImage(pixels.data(), options.columns, options.rows), prepared = ui.draw.prepared(), imageRows = options.rows;
+            if (prepared != ui.draw.prepared()) images.clear(), image = -1, prepared = ui.draw.prepared();
+            if (image < 0 || imageColumns != options.columns || imageRows != options.rows)
+            {
+                // Draw2D can't drop an image, so one made for a size is kept and
+                // reused when that size comes back: toggling between sizes costs
+                // one texture per distinct size used, not one per toggle.
+                image = -1;
+                for (const Sized &s : images)
+                    if (s.columns == options.columns && s.rows == options.rows) image = s.image;
+                if (image < 0)
+                {
+                    image = ui.draw.addImage(pixels.data(), options.columns, options.rows);
+                    if (image >= 0) images.push_back({options.columns, options.rows, image});
+                }
+                else ui.draw.updateImage(image, pixels.data(), 0, 0, options.columns, options.rows);
+                imageColumns = options.columns, imageRows = options.rows;
+            }
             else ui.draw.updateImage(image, pixels.data(), 0, 0, options.columns, options.rows);
             changed.clear();
             return;
@@ -359,7 +378,9 @@ private:
     double edge = 0;            // smooth: the right edge's place, in columns added
     std::deque<std::chrono::steady_clock::time_point> arrivals; // the last columns' times
     std::chrono::steady_clock::time_point lastDraw;
-    int image = -1, imageRows = 0;
+    int image = -1, imageColumns = 0, imageRows = 0; // the texture in use, and its size
+    struct Sized { int columns, rows, image; };
+    std::vector<Sized> images; // every texture made, by size, for reuse
     unsigned prepared = 0; // Draw2D::prepared() when the image was added
     bool mapped = false, redraw = true; // the rows' bins are known; the whole picture is to be coloured again
     Color shown[5] = {};

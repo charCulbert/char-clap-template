@@ -306,6 +306,47 @@ int main(int argc, char **argv)
         CHECK(is(px, before, top, {0.961f, 0.922f, 0.831f}) && is(px, newest, top, {0.039f, 0.043f, 0.047f}));
     }
 
+    // A spectrogram resized: more columns than it began with take columns
+    // written past the old width; toggling sizes reuses a size's texture, so
+    // the images in Draw2D stop growing (a probe image's number shows it).
+    {
+        Ui ui;
+        CHECK(ui.draw.prepare(gpu.device, format, font));
+        Spectrogram spectrogram({.minFrequency = 0, .maxFrequency = 1000, .scale = Spectrogram::Scale::linear,
+                                 .palette = Spectrogram::Palette::inferno, .columns = 4, .rows = 2, .smooth = false});
+        const Color quiet = black, loud{1, 0.973f, 0.263f};
+        const float frequencies[] = {250, 750};
+        const float lowLoud[] = {0, -100}, highLoud[] = {-100, 0};
+        auto shot = [&] { return gpu.render(ui.draw, [&] { spectrogram.draw(ui, "Spectrum", {0.5f, 0.5f, float(size), float(size)}); }); };
+        spectrogram.add(lowLoud, frequencies, 2);
+        px = shot();
+        auto settings = spectrogram.settings();
+        settings.columns = 8;
+        spectrogram.configure(settings);
+        for (int i = 0; i < 6; ++i) spectrogram.add(i == 5 ? highLoud : lowLoud, frequencies, 2); // slots 4 and 5 are past the old width
+        px = shot();
+        const int top = size / 4, bottom = size * 3 / 4;
+        CHECK(is(px, size * 15 / 16, top, loud) && is(px, size * 15 / 16, bottom, quiet)); // the newest, slot 5
+        CHECK(is(px, size * 13 / 16, bottom, loud) && is(px, size * 13 / 16, top, quiet)); // slot 4
+        // Fewer columns again leaves no stale texels from the wider history.
+        settings.columns = 4;
+        spectrogram.configure(settings);
+        spectrogram.add(lowLoud, frequencies, 2);
+        px = shot();
+        CHECK(is(px, size * 7 / 8, bottom, loud) && is(px, size / 8, bottom, quiet));
+        // Toggling the rows makes one texture per size, not one per toggle.
+        const uint8_t one[4] = {};
+        const int before = ui.draw.addImage(one, 1, 1);
+        for (int i = 0; i < 6; ++i)
+        {
+            settings.rows = i % 2 ? 2 : 4;
+            spectrogram.configure(settings);
+            px = shot();
+        }
+        CHECK(is(px, size * 7 / 8, bottom, loud) && is(px, size / 8, bottom, quiet)); // still drawing right
+        CHECK(ui.draw.addImage(one, 1, 1) == before + 2); // the rows-4 texture was new; the rest were reused
+    }
+
     // Text: ink where the letters are; widths that follow UTF-8 characters,
     // not bytes; a visible box for a character the font lacks.
     if (!font.empty())
