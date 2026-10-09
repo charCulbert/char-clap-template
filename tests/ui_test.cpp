@@ -2,6 +2,7 @@
 // and key events in, element rectangles, values and parameter messages out.
 // Draw2D records draws but never flushes them, having no device.
 #include "../libs/draw2d/ui.h"
+#include <set>
 #include <clocale>
 #include <cstring>
 #include <iterator>
@@ -536,6 +537,18 @@ static void splitPanes()
 // A window: dragged by its header and kept inside the view, resized from
 // its corner within its limits, in front when pressed; nothing under it
 // takes the pointer; its header's keys; a dialog for screen readers.
+// Every node but the root is some node's child, as AccessKit requires.
+static bool everyNodeHasParent(const Ui &ui)
+{
+    const gpu::Accessibility *tree = ui.accessibility();
+    if (!tree) return true;
+    std::set<uint64_t> children;
+    for (const gpu::Accessible &n : tree->nodes) children.insert(n.children.begin(), n.children.end());
+    for (size_t i = 1; i < tree->nodes.size(); ++i)
+        if (!children.count(tree->nodes[i].id)) return false;
+    return true;
+}
+
 static void windows()
 {
     Ui ui;
@@ -547,9 +560,13 @@ static void windows()
     auto draw = [&] {
         frame(ui, [&] {
             ui.knob(params, a, "%.2f"); // under the windows
+            // On the page, under where Two ends up (as the gallery's text is under its notes).
+            CLAY({.floating = {.offset = {two.x + 20, two.y + 50}, .attachTo = CLAY_ATTACH_TO_ROOT}}) { ui.button("Under"); }
             ui.window("One", one, openOne, [&] { if (ui.button("Inside")) clicked = true; });
-            ui.window("Two", two, openTwo, [] {}, {.minWidth = 160, .minHeight = 100});
+            ui.window("Two", two, openTwo, [] { CLAY_TEXT(CLAY_STRING("Words"), CLAY_TEXT_CONFIG({.fontSize = 13})); },
+                      {.minWidth = 160, .minHeight = 100});
         });
+        CHECK(everyNodeHasParent(ui)); // the frame a window closes in, too
     };
     draw();
     draw();
@@ -608,6 +625,7 @@ static void windows()
     // The close button closes it.
     clickAt(ui, box("WindowClose", Clay_GetElementId(CLAY_STRING("Two")).id), draw);
     CHECK(!openTwo);
+    draw(); // the frame after: the page under it is the page's again
 }
 
 // A docked drawer: its header opens and closes it; its handle resizes it,
@@ -651,6 +669,71 @@ static void dockedDrawers()
     CHECK(named);
     clickAt(ui, box("Drawer", 0), draw); // its header closes it
     CHECK(!topOpen);
+}
+
+// The same drag at 2 pixels a point (a Retina or 2x desktop).
+static void splitAtScale()
+{
+    Ui ui;
+    float size = 100;
+    auto draw = [&] {
+        ui.begin(800, 600, 2);
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(10)}})
+        {
+            ui.split("Scaled", size, [] {}, [] {}, {.min = 40, .secondMin = 40});
+        }
+        ui.end(wgpu::RenderPassEncoder{});
+    };
+    draw();
+    draw();
+    const Clay_BoundingBox line = box("SplitDivider", Clay_GetElementId(CLAY_STRING("Scaled")).id); // points
+    const float x = (line.x + 3) * 2, y = (line.y + 20) * 2; // pixels
+    pointer(ui, View::Pointer::down, x, y);
+    draw();
+    pointer(ui, View::Pointer::move, x + 80, y); // 40 points right
+    draw();
+    pointer(ui, View::Pointer::up, x + 80, y);
+    draw();
+    CHECK(std::abs(size - 140) < 0.5f);
+
+    // A drag that ends outside the view, as X11 reports it: the release,
+    // then a leave, before the next frame. The release counts where it was.
+    {
+        const Clay_BoundingBox at = box("SplitDivider", Clay_GetElementId(CLAY_STRING("Scaled")).id);
+        const float px = (at.x + 3) * 2, py = (at.y + 20) * 2;
+        pointer(ui, View::Pointer::down, px, py);
+        draw();
+        pointer(ui, View::Pointer::move, px + 40, py);
+        draw();
+        pointer(ui, View::Pointer::move, 2000, py);
+        draw();
+        const float dragged = size;
+        pointer(ui, View::Pointer::up, 2000, py);
+        pointer(ui, View::Pointer::leave, 2000, py);
+        draw();
+        CHECK(size == dragged && size > 140);
+    }
+
+    // A room that shrinks for a moment draws it smaller, but keeps its size.
+    float kept = 200, room = 400;
+    auto inRoom = [&] {
+        ui.begin(800, 600, 2);
+        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(room), CLAY_SIZING_FIXED(100)}}})
+        {
+            ui.split("Room", kept, [] {}, [] {}, {.min = 40, .secondMin = 40});
+        }
+        ui.end(wgpu::RenderPassEncoder{});
+    };
+    inRoom();
+    inRoom();
+    room = 150;
+    inRoom();
+    inRoom();
+    CHECK(kept == 200 && box("SplitDivider", Clay_GetElementId(CLAY_STRING("Room")).id).x + 7 <= 150 + 0.5f);
+    room = 400;
+    inRoom();
+    inRoom();
+    CHECK(kept == 200 && std::abs(box("SplitDivider", Clay_GetElementId(CLAY_STRING("Room")).id).x - 200) < 1);
 }
 
 static void knobDragAndKeys()
@@ -1231,6 +1314,7 @@ int main()
     splitPanes();
     windows();
     dockedDrawers();
+    splitAtScale();
     parameterToggleAndSegmented();
     textFieldEdits();
     textFieldShortcuts();

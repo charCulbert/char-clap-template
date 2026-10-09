@@ -144,6 +144,14 @@ void Ui::pointer(const View::PointerEvent &event)
     else layout.pointer(mouse.x, mouse.y, mouse.down);
     if (event.type == View::Pointer::leave && !mouse.down) // over nothing now
     {
+        // Right after a release this frame hasn't seen (X11 sends the leave
+        // as a drag ends outside the view), the release happens where it was:
+        // the pointer goes once the frame has seen it.
+        if (mouse.released)
+        {
+            leftAfterRelease = true;
+            return;
+        }
         mouse.x = mouse.y = -1e9f;
         layout.pointer(mouse.x, mouse.y, false);
         return;
@@ -270,12 +278,13 @@ void Ui::begin(float width, float height, float scale)
     said.clear();
     layout.begin(draw, width, height, scale);
     overPopup = openMenu && Clay_PointerOver({openMenu, 0, 0, {}});
-    // The frontmost window under the pointer: controls outside it don't take the pointer.
+    // The windows still open; the frontmost one under the pointer: controls
+    // outside it don't take the pointer.
+    std::erase_if(windowOrder, [&](uint32_t w) { return std::find(windowsNow.begin(), windowsNow.end(), w) == windowsNow.end(); });
+    windowsNow.clear();
     windowUnder = 0;
     for (auto w = windowOrder.rbegin(); w != windowOrder.rend() && !windowUnder; ++w)
         if (inside({*w, 0, 0, {}}, mouse.x, mouse.y)) windowUnder = *w;
-    std::erase_if(windowOrder, [&](uint32_t w) { return std::find(windowsNow.begin(), windowsNow.end(), w) == windowsNow.end(); });
-    windowsNow.clear();
     menuSeen = false;
     lastElement = 0;
     settle = mouse.pressed || mouse.released || !keys.empty() || mouse.wheel != 0;
@@ -386,6 +395,7 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
     // Each press, release, wheel turn and key is seen by one frame; moves
     // held back behind a press go in now, for the next.
     mouse.pressed = mouse.released = mouse.doubleClicked = mouse.moved = false;
+    if (std::exchange(leftAfterRelease, false)) mouse.x = mouse.y = -1e9f, layout.pointer(mouse.x, mouse.y, false);
     mouse.wheel = mouse.scroll = 0;
     if (const std::optional<View::PointerEvent> move = std::exchange(heldMove, std::nullopt)) pointer(*move), settle = true;
     keys.clear();
@@ -551,7 +561,9 @@ void Ui::finishDescribing()
     {
         const std::optional<Rect> r = box(*w);
         const uint64_t dialogId = accessId(reinterpret_cast<const void *>(uintptr_t(id("WindowHeader", *w).id)));
-        if (!r) continue;
+        // Not one that closed this frame: it didn't describe itself, and a
+        // child of a node that isn't there is an error to AccessKit.
+        if (!r || std::none_of(entries.begin(), entries.end(), [&](const Entry &e) { return e.node.id == dialogId; })) continue;
         for (Entry &e : entries)
             if (!e.parent && e.node.id != dialogId && e.node.width > 0 && contains(*r, {e.node.x, e.node.y, e.node.width, e.node.height}))
                 e.parent = dialogId;
@@ -1563,8 +1575,10 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
 // collapse its area and restore it. size is that area's (points), measured
 // from origin, growing in direction sign along the handle's axis (y when
 // vertical). Declare its element with handleBox after.
-void Ui::handle(Clay_ElementId hid, const char *name, float &size, float min, float most, bool vertical, float origin, int sign)
+bool Ui::handle(Clay_ElementId hid, const char *name, float &size, float *kept, float min, float most, bool vertical, float origin,
+                int sign)
 {
+    const float before = size;
     auto clamp = [&](float v) { return std::clamp(v, min, most); };
     const Area a = element(hid);
     const float along = (vertical ? mouse.y : mouse.x) / s;
@@ -1575,7 +1589,7 @@ void Ui::handle(Clay_ElementId hid, const char *name, float &size, float min, fl
     for (View::Key key : focusable(hid, a))
     {
         // The arrows move the handle on screen: its area grows or shrinks as it does.
-        const float step = mouse.modifiers & View::shift ? 1 : 16;
+        const float step = mouse.modifiers & View::shift ? 1.0f : 16.0f;
         const bool back = vertical ? key == View::Key::up : key == View::Key::left;
         const bool forth = vertical ? key == View::Key::down : key == View::Key::right;
         if (back || forth) size = clamp(size + (forth ? step : -step) * float(sign));
@@ -1600,8 +1614,9 @@ void Ui::handle(Clay_ElementId hid, const char *name, float &size, float min, fl
     d.element = hid.id, d.node.value = text, d.node.numeric = true, d.node.number = size, d.node.min = min, d.node.max = most;
     d.node.orientation = vertical ? 1 : 2; // a separator's orientation is its line's
     d.node.actions |= Accessible::increment | Accessible::decrement | Accessible::setValue;
-    d.size = &size;
+    d.size = kept; // a screen reader's setValue lands in the caller's size, not this frame's copy
     if ((Clay_PointerOver(hid) && !active) || a.held) cursor = vertical ? View::Cursor::resizeUpDown : View::Cursor::resizeLeftRight;
+    return size != before;
 }
 
 // The handle's element: 7 points across, a line in it that thickens and
@@ -1613,7 +1628,7 @@ void Ui::handleBox(Clay_ElementId hid, bool vertical)
     CLAY({.id = hid, .layout = {.sizing = {vertical ? grow : CLAY_SIZING_FIXED(7), vertical ? CLAY_SIZING_FIXED(7) : grow},
                                 .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}}})
     {
-        const float line = lit ? 2 : 1;
+        const float line = lit ? 2.0f : 1.0f;
         CLAY({.layout = {.sizing = {vertical ? grow : CLAY_SIZING_FIXED(line), vertical ? CLAY_SIZING_FIXED(line) : grow}},
               .backgroundColor = clayColor(lit ? theme.accent : theme.edge)}) {}
     }
@@ -1630,15 +1645,17 @@ bool Ui::split(const char *name, float &size, const std::function<void()> &first
     if (!laidOut.found) settle = true; // its room isn't known until it's laid out: one more frame
     const float whole = options.stacked ? box.height : box.width;
     const float most = std::max(options.min, std::min(options.max, whole > 0 ? whole - 7 - options.secondMin : options.max));
-    if (laidOut.found) size = std::clamp(size, options.min, most); // the room shrank: the second area keeps its minimum
-    handle(did, name, size, options.min, most, options.stacked, options.stacked ? box.y : box.x, 1);
+    // Drawn within the room it has now, while size keeps what was set: a
+    // room that shrinks for a moment (a resize) doesn't lose it.
+    float shown = laidOut.found ? std::clamp(size, options.min, most) : size;
+    if (handle(did, name, shown, &size, options.min, most, options.stacked, options.stacked ? box.y : box.x, 1)) size = shown;
 
     // The first area is a share of the room, not a fixed size: Clay counts a
     // fixed size in its parents' minimum, so dragging it bigger made the
     // whole section grow (and the room with it), pushing the second area
     // out of view. Until the room is known, a fixed size for one frame.
     const auto grow = CLAY_SIZING_GROW(0);
-    const auto fixed = whole > 0 ? CLAY_SIZING_PERCENT(std::min(1.0f, size / whole)) : CLAY_SIZING_FIXED(size);
+    const auto fixed = whole > 0 ? CLAY_SIZING_PERCENT(std::min(1.0f, shown / whole)) : CLAY_SIZING_FIXED(shown);
     // Its areas clip only across it: Clay doesn't wrap text along an axis it
     // clips, so along the split they wrap instead.
     CLAY({.id = sid, .layout = {.sizing = {grow, grow}, .layoutDirection = options.stacked ? CLAY_TOP_TO_BOTTOM : CLAY_LEFT_TO_RIGHT},
@@ -1670,9 +1687,9 @@ bool Ui::drawer(const char *title, bool &open, float &size, const std::function<
         const float header = across ? 0 : theme.textSize * 1.25f + 8 + 1; // a column's header sits above what the handle sizes
         const std::string name = std::string("Resize ") + title;
         float content = size;
-        handle(hid, name.c_str(), content, options.min, options.max, !across, fromEnd ? origin - (across ? 0 : header) : origin + header,
-               fromEnd ? -1 : 1);
-        size = content;
+        if (handle(hid, name.c_str(), content, &size, options.min, options.max, !across,
+                   fromEnd ? origin - (across ? 0 : header) : origin + header, fromEnd ? -1 : 1))
+            size = content;
     }
     const auto grow = CLAY_SIZING_GROW(0), fixed = CLAY_SIZING_FIXED(size);
     auto body = [&] {
@@ -1725,10 +1742,10 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
     // Resized from its corner.
     if (limits.resizable)
     {
-        const Area grip = element(gid);
-        if (grip.pressed) windowGrabX = frame.x + frame.w - mouse.x / s, windowGrabY = frame.y + frame.h - mouse.y / s;
-        if (grip.held) frame.w = mouse.x / s + windowGrabX - frame.x, frame.h = mouse.y / s + windowGrabY - frame.y;
-        if ((Clay_PointerOver(gid) && !active) || grip.held) cursor = View::Cursor::resizeDiagonal;
+        const Area corner = element(gid);
+        if (corner.pressed) windowGrabX = frame.x + frame.w - mouse.x / s, windowGrabY = frame.y + frame.h - mouse.y / s;
+        if (corner.held) frame.w = mouse.x / s + windowGrabX - frame.x, frame.h = mouse.y / s + windowGrabY - frame.y;
+        if ((Clay_PointerOver(gid) && !active) || corner.held) cursor = View::Cursor::resizeDiagonal;
     }
     // Keys, on its header: the arrows move it, Alt and the arrows resize it,
     // Escape closes it (the moves a drag makes, without one: WCAG 2.5.7).
@@ -1739,7 +1756,7 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
         focusUses |= keyBit(View::Key::escape);
         for (auto [key, modifiers] : keys)
         {
-            const float step = modifiers & View::shift ? 1 : 16;
+            const float step = modifiers & View::shift ? 1.0f : 16.0f;
             const float dx = key == View::Key::left ? -step : key == View::Key::right ? step : 0;
             const float dy = key == View::Key::up ? -step : key == View::Key::down ? step : 0;
             if (limits.resizable && modifiers & View::alt) frame.w += dx, frame.h += dy;
@@ -1748,14 +1765,18 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
         }
     }
     keepInside();
-    if (!open) return false;
+    if (!open)
+    {
+        std::erase(windowsNow, wid.id); // gone next frame
+        return false;
+    }
 
     // For screen readers: a dialog named by its title (its header has the
     // focus), what's in it its children; a close button named for it.
     Described &dialog = describe(me, Accessible::Role::dialog, title);
     dialog.element = wid.id;
     const bool front = !windowOrder.empty() && windowOrder.back() == wid.id;
-    const auto z = int16_t(10 + (std::find(windowOrder.begin(), windowOrder.end(), wid.id) - windowOrder.begin()));
+    const auto z = int16_t(10 + 2 * (std::find(windowOrder.begin(), windowOrder.end(), wid.id) - windowOrder.begin())); // its grip at z + 1, under the next window
     CLAY({.id = wid, .layout = {.sizing = {CLAY_SIZING_FIXED(frame.w), CLAY_SIZING_FIXED(frame.h)}, .layoutDirection = CLAY_TOP_TO_BOTTOM},
           .backgroundColor = clayColor(theme.panel), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius + 2),
           .floating = {.offset = {frame.x, frame.y}, .zIndex = z, .attachTo = CLAY_ATTACH_TO_ROOT},
@@ -1781,7 +1802,7 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
                 {
                     CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = layout.custom(closeBox)}}) {}
                 }
-                if (closed) open = false;
+                if (closed) open = false, std::erase(windowsNow, wid.id); // gone next frame
             }
         }
         // Clipped top to bottom only: Clay doesn't wrap text across an axis it clips.
