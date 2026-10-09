@@ -123,13 +123,18 @@ public:
     explicit Spectrogram(const Options &o) { configure(o); }
 
     // New options; a different number of columns starts the history again.
-    void configure(const Options &o)
+    // The same options again change nothing, so it can be called every frame.
+    void configure(Options o)
     {
+        o.columns = std::max(1, o.columns), o.rows = std::max(1, o.rows);
         const bool resized = o.columns != options.columns;
+        const bool remap = resized || o.rows != options.rows || o.scale != options.scale || o.minFrequency != options.minFrequency
+                        || o.maxFrequency != options.maxFrequency;
+        const bool recolour = o.palette != options.palette || o.minDecibels != options.minDecibels || o.maxDecibels != options.maxDecibels;
         options = o;
-        options.columns = std::max(1, options.columns), options.rows = std::max(1, options.rows);
         if (resized) clear();
-        mapped = false;
+        if (remap) mapped = false;
+        if (recolour) redraw = true;
     }
 
     // One column: values[i] decibels at frequencies[i] (Hz, ascending). Other
@@ -278,7 +283,7 @@ private:
     {
         Color now[5];
         ramp(ui.theme, now);
-        bool all = !mapped || image < 0 || prepared != ui.draw.prepared() || imageRows != options.rows;
+        bool all = !mapped || redraw || image < 0 || prepared != ui.draw.prepared() || imageRows != options.rows;
         for (int i = 0; i < 5; ++i) all |= now[i].r != shown[i].r || now[i].g != shown[i].g || now[i].b != shown[i].b;
         if (all)
         {
@@ -286,6 +291,7 @@ private:
             pixels.assign(size_t(options.columns) * size_t(options.rows) * 4, 0);
             for (int c = 0; c < options.columns; ++c) colour(c, now);
             std::copy(now, now + 5, shown);
+            redraw = false;
             if (image < 0 || prepared != ui.draw.prepared() || imageRows != options.rows)
                 image = ui.draw.addImage(pixels.data(), options.columns, options.rows), prepared = ui.draw.prepared(), imageRows = options.rows;
             else ui.draw.updateImage(image, pixels.data(), 0, 0, options.columns, options.rows);
@@ -312,7 +318,7 @@ private:
     int head = 0;               // the next column to write: the oldest
     int image = -1, imageRows = 0;
     unsigned prepared = 0; // Draw2D::prepared() when the image was added
-    bool mapped = false;
+    bool mapped = false, redraw = true; // the rows' bins are known; the whole picture is to be coloured again
     Color shown[5] = {};
 };
 
