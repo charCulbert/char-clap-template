@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <QuartzCore/QuartzCore.h> // CADisplayLink
 #include "native.h"
 #include "accesskit_tree.h"
 #include <optional>
@@ -22,8 +23,18 @@ id accessHitTest(Window *window, NSPoint point);
 void accessFocused(Window *window, bool focused);
 }
 
+// Calls a block: the target a display link (or a timer) calls.
+@interface GpuTick : NSObject
+@property(nonatomic, copy) void (^tick)(void);
+- (void)fire:(id)sender;
+@end
+@implementation GpuTick
+- (void)fire:(id)sender { if (self.tick) self.tick(); }
+@end
+
 // An NSView backed by a CAMetalLayer, added to the host's view. It forwards the
-// mouse and keys and runs a 60 Hz timer on the main run loop to draw frames.
+// mouse and keys, and draws frames in step with its screen (a display link:
+// 120 a second on a ProMotion display), or at 60 Hz before macOS 14.
 @interface GpuView : NSView <NSDraggingSource>
 @property(nonatomic) gpu::platform::Callbacks *callbacks;
 @property(nonatomic) gpu::platform::Window *owner; // for screen readers (accessibility)
@@ -304,7 +315,8 @@ struct Window
 {
     GpuView *view;
     GpuKeys *keys;
-    NSTimer *timer;
+    GpuTick *tick;
+    id link; // CADisplayLink, or before macOS 14 an NSTimer
     Callbacks callbacks;
     accesskit_macos_adapter *access = nullptr; // screen readers, through NSAccessibility
     Accessibility tree;                        // the view's, as screen readers last had it
@@ -343,7 +355,7 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
 {
     NSView *host = (__bridge NSView *)parent->cocoa;
     if (!host) return nullptr;
-    auto *window = new Window{nil, nil, nil, std::move(callbacks)};
+    auto *window = new Window{nil, nil, nil, nil, std::move(callbacks)};
     window->view = [[GpuView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     window->view.wantsLayer = YES;
     window->view.callbacks = &window->callbacks;
@@ -356,11 +368,23 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     window->keys.target = window->view;
     window->keys.alphaValue = 0;
     [window->view addSubview:window->keys];
-    window->timer = [NSTimer timerWithTimeInterval:1.0 / 60.0 repeats:YES block:^(NSTimer *) {
-        window->callbacks.frame();
-    }];
-    // Common modes: keep drawing while the host is in a modal loop or a drag.
-    [[NSRunLoop mainRunLoop] addTimer:window->timer forMode:NSRunLoopCommonModes];
+    window->tick = [GpuTick new];
+    window->tick.tick = ^{ window->callbacks.frame(); };
+    // In common modes: drawing goes on while the host is in a modal loop or a drag.
+    if (@available(macOS 14.0, *))
+    {
+        // The view's own screen's refresh, following it to another screen.
+        CADisplayLink *link = [window->view displayLinkWithTarget:window->tick selector:@selector(fire:)];
+        link.preferredFrameRateRange = CAFrameRateRangeMake(30, 120, 120);
+        [link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+        window->link = link;
+    }
+    else
+    {
+        NSTimer *timer = [NSTimer timerWithTimeInterval:1.0 / 60.0 target:window->tick selector:@selector(fire:) userInfo:nil repeats:YES];
+        [NSRunLoop.mainRunLoop addTimer:timer forMode:NSRunLoopCommonModes];
+        window->link = timer;
+    }
     return window;
 }
 
@@ -412,7 +436,7 @@ void lockPointer(Window *window, bool locked)
 void destroy(Window *window)
 {
     lockPointer(window, false);
-    [window->timer invalidate];
+    [window->link invalidate]; // CADisplayLink and NSTimer both
     window->view.callbacks = nullptr;
     window->view.owner = nullptr;
     [window->view removeFromSuperview];
@@ -437,6 +461,7 @@ float scale(Window *window) { return float(window ? window->view.layer.contentsS
 void setVisible(Window *window, bool visible) { [window->view setHidden:!visible]; }
 
 void pumpEvents(Window *) {}
+float refreshRate(Window *) { return 0; } // a display link paces frames
 
 void dragFiles(Window *window, const std::vector<std::string> &paths) { [window->view dragFiles:paths]; }
 
