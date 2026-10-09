@@ -63,7 +63,7 @@ struct MyPlugin
     core::Value data; // the interface's other state (main thread)
 
     gpu::Gui gui;
-    float guiWidth = 720, guiHeight = 480; // points, so the window keeps its size across scales
+    float guiWidth = 720, guiHeight = 560; // points, so the window keeps its size across scales
 };
 
 static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *event);

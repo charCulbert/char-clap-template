@@ -372,15 +372,17 @@ private:
             });
         });
         row([&] {
-            cell("Piano: press and slide; held notes light (C4 lit); key colours from the theme", [&] {
+            cell("Piano: press and slide; held notes light (C4 lit)", [&] {
                 static const char *const styles[] = {"Ivory", "Palette"};
                 ui.segmented(styles, 2, keys, 3);
                 ui.label("Key colours");
-                const auto notes = ui.piano(48, 83, 100, [&](int n) { return n == 60 || n == held; });
+                const auto notes = ui.piano(48, 83, 126, [&](int n) { return n == 60 || n == held; });
                 if (notes.on >= 0) held = notes.on;
                 if (notes.off >= 0 && notes.off == held) held = -1;
             });
-            cell("Files: drop some on the box; drag the chip out (a 1 s tone)", [&] {
+        });
+        row([&] {
+            cell("Files: drop on the box; drag the chip out", [&] {
                 const Clay_ElementId box = CLAY_ID("DropBox"), chip = CLAY_ID("ToneChip");
                 std::vector<std::string> paths;
                 if (ui.dropTarget(box, paths))
@@ -412,6 +414,20 @@ private:
                 CLAY({.layout = {.padding = CLAY_PADDING_ALL(6)}, .backgroundColor = gpu::clayColor(ui.theme.background)})
                 {
                     label("fit", ui.theme.text);
+                }
+            });
+            cell("Split: drag a divider; focused: arrows, Home, End, Enter collapses", [&] {
+                auto pane = [&](const char *name) {
+                    return [this, name] {
+                        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(6)},
+                              .backgroundColor = gpu::clayColor(ui.theme.background)}) { label(name, ui.theme.dim); }
+                    };
+                };
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(120)}}})
+                {
+                    ui.split("Sides", sides, pane("Left"), [&] {
+                        ui.split("Stack", stack, pane("Top"), pane("Bottom"), {.stacked = true, .min = 20, .secondMin = 20});
+                    });
                 }
             });
         });
@@ -617,6 +633,7 @@ private:
     int page = 0, themeMode = 0, keys = 0, mode = 0, shape = 0, clicks = 0, edits = 0, mono = 0, wheel = -1, strip = -1, speaker = -1;
     int held = -1; // the piano note held down
     std::vector<gpu::Ui::Point> envelope = {{0, 0}, {0.08f, 1}, {0.3f, 0.6f}, {0.8f, 0.6f}, {1, 0}};
+    float sides = 220, stack = 50; // the split's sizes (points)
     std::vector<float> stepValues = {0.8f, 0.2f, 0.5f, 0.2f, 1.0f, 0.2f, 0.5f, 0.3f, 0.7f, 0.2f, 0.5f, 0.2f, 0.9f, 0.4f, 0.6f, 0.3f};
     bool sync = false, advancedOpen = true, oversample = false, linearPhase = true;
     float peaks[6] = {};
