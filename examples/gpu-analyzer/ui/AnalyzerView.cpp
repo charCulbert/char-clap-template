@@ -199,6 +199,9 @@ public:
     }
     void pointer(const PointerEvent &event) override { ui.pointer(event); }
     bool key(Key key, unsigned modifiers) override { return ui.key(key, modifiers); }
+    // Screen readers: the knobs describe themselves; the presenter asks for the tree.
+    const gpu::Accessibility *accessibility() const override { return ui.accessibility(); }
+    void accessAction(uint64_t id, gpu::Accessible::Action action, double value) override { ui.accessAction(id, action, value); }
 
     // The frame is built in record, so the presenter can skip one that looks
     // like the last; draw only flushes it.

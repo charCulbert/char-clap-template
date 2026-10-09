@@ -12,6 +12,10 @@ Resonance) whose interface is stock Dear ImGui widgets.
 - `resources/`: the files the plugin ships (its font). Add images, sounds or
   anything else here and read them with `core::readResource("/path")` (on the
   main thread), or `gpu::loadAsset` in the view.
+- Screen readers see nothing of it: Dear ImGui keeps no accessibility tree. A
+  `gpu::View` that wants one returns it from `accessibility()` (as the draw2d
+  examples do with `Ui::accessibility()`), and the presenter hands it to
+  VoiceOver, Narrator and the browser.
 - Natively `libs/gpu` draws the view with Dawn in the host's window. In WCLAP
   the same view is compiled with Emscripten into the page the host shows.
 
