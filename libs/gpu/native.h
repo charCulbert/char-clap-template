@@ -1,5 +1,4 @@
 #pragma once
-#include "clap/ext/gui.h"
 #include <webgpu/webgpu_cpp.h>
 #include <functional>
 #include <string>
@@ -9,8 +8,12 @@
 // file per desktop platform: native_mac.mm, native_win.cpp, native_linux.cpp.
 namespace gpu::platform {
 
-extern const char *const windowApi; // CLAP_WINDOW_API_COCOA, _WIN32 or _X11
+enum class Api { cocoa, win32, x11 };
+extern const Api windowApi;   // the window system this platform draws into
 extern const bool needsTimer;       // true where the host's timer drives frames and events
+
+// The host's view: an NSView* (cocoa), an HWND (win32) or an X11 window id (x11).
+struct Parent { void *handle; };
 
 struct Window;
 struct Callbacks
@@ -24,10 +27,10 @@ struct Callbacks
     std::function<void(uint64_t id, Accessible::Action, double value)> access; // View::accessAction, main thread
 };
 
-Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Callbacks callbacks);
+Window *create(const Parent &parent, uint32_t width, uint32_t height, Callbacks callbacks);
 wgpu::Surface createSurface(const wgpu::Instance &instance, Window *window);
 void destroy(Window *window);
-void setSize(Window *window, uint32_t width, uint32_t height); // clap.gui units
+void setSize(Window *window, uint32_t width, uint32_t height); // the parent window's units
 void pixelSize(Window *window, uint32_t &width, uint32_t &height);
 float scale(Window *window); // pixels per logical point
 void setVisible(Window *window, bool visible);

@@ -18,7 +18,7 @@
 // its window procedure forwards the mouse and keys.
 namespace gpu::platform {
 
-const char *const windowApi = CLAP_WINDOW_API_WIN32;
+const Api windowApi = Api::win32;
 const bool needsTimer = false;
 
 struct DropTarget;
@@ -508,11 +508,11 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
     return DefWindowProcW(hwnd, message, wParam, lParam);
 }
 
-Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Callbacks callbacks)
+Window *create(const Parent &parent, uint32_t width, uint32_t height, Callbacks callbacks)
 {
-    HWND host = static_cast<HWND>(parent->win32);
+    HWND host = static_cast<HWND>(parent.handle);
     if (!IsWindow(host)) return nullptr;
-    static const wchar_t *className = L"ClapGpuView"; // per module: other plugins' classes don't clash
+    static const wchar_t *className = L"GpuView"; // per module: other plugins' classes don't clash
     WNDCLASSEXW windowClass = {sizeof(windowClass)};
     windowClass.lpfnWndProc = windowProc;
     windowClass.hInstance = thisModule();
@@ -607,7 +607,7 @@ void destroy(Window *window)
     delete window;
 }
 
-// clap.gui sizes on Windows are already physical pixels.
+// The parent window's sizes on Windows are already physical pixels.
 void setSize(Window *window, uint32_t width, uint32_t height)
 {
     SetWindowPos(window->hwnd, nullptr, 0, 0, int(width), int(height), SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);

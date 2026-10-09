@@ -21,7 +21,7 @@
 // drives both our X events and frames.
 namespace gpu::platform {
 
-const char *const windowApi = CLAP_WINDOW_API_X11;
+const Api windowApi = Api::x11;
 const bool needsTimer = true;
 
 struct Window
@@ -59,7 +59,7 @@ static ::Window xdndReceiver(Window *window, ::Window target);
 
 // The desktop's scale: Xft.dpi (GNOME and KDE set it from their scaling
 // setting) over 96, times GDK_SCALE where set. X11 has no per-monitor scale
-// to ask; a host that knows better says so with clap.gui.set_scale.
+// to ask; a host that knows better says so.
 static float desktopScale(Display *display)
 {
     float scale = 1;
@@ -83,10 +83,10 @@ static int ignoreOurErrors(Display *display, XErrorEvent *error)
     return hostHandler ? hostHandler(display, error) : 0;
 }
 
-Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Callbacks callbacks)
+Window *create(const Parent &parent, uint32_t width, uint32_t height, Callbacks callbacks)
 {
     Display *display = XOpenDisplay(nullptr);
-    if (!display || !parent->x11)
+    if (!display || !parent.handle)
     {
         if (display) XCloseDisplay(display);
         return nullptr;
@@ -97,7 +97,7 @@ Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Cal
     window->display = display;
     window->callbacks = std::move(callbacks);
     window->scale = desktopScale(display);
-    window->parent = ::Window(parent->x11);
+    window->parent = ::Window(uintptr_t(parent.handle));
     window->window = XCreateSimpleWindow(display, window->parent, 0, 0, width, height, 0, 0, 0);
     window->clipboardAtom = XInternAtom(display, "CLIPBOARD", False);
     window->utf8 = XInternAtom(display, "UTF8_STRING", False);

@@ -308,7 +308,7 @@ static unsigned modifiers(NSEvent *event)
 
 namespace gpu::platform {
 
-const char *const windowApi = CLAP_WINDOW_API_COCOA;
+const Api windowApi = Api::cocoa;
 const bool needsTimer = false;
 
 struct Window
@@ -351,9 +351,9 @@ id accessFocus(Window *window) { return (__bridge id)accesskit_macos_adapter_foc
 id accessHitTest(Window *window, NSPoint point) { return (__bridge id)accesskit_macos_adapter_hit_test(window->access, point.x, point.y, wholeTree, window); }
 void accessFocused(Window *window, bool focused) { raise(accesskit_macos_adapter_update_view_focus_state(window->access, focused)); }
 
-Window *create(const clap_window_t *parent, uint32_t width, uint32_t height, Callbacks callbacks)
+Window *create(const Parent &parent, uint32_t width, uint32_t height, Callbacks callbacks)
 {
-    NSView *host = (__bridge NSView *)parent->cocoa;
+    NSView *host = (__bridge NSView *)parent.handle;
     if (!host) return nullptr;
     auto *window = new Window{nil, nil, nil, nil, std::move(callbacks)};
     window->view = [[GpuView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];

@@ -74,6 +74,29 @@ std::string loadAsset(const char *path)
     return resource ? std::move(resource->bytes) : std::string();
 }
 
+// The presenters know nothing of CLAP: the window API and parent are translated here.
+static const char *apiName(platform::Api api)
+{
+    switch (api)
+    {
+    case platform::Api::cocoa: return CLAP_WINDOW_API_COCOA;
+    case platform::Api::win32: return CLAP_WINDOW_API_WIN32;
+    case platform::Api::x11: return CLAP_WINDOW_API_X11;
+    }
+    return nullptr;
+}
+
+static platform::Parent parentHandle(const clap_window_t *parent)
+{
+    switch (platform::windowApi)
+    {
+    case platform::Api::cocoa: return {parent->cocoa};
+    case platform::Api::win32: return {parent->win32};
+    case platform::Api::x11: return {reinterpret_cast<void *>(uintptr_t(parent->x11))};
+    }
+    return {nullptr};
+}
+
 Gui::Gui() = default;
 Gui::~Gui() { destroy(); }
 
@@ -89,18 +112,18 @@ void Gui::init(const clap_plugin_t *plugin_, const clap_host_t *host_)
 
 bool Gui::isApiSupported(const char *api, bool floating) const
 {
-    return api && !floating && pluginWebview && std::strcmp(api, platform::windowApi) == 0 &&
+    return api && !floating && pluginWebview && std::strcmp(api, apiName(platform::windowApi)) == 0 &&
            (!platform::needsTimer || hostTimers);
 }
 
 float Gui::pixelsPerPoint() const
 {
-    return std::strcmp(platform::windowApi, CLAP_WINDOW_API_COCOA) == 0 ? 1.0f : scale();
+    return platform::windowApi == platform::Api::cocoa ? 1.0f : scale();
 }
 
 bool Gui::getPreferredApi(const char **api, bool *floating) const
 {
-    *api = platform::windowApi;
+    *api = apiName(platform::windowApi);
     *floating = false;
     return isApiSupported(*api, false);
 }
@@ -152,9 +175,9 @@ void Gui::destroy()
 
 bool Gui::setParent(const clap_window_t *parent)
 {
-    if (!context || window || !parent || !parent->api || std::strcmp(parent->api, platform::windowApi) != 0)
+    if (!context || window || !parent || !parent->api || std::strcmp(parent->api, apiName(platform::windowApi)) != 0)
         return false;
-    window = platform::create(parent, width, height, {
+    window = platform::create(parentHandle(parent), width, height, {
         [this] { frame(); },
         [this] { damaged = true; },
         [this](const View::PointerEvent &event) { if (view) view->pointer(event), dirty = true; },
@@ -225,7 +248,7 @@ float Gui::scale() const
 bool Gui::setScale(double newScale)
 {
     // Only X11 has no way for us to know: elsewhere the window's own scale wins.
-    if (std::strcmp(platform::windowApi, CLAP_WINDOW_API_X11) != 0 || newScale <= 0) return false;
+    if (platform::windowApi != platform::Api::x11 || newScale <= 0) return false;
     hostScale = float(newScale);
     dirty = true;
     return true;
