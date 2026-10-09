@@ -202,9 +202,10 @@ private:
             CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = ui.layout.custom(kind)}}) {}
         });
     }
-    void label(const char *text, gpu::Color color, int size = 11, int font = 0)
+    void label(const char *text, gpu::Color color, int size = 0, int font = 0) // size 0: the theme's
     {
-        CLAY_TEXT(ui.layout.text(text), CLAY_TEXT_CONFIG({.textColor = gpu::clayColor(color), .fontId = uint16_t(font), .fontSize = uint16_t(size)}));
+        const auto points = uint16_t(size ? size : int(ui.theme.textSize));
+        CLAY_TEXT(ui.layout.text(text), CLAY_TEXT_CONFIG({.textColor = gpu::clayColor(color), .fontId = uint16_t(font), .fontSize = points}));
     }
 
     void shapesPage()
@@ -302,7 +303,7 @@ private:
                 ui.tooltip("Press and release on the button");
                 char count[32];
                 std::snprintf(count, sizeof(count), "%d clicks", clicks);
-                label(count, ui.theme.text, 11, ui.theme.valueFont);
+                label(count, ui.theme.text, 0, ui.theme.valueFont);
             });
             cell("Toggle and segmented", [&] {
                 ui.toggle("Sync", sync);
@@ -320,7 +321,7 @@ private:
                 ui.label("Preset name");
                 char count[32];
                 std::snprintf(count, sizeof(count), "%d edits", edits);
-                label(count, ui.theme.dim, 11, ui.theme.valueFont);
+                label(count, ui.theme.dim, 0, ui.theme.valueFont);
             });
         });
     }

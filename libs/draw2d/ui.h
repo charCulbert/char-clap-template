@@ -44,7 +44,7 @@ struct Theme
     Color whiteKey{0.929f, 0.918f, 0.886f};   // #edeae2: a piano's keys, as a piano's in either palette
     Color blackKey{0.110f, 0.110f, 0.110f};   // #1c1c1c
     int labelFont = 0, valueFont = 0;         // Draw2D fonts for names and for numbers
-    float textSize = 11, radius = 2;          // points
+    float textSize = 13, radius = 2;          // points: macOS's control text size
 
     static Theme dark() { return {}; }
     static Theme light()
