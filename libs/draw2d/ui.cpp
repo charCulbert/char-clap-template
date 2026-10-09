@@ -270,6 +270,12 @@ void Ui::begin(float width, float height, float scale)
     said.clear();
     layout.begin(draw, width, height, scale);
     overPopup = openMenu && Clay_PointerOver({openMenu, 0, 0, {}});
+    // The frontmost window under the pointer: controls outside it don't take the pointer.
+    windowUnder = 0;
+    for (auto w = windowOrder.rbegin(); w != windowOrder.rend() && !windowUnder; ++w)
+        if (inside({*w, 0, 0, {}}, mouse.x, mouse.y)) windowUnder = *w;
+    std::erase_if(windowOrder, [&](uint32_t w) { return std::find(windowsNow.begin(), windowsNow.end(), w) == windowsNow.end(); });
+    windowsNow.clear();
     menuSeen = false;
     lastElement = 0;
     settle = mouse.pressed || mouse.released || !keys.empty() || mouse.wheel != 0;
@@ -309,6 +315,16 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
         {
             const float xy[] = {r.x + r.w * 0.3f, r.y, r.x + r.w * 0.7f, r.y + r.h / 2, r.x + r.w * 0.3f, r.y + r.h};
             draw.polyline(xy, 3, 1.2f * s, theme.dim);
+        }
+        else if (kind == gripBox) // three short diagonals, as a window's resize corner
+        {
+            for (float d : {0.3f, 0.6f, 0.9f})
+                draw.line(r.x + r.w * (1 - d), r.y + r.h, r.x + r.w, r.y + r.h * (1 - d), 1.2f * s, theme.dim);
+        }
+        else if (kind == closeBox) // a cross
+        {
+            draw.line(r.x, r.y, r.x + r.w, r.y + r.h, 1.4f * s, theme.text);
+            draw.line(r.x + r.w, r.y, r.x, r.y + r.h, 1.4f * s, theme.text);
         }
         else if (onCustom) onCustom(kind, data, r);
     });
@@ -530,6 +546,16 @@ void Ui::finishDescribing()
         for (const Entry &e : entries) spoken |= e.node.width > 0 && inside({e.node.x, e.node.y, e.node.width, e.node.height}, r.x + r.w / 2, r.y + r.h / 2);
         if (!spoken) entries.push_back({text, float(first), 0, false});
     }
+    // What's inside a window is that window's: the frontmost one around it.
+    for (auto w = windowOrder.rbegin(); w != windowOrder.rend(); ++w)
+    {
+        const std::optional<Rect> r = box(*w);
+        const uint64_t dialogId = accessId(reinterpret_cast<const void *>(uintptr_t(id("WindowHeader", *w).id)));
+        if (!r) continue;
+        for (Entry &e : entries)
+            if (!e.parent && e.node.id != dialogId && e.node.width > 0 && contains(*r, {e.node.x, e.node.y, e.node.width, e.node.height}))
+                e.parent = dialogId;
+    }
     // label, description, hidden: on the control whose element they name, or
     // that was drawn inside it (a knob in its box). A tooltip's description
     // gives way to one set by hand.
@@ -565,10 +591,13 @@ void Ui::finishDescribing()
     reading.clear();
     for (const Entry &e : entries) reading.push_back({e.node.id, e.order});
     for (const Entry *e : top) tree.nodes.front().children.push_back(e->node.id);
+    std::vector<const Entry *> inner; // a group's, a list's or a window's children, in reading order too
     for (const Entry &e : entries)
-        if (e.parent && !e.hidden)
-            for (Accessible &n : tree.nodes)
-                if (n.id == e.parent) { n.children.push_back(e.node.id); break; }
+        if (e.parent && !e.hidden) inner.push_back(&e);
+    std::stable_sort(inner.begin(), inner.end(), [](const Entry *a, const Entry *b) { return a->order < b->order; });
+    for (const Entry *e : inner)
+        for (Accessible &n : tree.nodes)
+            if (n.id == e->parent) { n.children.push_back(e->node.id); break; }
     if (!announcement.empty()) // a live region: screen readers read it as it changes
     {
         Accessible &live = tree.nodes.emplace_back();
@@ -639,7 +668,9 @@ void Ui::accessAction(uint64_t id, Accessible::Action action, double value)
 
 bool Ui::over(float x, float y, float w, float h) const
 {
-    return !overPopup && mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h;
+    if (overPopup || mouse.x < x || mouse.x > x + w || mouse.y < y || mouse.y > y + h) return false;
+    // Over a window, only what's in that window takes the pointer.
+    return !windowUnder || inside({windowUnder, 0, 0, {}}, x + w / 2, y + h / 2);
 }
 
 void Ui::set(Params &params, Param &p, double value)
@@ -1579,13 +1610,15 @@ bool Ui::split(const char *name, float &size, const std::function<void()> &first
     const bool hot = Clay_PointerOver(did), lit = hot || a.held || focusShown(did);
     if ((hot && !active) || a.held) cursor = options.stacked ? View::Cursor::resizeUpDown : View::Cursor::resizeLeftRight;
     const auto fixed = CLAY_SIZING_FIXED(size), grow = CLAY_SIZING_GROW(0);
-    // Clipped, so its box is the room it's given, not grown to fit a first
-    // area dragged past it (which would let the second slide out of view).
+    // Clipped along its axis, so its box is the room it's given, not grown
+    // to fit a first area dragged past it (which would push the second out
+    // of view). Its areas clip only across it: Clay doesn't wrap text along
+    // an axis it clips, so along the split they wrap instead.
     CLAY({.id = sid, .layout = {.sizing = {grow, grow}, .layoutDirection = options.stacked ? CLAY_TOP_TO_BOTTOM : CLAY_LEFT_TO_RIGHT},
-          .clip = {.horizontal = true, .vertical = true}})
+          .clip = {.horizontal = !options.stacked, .vertical = options.stacked}})
     {
         CLAY({.layout = {.sizing = {options.stacked ? grow : fixed, options.stacked ? fixed : grow}},
-              .clip = {.horizontal = true, .vertical = true}}) { first(); }
+              .clip = {.horizontal = options.stacked, .vertical = !options.stacked}}) { first(); }
         CLAY({.id = did, .layout = {.sizing = {options.stacked ? grow : CLAY_SIZING_FIXED(divider), options.stacked ? CLAY_SIZING_FIXED(divider) : grow},
                                     .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}}})
         {
@@ -1593,10 +1626,113 @@ bool Ui::split(const char *name, float &size, const std::function<void()> &first
             CLAY({.layout = {.sizing = {options.stacked ? grow : CLAY_SIZING_FIXED(line), options.stacked ? CLAY_SIZING_FIXED(line) : grow}},
                   .backgroundColor = clayColor(lit ? theme.accent : theme.edge)}) {}
         }
-        CLAY({.layout = {.sizing = {grow, grow}}, .clip = {.horizontal = true, .vertical = true}}) { second(); }
+        CLAY({.layout = {.sizing = {grow, grow}}, .clip = {.horizontal = options.stacked, .vertical = !options.stacked}}) { second(); }
     }
     lastElement = did.id;
     return size != before;
+}
+
+bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<void()> &contents, WindowLimits limits, int index)
+{
+    if (!open) return false;
+    const Clay_ElementId wid = id(title, index), hid = id("WindowHeader", wid.id), gid = id("WindowGrip", wid.id),
+                         cid = id("WindowClose", wid.id);
+    windowsNow.push_back(wid.id);
+    if (std::find(windowOrder.begin(), windowOrder.end(), wid.id) == windowOrder.end())
+        windowOrder.push_back(wid.id), settle = true; // new: in front, and laid out again so its contents are known as its
+    // A press anywhere on it brings it to the front.
+    if (mouse.pressed && windowUnder == wid.id)
+        std::erase(windowOrder, wid.id), windowOrder.push_back(wid.id);
+    auto keepInside = [&] { // within its limits, and inside the view
+        frame.w = std::clamp(frame.w, limits.minWidth, std::max(limits.minWidth, std::min(limits.maxWidth, viewWidth)));
+        frame.h = std::clamp(frame.h, limits.minHeight, std::max(limits.minHeight, std::min(limits.maxHeight, viewHeight)));
+        frame.x = std::clamp(frame.x, 0.0f, std::max(0.0f, viewWidth - frame.w));
+        frame.y = std::clamp(frame.y, 0.0f, std::max(0.0f, viewHeight - frame.h));
+    };
+    // Its close button first, so a press on it isn't the header's drag.
+    const Area close = limits.closable ? element(cid, eachPress) : Area{};
+    // Dragged by its header.
+    const Area header = element(hid);
+    if (header.pressed) windowGrabX = mouse.x / s - frame.x, windowGrabY = mouse.y / s - frame.y;
+    if (header.held) frame.x = mouse.x / s - windowGrabX, frame.y = mouse.y / s - windowGrabY;
+    if ((Clay_PointerOver(hid) && !active) || header.held) cursor = View::Cursor::move;
+    // Resized from its corner.
+    if (limits.resizable)
+    {
+        const Area grip = element(gid);
+        if (grip.pressed) windowGrabX = frame.x + frame.w - mouse.x / s, windowGrabY = frame.y + frame.h - mouse.y / s;
+        if (grip.held) frame.w = mouse.x / s + windowGrabX - frame.x, frame.h = mouse.y / s + windowGrabY - frame.y;
+        if ((Clay_PointerOver(gid) && !active) || grip.held) cursor = View::Cursor::resizeDiagonal;
+    }
+    // Keys, on its header: the arrows move it, Alt and the arrows resize it,
+    // Escape closes it (the moves a drag makes, without one: WCAG 2.5.7).
+    const void *me = reinterpret_cast<const void *>(uintptr_t(hid.id));
+    focusable(hid, header);
+    if (focus == me)
+    {
+        focusUses |= keyBit(View::Key::escape);
+        for (auto [key, modifiers] : keys)
+        {
+            const float step = modifiers & View::shift ? 1 : 16;
+            const float dx = key == View::Key::left ? -step : key == View::Key::right ? step : 0;
+            const float dy = key == View::Key::up ? -step : key == View::Key::down ? step : 0;
+            if (limits.resizable && modifiers & View::alt) frame.w += dx, frame.h += dy;
+            else frame.x += dx, frame.y += dy;
+            if (key == View::Key::escape && limits.closable) open = false;
+        }
+    }
+    keepInside();
+    if (!open) return false;
+
+    // For screen readers: a dialog named by its title (its header has the
+    // focus), what's in it its children; a close button named for it.
+    Described &dialog = describe(me, Accessible::Role::dialog, title);
+    dialog.element = wid.id;
+    const bool front = !windowOrder.empty() && windowOrder.back() == wid.id;
+    const auto z = int16_t(10 + (std::find(windowOrder.begin(), windowOrder.end(), wid.id) - windowOrder.begin()));
+    CLAY({.id = wid, .layout = {.sizing = {CLAY_SIZING_FIXED(frame.w), CLAY_SIZING_FIXED(frame.h)}, .layoutDirection = CLAY_TOP_TO_BOTTOM},
+          .backgroundColor = clayColor(theme.panel), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius + 2),
+          .floating = {.offset = {frame.x, frame.y}, .zIndex = z, .attachTo = CLAY_ATTACH_TO_ROOT},
+          .border = {.color = clayColor(focusShown(hid) ? theme.accent : front ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)},
+          .userData = layout.shadow(theme.shadow, front ? 14.0f : 8.0f, 0, front ? 4.0f : 2.0f)})
+    {
+        CLAY({.id = hid, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}, .padding = {8, 6, 5, 5}, .childGap = 8,
+                                    .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
+              .backgroundColor = clayColor(theme.background)})
+        {
+            CLAY_TEXT(layout.text(title), textConfig(front ? theme.text : theme.dim));
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1)}}}) {}
+            if (limits.closable)
+            {
+                const bool closed = close.clicked;
+                const std::string closeName = std::string("Close ") + title;
+                Described &button = describe(reinterpret_cast<const void *>(uintptr_t(cid.id)), Accessible::Role::button, closeName.c_str(),
+                                             accessId(me));
+                button.element = cid.id, button.node.actions |= Accessible::click;
+                CLAY({.id = cid, .layout = {.sizing = {CLAY_SIZING_FIXED(16), CLAY_SIZING_FIXED(16)}, .padding = CLAY_PADDING_ALL(4)},
+                      .backgroundColor = clayColor(Clay_PointerOver(cid) ? theme.panel : Color{0, 0, 0, 0}),
+                      .cornerRadius = CLAY_CORNER_RADIUS(theme.radius)})
+                {
+                    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = layout.custom(closeBox)}}) {}
+                }
+                if (closed) open = false;
+            }
+        }
+        // Clipped top to bottom only: Clay doesn't wrap text across an axis it clips.
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(8), .childGap = 8,
+                         .layoutDirection = CLAY_TOP_TO_BOTTOM},
+              .clip = {.vertical = true}})
+        {
+            if (open) contents();
+        }
+        if (limits.resizable)
+            CLAY({.id = gid, .layout = {.sizing = {CLAY_SIZING_FIXED(12), CLAY_SIZING_FIXED(12)}},
+                  .floating = {.offset = {-3, -3}, .zIndex = int16_t(z + 1),
+                               .attachPoints = {CLAY_ATTACH_POINT_RIGHT_BOTTOM, CLAY_ATTACH_POINT_RIGHT_BOTTOM}, .attachTo = CLAY_ATTACH_TO_PARENT},
+                  .custom = {.customData = layout.custom(gripBox)}}) {}
+    }
+    lastElement = wid.id;
+    return open;
 }
 
 bool Ui::drawer(const char *title, bool &open, int index)

@@ -504,6 +504,83 @@ static void splitPanes()
     CHECK(std::abs(top - (200 - 7 - 30)) < 0.5f);
 }
 
+// A window: dragged by its header and kept inside the view, resized from
+// its corner within its limits, in front when pressed; nothing under it
+// takes the pointer; its header's keys; a dialog for screen readers.
+static void windows()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A");
+    gpu::Rect one{40, 40, 200, 150}, two{120, 80, 200, 150};
+    bool openOne = true, openTwo = true, clicked = false;
+    auto draw = [&] {
+        frame(ui, [&] {
+            ui.knob(params, a, "%.2f"); // under the windows
+            ui.window("One", one, openOne, [&] { if (ui.button("Inside")) clicked = true; });
+            ui.window("Two", two, openTwo, [] {}, {.minWidth = 160, .minHeight = 100});
+        });
+    };
+    draw();
+    draw();
+    const Clay_BoundingBox header = box("WindowHeader", Clay_GetElementId(CLAY_STRING("Two")).id);
+    // Dragged by the header, and not past the view's edge.
+    pointer(ui, View::Pointer::down, header.x + 20, header.y + 5);
+    draw();
+    pointer(ui, View::Pointer::move, header.x + 60, header.y + 25);
+    draw();
+    CHECK(std::abs(two.x - 160) < 0.5f && std::abs(two.y - 100) < 0.5f);
+    pointer(ui, View::Pointer::move, header.x + 2000, header.y + 25);
+    draw();
+    CHECK(std::abs(two.x - (400 - 200)) < 0.5f);
+    pointer(ui, View::Pointer::up, header.x + 2000, header.y + 25);
+    draw();
+    // Resized from its corner, no smaller than its minimum.
+    const Clay_BoundingBox grip = box("WindowGrip", Clay_GetElementId(CLAY_STRING("Two")).id);
+    pointer(ui, View::Pointer::down, grip.x + 6, grip.y + 6);
+    draw();
+    pointer(ui, View::Pointer::move, grip.x - 500, grip.y - 500);
+    draw();
+    pointer(ui, View::Pointer::up, grip.x - 500, grip.y - 500);
+    draw();
+    CHECK(two.w == 160 && two.h == 100);
+    // A press on One brings it to the front; a press on a window doesn't
+    // reach the knob under it.
+    const float knobValue = float(a->value);
+    pointer(ui, View::Pointer::down, 50, 60);
+    draw();
+    pointer(ui, View::Pointer::move, 50, 20);
+    draw();
+    pointer(ui, View::Pointer::up, 50, 20);
+    draw();
+    CHECK(a->value == knobValue);
+    // The button in it works.
+    clickAt(ui, box("Inside"), draw);
+    CHECK(clicked);
+    // For screen readers: a dialog named by its title, with its button inside.
+    const gpu::Accessible *dialog = nullptr;
+    for (const gpu::Accessible &n : ui.accessibility()->nodes)
+        if (n.role == gpu::Accessible::Role::dialog && n.name == "One") dialog = &n;
+    CHECK(dialog && dialog->children.size() == 2); // its close button and "Inside"
+    // Its header's keys: the arrows move it, Alt and the arrows resize it,
+    // Escape closes it.
+    ui.accessAction(dialog->id, gpu::Accessible::focus, 0);
+    const gpu::Rect before = one;
+    ui.key(View::Key::right, 0);
+    draw();
+    CHECK(one.x == before.x + 16 && one.w == before.w);
+    ui.key(View::Key::down, View::alt);
+    draw();
+    CHECK(one.h == before.h + 16 && one.y == before.y);
+    ui.key(View::Key::escape, 0);
+    draw();
+    CHECK(!openOne);
+    // The close button closes it.
+    clickAt(ui, box("WindowClose", Clay_GetElementId(CLAY_STRING("Two")).id), draw);
+    CHECK(!openTwo);
+}
+
 static void knobDragAndKeys()
 {
     Ui ui;
@@ -1080,6 +1157,7 @@ int main()
     keyboardReachesEverything();
     doubleClickOrFineDrag();
     splitPanes();
+    windows();
     parameterToggleAndSegmented();
     textFieldEdits();
     textFieldShortcuts();

@@ -71,6 +71,13 @@ struct Theme
 
 struct TextEdit; // stb_textedit's state, in ui.cpp
 
+// How a Ui::window may be sized, and whether it can close (points).
+struct WindowLimits
+{
+    float minWidth = 140, minHeight = 90, maxWidth = 1e9f, maxHeight = 1e9f;
+    bool resizable = true, closable = true;
+};
+
 // How a Ui::split lays out and limits its two areas (points).
 struct Split
 {
@@ -167,6 +174,15 @@ public:
     // when size changed.
     bool split(const char *name, float &size, const std::function<void()> &first, const std::function<void()> &second,
                Split options = {}, int index = 0);
+    // A window over the view, as compost's (a non-modal dialog): dragged by
+    // its header, resized from its corner, kept inside the view, and brought
+    // to the front by a press on it. frame is its place and size, in points.
+    // Its header takes Tab: the arrows move it (16 points; Shift 1), Alt and
+    // the arrows resize it, Escape closes it. Screen readers see a dialog
+    // named by its title. contents declares what's in it, while it's open.
+    // Returns true while it's open.
+    bool window(const char *title, Rect &frame, bool &open, const std::function<void()> &contents, WindowLimits limits = {},
+                int index = 0);
     // Controls of their own size, in the layout.
     void knob(Params &params, Param *p, const char *format, bool log = false, float diameter = 44);
     void slider(Params &params, Param *p, const char *format, bool log = false);
@@ -255,7 +271,7 @@ public:
 
 private:
     enum Builtin { knobBox = -1, sliderBox = -2, chevronBox = -3, chevronRightBox = -4, vsliderBox = -5, xyBox = -6, meterBox = -7,
-                   imageKnobBox = -8, pianoBox = -9, envelopeBox = -10, stepsBox = -11 };
+                   imageKnobBox = -8, pianoBox = -9, envelopeBox = -10, stepsBox = -11, gripBox = -12, closeBox = -13 };
     struct Placed
     {
         Params *params;
@@ -367,6 +383,10 @@ private:
     float splitGrab = 0;            // a divider being dragged: from the pointer to the divider's start (points)
     std::vector<std::pair<uint32_t, float>> splitRestore; // a collapsed split's size before, by divider
     View::Cursor cursor = View::Cursor::arrow, cursorShown = View::Cursor::arrow; // wanted this frame, and set
+    std::vector<uint32_t> windowOrder;  // windows back to front, by element
+    std::vector<uint32_t> windowsNow;   // those declared this frame
+    uint32_t windowUnder = 0;           // the frontmost window under the pointer, from the last frame's layout
+    float windowGrabX = 0, windowGrabY = 0; // from the pointer to what's dragged (a header or a grip), points
     bool pressFocused = false;   // this frame's press focused a control
     bool wheelUsed = false;      // a control turned with this frame's wheel
     bool scrollWaiting = false;  // the wheel scrolls, in the next frame
