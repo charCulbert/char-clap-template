@@ -416,7 +416,7 @@ void Ui::announce(const char *text) { announcement = text ? text : ""; }
 static bool same(const Accessible &a, const Accessible &b)
 {
     return a.id == b.id && a.role == b.role && a.name == b.name && a.value == b.value && a.description == b.description
-        && a.live == b.live && a.numeric == b.numeric
+        && a.live == b.live && a.orientation == b.orientation && a.numeric == b.numeric
         && a.number == b.number && a.min == b.min && a.max == b.max && a.step == b.step && a.checked == b.checked
         && a.expanded == b.expanded && a.selected == b.selected && a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height
         && a.actions == b.actions && a.children == b.children;
@@ -619,13 +619,20 @@ const void *Ui::controlId(const Param &p, float x, float y)
     return reinterpret_cast<const void *>(reinterpret_cast<uintptr_t>(&p) ^ (where << 3));
 }
 
-bool Ui::control(Params &params, Param &p, const void *me, float x, float y, float w, float h, bool vertical, float travel, bool log)
+bool Ui::control(Params &params, Param &p, const void *me, float x, float y, float w, float h, bool vertical, float travel, bool log,
+                 bool typable)
 {
     order.push_back(me);
     const bool fine = mouse.modifiers & View::shift;
     const double unit = toUnit(p, p.value, log);
 
-    if (focus == me) focusUses = stepKeys, focusTakesDigits = false; // knobs and sliders step; Enter isn't theirs
+    // Knobs and sliders step, and Escape, Delete or Backspace reset them (as
+    // double-click does), as compost's do; one with a value to type also
+    // takes Enter and digits (typeInto).
+    if (focus == me)
+        focusUses = stepKeys | keyBit(View::Key::escape) | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward)
+                  | (typable ? keyBit(View::Key::enter) : 0),
+        focusTakesDigits = typable;
     if (!active && over(x, y, w, h))
     {
         if (mouse.pressed) focus = me, pressFocused = true;
@@ -646,7 +653,8 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
     if (focus == me)
         for (auto [key, modifiers] : keys)
         {
-            const double step = modifiers & View::shift ? 0.001 : 0.01, u = toUnit(p, p.value, log);
+            // Shift for fine, Alt for a page's step (compost's large step).
+            const double step = modifiers & View::shift ? 0.001 : modifiers & View::alt ? 0.1 : 0.01, u = toUnit(p, p.value, log);
             switch (key)
             {
             case View::Key::up: case View::Key::right: set(params, p, fromUnit(p, u + step, log)); break;
@@ -655,6 +663,7 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
             case View::Key::pageDown: set(params, p, fromUnit(p, u - 0.1, log)); break;
             case View::Key::home: set(params, p, p.min); break;
             case View::Key::end: set(params, p, p.max); break;
+            case View::Key::escape: case View::Key::backspace: case View::Key::deleteForward: set(params, p, p.defaultValue); break;
             default: break; // Tab: in end()
             }
         }
@@ -682,7 +691,7 @@ void Ui::knob(Params &params, Param *p, Rect box, const char *format, bool log)
     const float size = theme.textSize * s;
     const float r = std::min(box.w, box.h - 3 * size) / 2, cx = box.x + box.w / 2, cy = box.y + r;
     const void *me = controlId(*p, cx, cy);
-    const bool dragging = control(params, *p, me, cx - r, cy - r, 2 * r, 2 * r, true, 200 * s, log);
+    const bool dragging = control(params, *p, me, cx - r, cy - r, 2 * r, 2 * r, true, 200 * s, log, true);
     // 270 degrees of travel, from 7:30 to 4:30; the ring a tenth of the dial (as compost's knob).
     const float from = 3.927f, sweep = 4.712f, u = float(toUnit(*p, p->value, log));
     const float width = std::max(2.0f * s, r * 0.19f);
@@ -696,7 +705,8 @@ void Ui::knob(Params &params, Param *p, Rect box, const char *format, bool log)
               dragging ? theme.accent : theme.text);
     char value[32];
     std::snprintf(value, sizeof(value), format, p->value);
-    describeParam(me, params, *p, value, box);
+    describeParam(me, params, *p, value, box).node.orientation = 2; // dragged up and down
+    typeInto(me, &p->defaultValue, *p);
     if (!valueEntry(params, *p, &p->defaultValue, {box.x, cy + r + 0.3f * size, box.w, 1.3f * size}, Draw2D::Align::center))
         draw.text(cx, cy + r + 1.3f * size, size, value, theme.text, Draw2D::Align::center, theme.valueFont);
     draw.text(cx, cy + r + 2.6f * size, size, p->name, theme.dim, Draw2D::Align::center, theme.labelFont);
@@ -713,10 +723,11 @@ void Ui::slider(Params &params, Param *p, Rect box, const char *format, bool log
     std::snprintf(value, sizeof(value), format, p->value);
     // The value first: a click on it types, rather than starting a drag.
     const float valueWidth = std::max(draw.measure(size, value, theme.valueFont), 3 * size) + 4 * s;
-    const bool typing = valueEntry(params, *p, &p->max, {px + w - valueWidth, py, valueWidth, 1.4f * size}, Draw2D::Align::right);
     const void *me = controlId(*p, px, py);
-    describeParam(me, params, *p, value, box);
-    const bool dragging = control(params, *p, me, px, py, w, h, false, w, log);
+    typeInto(me, &p->max, *p);
+    const bool typing = valueEntry(params, *p, &p->max, {px + w - valueWidth, py, valueWidth, 1.4f * size}, Draw2D::Align::right);
+    describeParam(me, params, *p, value, box).node.orientation = 1;
+    const bool dragging = control(params, *p, me, px, py, w, h, false, w, log, true);
     const bool hot = dragging || (!active && over(px, py, w, h));
     const float u = float(toUnit(*p, p->value, log)), thumb = 1.125f * size, track = py + h - thumb / 2;
     if (focusShown(me)) draw.rect(px - 3 * s, py - 2 * s, w + 6 * s, h + 4 * s, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
@@ -1140,6 +1151,18 @@ std::string Ui::plainNumber(double value)
 // A knob's or slider's value, which a click opens for typing (as compost's
 // editable values): returns true while it's being edited, drawn here.
 // id tells apart controls of the same parameter (a knob and a slider of it).
+// A focused knob or slider: Enter opens its value for typing, and a digit
+// starts typing a new one, as a number box does.
+void Ui::typeInto(const void *me, const void *entry, const Param &p)
+{
+    if (focus != me) return;
+    const uint32_t field = uint32_t(reinterpret_cast<uintptr_t>(entry)) | 1u;
+    if (editing == field) return;
+    if (!typedToFocus.empty()) startEditing(field, std::exchange(typedToFocus, {}));
+    const auto enter = std::find_if(keys.begin(), keys.end(), [](auto k) { return k.first == View::Key::enter; });
+    if (enter != keys.end()) keys.erase(enter), startEditing(field, plainNumber(p.value), true); // not also its commit
+}
+
 bool Ui::valueEntry(Params &params, Param &p, const void *id, Rect r, Draw2D::Align align)
 {
     const uint32_t field = uint32_t(reinterpret_cast<uintptr_t>(id)) | 1u;
@@ -1432,7 +1455,7 @@ void Ui::vslider(Params &params, Param *p, Rect box, const char *format, bool lo
     if (focusShown(me)) draw.rect(box.x, box.y, box.w, box.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
     char value[32];
     std::snprintf(value, sizeof(value), format, p->value);
-    describeParam(me, params, *p, value, box);
+    describeParam(me, params, *p, value, box).node.orientation = 2;
     draw.text(cx, box.y + size, size, value, theme.dim, Draw2D::Align::center, theme.valueFont);
     draw.text(cx, box.y + box.h - 0.3f * size, size, p->name, theme.dim, Draw2D::Align::center, theme.labelFont);
     draw.rect(cx - 1.5f * s, top, 3 * s, bottom - top, 0, theme.track);

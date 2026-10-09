@@ -254,7 +254,9 @@ private:
     // Handles all input for the control with rectangle x,y,w,h. Returns true
     // while that control is being dragged.
     static const void *controlId(const Param &p, float x, float y);
-    bool control(Params &params, Param &p, const void *me, float x, float y, float w, float h, bool vertical, float travel, bool log);
+    bool control(Params &params, Param &p, const void *me, float x, float y, float w, float h, bool vertical, float travel, bool log,
+                 bool typable = false);
+    void typeInto(const void *me, const void *entry, const Param &p);
     // A whole edit: begin, change and end at once (wheel, keys, double-click).
     void set(Params &params, Param &p, double value);
     bool over(float x, float y, float w, float h) const;

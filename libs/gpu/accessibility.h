@@ -28,6 +28,7 @@ struct Accessible
     bool selected = false; // a list's chosen option
     bool expanded = false; // a combo box's list is open
     bool live = false;     // read out whenever its value changes (aria-live): announcements
+    int orientation = 0;   // sliders: 1 horizontal, 2 vertical (aria-orientation); 0 not said
     float x = 0, y = 0, width = 0, height = 0; // pixels, in the view
     unsigned actions = 0;
     std::vector<uint64_t> children;

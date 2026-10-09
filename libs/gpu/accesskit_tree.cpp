@@ -40,6 +40,7 @@ accesskit_tree_update *update(const Accessibility &tree)
         if (!a.value.empty()) accesskit_node_set_value(node, a.value.c_str());
         if (!a.description.empty()) accesskit_node_set_description(node, a.description.c_str());
         if (a.live) accesskit_node_set_live(node, ACCESSKIT_LIVE_POLITE);
+        if (a.orientation) accesskit_node_set_orientation(node, a.orientation == 1 ? ACCESSKIT_ORIENTATION_HORIZONTAL : ACCESSKIT_ORIENTATION_VERTICAL);
         if (a.numeric)
         {
             accesskit_node_set_numeric_value(node, a.number);

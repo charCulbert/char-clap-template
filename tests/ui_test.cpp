@@ -625,9 +625,24 @@ static void keysBackToHost()
     draw();
     pointer(ui, View::Pointer::up, 50, 50);
     draw();
-    CHECK(ui.key(View::Key::up, 0) && !ui.key(View::Key::enter, 0) && !ui.key(View::Key::escape, 0)
-          && !ui.key(View::Key::backspace, 0));
+    // A focused knob takes its keys, as compost's does: the arrows step,
+    // Escape, Delete and Backspace reset it, Enter opens its value to type;
+    // a key it doesn't use goes back to the host.
+    CHECK(ui.key(View::Key::up, 0) && ui.key(View::Key::escape, 0) && !ui.key(View::Key::undo, 0));
     draw();
+    CHECK(a->value == a->defaultValue);
+    a->value = 0.8;
+    CHECK(ui.key(View::Key::backspace, 0));
+    draw();
+    CHECK(a->value == a->defaultValue);
+    a->value = 0.8;
+    CHECK(ui.key(View::Key::enter, 0));
+    draw();
+    CHECK(ui.editingText());
+    ui.key(View::Key::left, 0); // moves the caret: the knob stays put
+    ui.key(View::Key::escape, 0); // leaves the typing, and only that
+    draw();
+    CHECK(!ui.editingText() && a->value == 0.8);
     clickAt(ui, box("Go"), draw);
     CHECK(clicks == 1 && ui.key(View::Key::enter, 0));
     draw();
