@@ -376,7 +376,7 @@ private:
                 static const char *const styles[] = {"Ivory", "Palette"};
                 ui.segmented(styles, 2, keys, 3);
                 ui.label("Key colours");
-                const auto notes = ui.piano(48, 83, 56, [&](int n) { return n == 60 || n == held; });
+                const auto notes = ui.piano(48, 83, 100, [&](int n) { return n == 60 || n == held; });
                 if (notes.on >= 0) held = notes.on;
                 if (notes.off >= 0 && notes.off == held) held = -1;
             });
