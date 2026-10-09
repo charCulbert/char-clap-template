@@ -412,8 +412,11 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
     switch (message)
     {
     case WM_APP_FRAME:
-        window->framePosted = false;
+        // Cleared after the frame, so the next is posted at the next blank: a
+        // posted message is taken before input, and one queued while a long
+        // frame drew would always be waiting, and the mouse never get a turn.
         window->callbacks.frame();
+        window->framePosted = false;
         return 0;
     case WM_APP_DRAG: dragOut(window); return 0;
     case WM_APP_ACCESS:
