@@ -1,12 +1,22 @@
 // Runs a gpu::View in a WCLAP host's page: the browser's WebGPU draws into
 // #canvas, and messages travel as clap.webview/3 describes (ArrayBuffers via
 // window.parent.postMessage, and 'message' events back), encoded as libs/core/messages.h describes.
+//
+// For screen readers the View's accessibility tree is mirrored as elements
+// with WAI-ARIA roles over the canvas (as Flutter's web build does): they take
+// no pointer events, so the mouse still reaches the canvas, and DOM focus
+// follows the View's. Files dropped on the canvas are written to /drop in
+// Emscripten's file system, and their paths given to the View.
 #include "../context.h"
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <sstream>
+#include <string>
+#include <vector>
 
 namespace {
 
@@ -40,6 +50,182 @@ EM_JS(void, copyToClipboard, (const char *utf8, int size), {
     if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
 });
 
+EM_JS(void, setCursorCss, (const char *css), { document.getElementById('canvas').style.cursor = UTF8ToString(css); });
+
+// The ARIA role for each of ours (no default: a new role must be given one).
+const char *ariaRole(gpu::Accessible::Role role)
+{
+    using Role = gpu::Accessible::Role;
+    switch (role)
+    {
+    case Role::window: return "group"; // the view itself: the page is the window
+    case Role::group: return "group";
+    case Role::button: return "button";
+    case Role::checkBox: return "checkbox";
+    case Role::radioGroup: return "radiogroup";
+    case Role::radioButton: return "radio";
+    case Role::comboBox: return "combobox";
+    case Role::slider: return "slider";
+    case Role::spinButton: return "spinbutton";
+    case Role::textInput: return "textbox";
+    case Role::label: return ""; // just its words
+    case Role::image: return "img";
+    case Role::listBox: return "listbox";
+    case Role::option: return "option";
+    case Role::splitter: return "separator"; // focusable, with a value: APG's window splitter
+    case Role::dialog: return "dialog";
+    case Role::tabList: return "tablist";
+    case Role::tab: return "tab";
+    case Role::tabPanel: return "tabpanel";
+    }
+    return "group";
+}
+
+void jsonString(std::ostringstream &out, const std::string &text)
+{
+    out << '"';
+    for (const unsigned char c : text)
+    {
+        if (c == '"' || c == '\\') out << '\\' << char(c);
+        else if (c < 0x20)
+        {
+            char escaped[8];
+            std::snprintf(escaped, sizeof escaped, "\\u%04x", c);
+            out << escaped;
+        }
+        else out << char(c);
+    }
+    out << '"';
+}
+
+// The mirror: one element per node, keyed by id, changed only where the
+// tree differs; positions in CSS pixels, relative to the parent's.
+EM_JS(void, accessUpdate, (const char *json, float ratio), {
+    const access = Module.access ??= {elements: new Map(), focus: "", layer: null, syncing: false};
+    const canvas = document.getElementById('canvas');
+    if (!access.layer)
+    {
+        access.layer = document.createElement('div');
+        access.layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;color:transparent;font-size:1px';
+        document.body.appendChild(access.layer);
+        canvas.setAttribute('aria-hidden', 'true'); // the mirror says what it shows
+    }
+    const tree = JSON.parse(UTF8ToString(json));
+    const byId = new Map(tree.nodes.map(node => [node.id, node]));
+    const seen = new Set();
+    const set = (element, name, value) => {
+        if (value === null || value === undefined) element.removeAttribute(name);
+        else if (element.getAttribute(name) !== String(value)) element.setAttribute(name, value);
+    };
+    const send = (id, action) => {
+        const bytes = new TextEncoder().encode(id + '\0');
+        const pointer = _malloc(bytes.length);
+        HEAPU8.set(bytes, pointer);
+        _gpuAccessAction(pointer, action, 0);
+        _free(pointer);
+    };
+    const element = id => {
+        let e = access.elements.get(id);
+        if (e) return e;
+        e = document.createElement('div');
+        e.id = 'access-' + id;
+        e.style.cssText = 'position:absolute;outline:none;overflow:hidden;white-space:nowrap';
+        // A screen reader's press arrives as a click (the mouse can't: pointer-events none).
+        e.addEventListener('click', event => {
+            const node = e.node;
+            if (!node) return;
+            event.preventDefault();
+            if (node.actions & 2) send(id, 2);
+            else if (node.actions & (32 | 64)) send(id, node.expanded ? 64 : 32);
+        });
+        // A screen reader moving focus: the View's focus follows.
+        e.addEventListener('focus', () => { if (!access.syncing && id !== access.focus) send(id, 1); });
+        access.elements.set(id, e);
+        return e;
+    };
+    const place = (node, parent, index, parentX, parentY) => {
+        const e = element(node.id);
+        e.node = node;
+        seen.add(node.id);
+        if (parent.children[index] !== e) parent.insertBefore(e, parent.children[index] || null);
+        const x = node.x / ratio, y = node.y / ratio;
+        e.style.left = (x - parentX) + 'px';
+        e.style.top = (y - parentY) + 'px';
+        e.style.width = node.w / ratio + 'px';
+        e.style.height = node.h / ratio + 'px';
+        set(e, 'role', node.role || null); // "" for words: no role
+        const words = node.role === "" || node.role === "textbox";
+        set(e, 'aria-label', !words && node.name ? node.name : null);
+        if (node.role === 'textbox') set(e, 'aria-label', node.name || null);
+        set(e, 'aria-description', node.description || null);
+        set(e, 'aria-live', node.live ? 'polite' : null);
+        const ranged = node.numeric && ['slider', 'spinbutton', 'separator'].includes(node.role);
+        set(e, 'aria-valuenow', ranged ? node.number : null);
+        set(e, 'aria-valuemin', ranged ? node.min : null);
+        set(e, 'aria-valuemax', ranged ? node.max : null);
+        set(e, 'aria-valuetext', ranged && node.value ? node.value : null);
+        set(e, 'aria-orientation', node.orientation === 1 ? 'horizontal' : node.orientation === 2 ? 'vertical' : null);
+        set(e, 'aria-checked', node.checked < 0 ? null : node.checked ? 'true' : 'false');
+        set(e, 'aria-selected', ['option', 'tab'].includes(node.role) ? String(node.selected) : null);
+        const expandable = node.role === 'combobox' || (node.actions & (32 | 64));
+        set(e, 'aria-expanded', expandable ? String(node.expanded) : null);
+        set(e, 'aria-haspopup', node.role === 'combobox' ? 'listbox' : null);
+        set(e, 'aria-activedescendant', node.active ? 'access-' + node.active : null);
+        set(e, 'tabindex', node.actions ? '-1' : null); // focusable from script; Tab goes through the View
+        if (words && e.textContent !== node.value) e.textContent = node.value;
+        const children = (node.children || []).map(id => byId.get(id)).filter(Boolean);
+        children.forEach((child, i) => place(child, e, i, x, y));
+        while (!words && e.children.length > children.length) e.lastElementChild.remove();
+    };
+    if (tree.nodes.length) place(tree.nodes[0], access.layer, 0, 0, 0);
+    for (const [id, e] of access.elements)
+        if (!seen.has(id)) e.remove(), access.elements.delete(id);
+    // DOM focus follows the View's, while the page has it.
+    if (tree.focus !== access.focus)
+    {
+        access.focus = tree.focus;
+        const e = access.elements.get(tree.focus);
+        const ours = document.activeElement === document.body || document.activeElement === canvas || access.layer.contains(document.activeElement);
+        if (e && e.hasAttribute('tabindex') && document.hasFocus() && ours && document.activeElement !== e)
+        {
+            access.syncing = true;
+            e.focus({preventScroll: true});
+            access.syncing = false;
+        }
+    }
+});
+
+unsigned accessVersion = 0;
+
+void mirrorAccessibility()
+{
+    const gpu::Accessibility *tree = view->accessibility();
+    if (!tree || tree->version == accessVersion) return;
+    accessVersion = tree->version;
+    std::ostringstream out;
+    out << "{\"focus\":\"" << tree->focus << "\",\"nodes\":[";
+    for (size_t i = 0; i < tree->nodes.size(); ++i)
+    {
+        const gpu::Accessible &n = tree->nodes[i];
+        out << (i ? "," : "") << "{\"id\":\"" << n.id << "\",\"role\":\"" << ariaRole(n.role) << "\",\"name\":";
+        jsonString(out, n.name);
+        out << ",\"value\":";
+        jsonString(out, n.value);
+        out << ",\"description\":";
+        jsonString(out, n.description);
+        out << ",\"numeric\":" << (n.numeric ? "true" : "false") << ",\"number\":" << n.number << ",\"min\":" << n.min
+            << ",\"max\":" << n.max << ",\"checked\":" << n.checked << ",\"selected\":" << (n.selected ? "true" : "false")
+            << ",\"expanded\":" << (n.expanded ? "true" : "false") << ",\"live\":" << (n.live ? "true" : "false")
+            << ",\"orientation\":" << n.orientation << ",\"actions\":" << n.actions << ",\"x\":" << n.x << ",\"y\":" << n.y
+            << ",\"w\":" << n.width << ",\"h\":" << n.height << ",\"active\":\"" << (n.activeDescendant ? std::to_string(n.activeDescendant) : "")
+            << "\",\"children\":[";
+        for (size_t c = 0; c < n.children.size(); ++c) out << (c ? "," : "") << '"' << n.children[c] << '"';
+        out << "]}";
+    }
+    out << "]}";
+    accessUpdate(out.str().c_str(), pixelRatio());
+}
+
 bool frame(double, void *)
 {
     double cssWidth, cssHeight;
@@ -54,6 +240,7 @@ bool frame(double, void *)
     if (const bool dark = prefersDark(); dark != view->darkMode) view->darkMode = dark, dirty = true;
     if (dirty || view->animating()) context.frame(*view, pixelRatio());
     dirty = false;
+    mirrorAccessibility();
     return true; // keep the requestAnimationFrame loop going
 }
 
@@ -146,6 +333,27 @@ extern "C" EMSCRIPTEN_KEEPALIVE int gpuPaste(const char *utf8)
     return ready && view->text(utf8) && (dirty = true);
 }
 
+// A screen reader's request, from the mirror: id as decimal text.
+extern "C" EMSCRIPTEN_KEEPALIVE void gpuAccessAction(const char *id, int action, double value)
+{
+    if (!ready) return;
+    view->accessAction(std::strtoull(id, nullptr, 10), gpu::Accessible::Action(action), value);
+    dirty = true;
+}
+
+// Files dragged over the canvas (no names until they're dropped: the browser
+// keeps them back), dropped (written to /drop; paths one per line), or gone.
+extern "C" EMSCRIPTEN_KEEPALIVE int gpuFiles(int type, float x, float y, const char *paths)
+{
+    if (!ready) return 0;
+    std::vector<std::string> list;
+    std::istringstream lines(paths);
+    for (std::string line; std::getline(lines, line);)
+        if (!line.empty()) list.push_back(line);
+    dirty = true;
+    return view->files(gpu::View::FileDrag(type), x * pixelRatio(), y * pixelRatio(), list);
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE void gpuReceive(const unsigned char *data, int size)
 {
     if (auto message = core::decode(data, size); message && view) view->receive(*message), dirty = true;
@@ -160,6 +368,19 @@ int main()
     };
     view->lockPointer = [](bool locked) { setPointerLock(locked); };
     view->copyText = [](const std::string &utf8) { copyToClipboard(utf8.data(), int(utf8.size())); };
+    view->setCursor = [](gpu::View::Cursor cursor) {
+        using Cursor = gpu::View::Cursor;
+        switch (cursor) // as the macOS presenter's NSCursors
+        {
+        case Cursor::arrow: setCursorCss("default"); break;
+        case Cursor::text: setCursorCss("text"); break;
+        case Cursor::hand: setCursorCss("pointer"); break;
+        case Cursor::move: setCursorCss("grab"); break;
+        case Cursor::resizeLeftRight: setCursorCss("ew-resize"); break;
+        case Cursor::resizeUpDown: setCursorCss("ns-resize"); break;
+        case Cursor::resizeDiagonal: setCursorCss("nwse-resize"); break;
+        }
+    };
     EM_ASM({
         window.addEventListener('message', event => {
             if (!(event.data instanceof ArrayBuffer)) return;
@@ -168,6 +389,40 @@ int main()
             HEAPU8.set(bytes, pointer);
             _gpuReceive(pointer, bytes.length);
             _free(pointer);
+        });
+        // Files from the desktop: over and leave as they move, then on the
+        // drop each is written to /drop/<name> (MEMFS, in the page's memory)
+        // and the paths given to the View.
+        const canvas = document.getElementById('canvas');
+        const files = (type, event, paths) => {
+            const bytes = new TextEncoder().encode(paths.join('\n') + '\0');
+            const pointer = _malloc(bytes.length);
+            HEAPU8.set(bytes, pointer);
+            const taken = _gpuFiles(type, event.offsetX, event.offsetY, pointer);
+            _free(pointer);
+            return taken;
+        };
+        const hasFiles = event => event.dataTransfer && Array.from(event.dataTransfer.types).includes('Files');
+        canvas.addEventListener('dragover', event => {
+            if (!hasFiles(event)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = files(0, event, []) ? 'copy' : 'none';
+        });
+        canvas.addEventListener('dragleave', event => { if (hasFiles(event)) files(2, event, []); });
+        canvas.addEventListener('drop', async event => {
+            if (!hasFiles(event)) return;
+            event.preventDefault();
+            const dropped = Array.from(event.dataTransfer.files);
+            const at = {offsetX: event.offsetX, offsetY: event.offsetY};
+            try { FS.mkdirTree('/drop'); } catch {}
+            const paths = [];
+            for (const file of dropped)
+            {
+                const path = '/drop/' + file.name.split('/').join('_');
+                FS.writeFile(path, new Uint8Array(await file.arrayBuffer()));
+                paths.push(path);
+            }
+            files(1, at, paths);
         });
         document.addEventListener('paste', event => {
             const text = event.clipboardData && event.clipboardData.getData('text/plain');
