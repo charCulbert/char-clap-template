@@ -3,6 +3,7 @@
 // look like, so a wrong drawing is visible at a glance.
 #include "draw2d/ui.h"
 #include "draw2d/views.h"
+#include "draw2d/dock.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -102,8 +103,8 @@ public:
         {
             CLAY({.layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .childGap = 12, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
             {
-                static const char *const pages[] = {"Shapes", "Text", "Controls", "Layout", "More", "Views"};
-                ui.segmented(pages, 6, page, 0);
+                static const char *const pages[] = {"Shapes", "Text", "Controls", "Layout", "More", "Views", "Dock"};
+                ui.segmented(pages, 7, page, 0);
                 ui.label("Page");
                 if (ui.toggle("Windows", windowsOpen)) mixerOpen = notesOpen = windowsOpen;
                 ui.tooltip("Two windows over the page: drag, resize, Tab to a header and use the arrows");
@@ -122,6 +123,7 @@ public:
                 if (page == 3) layoutPage();
                 if (page == 4) morePage();
                 if (page == 5) viewsPage();
+                if (page == 6) dockPage();
             }
         }
         // Windows over the page, as compost's.
@@ -455,6 +457,13 @@ private:
     // Views of a signal, fed made-up data: drawing only, as the views are.
     void viewsPage()
     {
+        viewsData();
+        viewsCells();
+    }
+
+    // The made-up signal: a pluck, a drifting oscillator, a sweeping tone.
+    void viewsData()
+    {
         const float t = std::chrono::duration<float>(std::chrono::steady_clock::now() - started).count();
         if (stereoPeaks.empty()) // a plucked tone, the right a little later
             for (int c = 0; c < 2; ++c)
@@ -486,6 +495,10 @@ private:
             binDb[i] = level;
         }
         spectrogram.add(binDb.data(), binHz.data(), binDb.size());
+    }
+
+    void viewsCells()
+    {
         row([&] {
             cell("Waveform: a min and max per bucket, left above right", [&] { gpu::waveform(ui, "Pluck", stereoPeaks, {}, 110); });
             cell("Scope: samples over a grid; 1 at the top, -1 at the bottom", [&] { gpu::scope(ui, "Oscillator", scopeSamples.data(), scopeSamples.size(), {.range = 1}, 110); });
@@ -509,6 +522,29 @@ private:
                 }
             });
         });
+    }
+
+    // The Views page's views as panels: drag a tab to an edge, out, or onto
+    // another group; or Alt and the arrows, Alt and Enter, on a focused tab.
+    void dockPage()
+    {
+        viewsData();
+        label("Drag a tab to a group's edge to split it, to its middle to join it, or off the dock to float it. "
+              "Keys: Alt and the arrows on a focused tab; Alt and Enter floats it; closing a window docks it back.",
+              ui.theme.dim);
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
+        {
+            dock.draw(ui, "Gallery", {
+                {"Spectrogram", [&] { spectrogram.draw(ui, "Sweep", 160); }},
+                {"Scope", [&] { gpu::scope(ui, "Oscillator", scopeSamples.data(), scopeSamples.size(), {}, 120); }},
+                {"Waveform", [&] { gpu::waveform(ui, "Pluck", stereoPeaks, {}, 120); }},
+                {"Controls", [&] {
+                     ui.toggle("Oversample", oversample);
+                     ui.toggle("Linear phase", linearPhase);
+                     if (ui.button("Reset")) windowRate = 1;
+                 }},
+            });
+        }
     }
 
     void morePage()
@@ -718,6 +754,7 @@ private:
     std::vector<std::vector<gpu::Peak>> stereoPeaks;
     std::vector<float> scopeSamples = std::vector<float>(256), binHz = std::vector<float>(512), binDb = std::vector<float>(512);
     gpu::Spectrogram spectrogram;
+    gpu::Dock dock;
     std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
     std::string name = "Preset 1";
     core::Value::Map sent = data(); // the data the plugin has
