@@ -95,7 +95,8 @@ static void vblankLoop(Window *window)
             output = outputFor(factory, monitor), shownOn = monitor;
         }
         if (!output || FAILED(output->WaitForVBlank())) Sleep(16); // no output to wait on (a remote session): about 60 Hz
-        if (!window->framePosted.exchange(true)) PostMessageW(window->hwnd, WM_APP_FRAME, 0, 0);
+        // One at a time; a post that fails (a full queue) is tried again at the next blank.
+        if (!window->framePosted.exchange(true) && !PostMessageW(window->hwnd, WM_APP_FRAME, 0, 0)) window->framePosted = false;
     }
     if (output) output->Release();
     if (factory) factory->Release();
