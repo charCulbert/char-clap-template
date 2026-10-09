@@ -524,12 +524,12 @@ private:
         });
     }
 
-    // The Views page's views as panels: drag a tab to an edge, out, or onto
-    // another group; or Alt and the arrows, Alt and Enter, on a focused tab.
+    // The Views page's views as panels in a dock, as ImGui's.
     void dockPage()
     {
         viewsData();
-        label("Drag a tab to a group's edge to split it, to its middle to join it, or off the dock to float it. "
+        label("Drag a tab along its bar to move it; pull it out to float it. Drop a moving window on a target: "
+              "the middle joins a group, a side splits it, the dock's edges a side of everything. "
               "Keys: Alt and the arrows on a focused tab; Alt and Enter floats it; closing a window docks it back.",
               ui.theme.dim);
         CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
