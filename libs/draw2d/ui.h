@@ -371,10 +371,9 @@ private:
         uint32_t element = 0;  // a Clay element: its box is the bounds, once laid out
         Params *params = nullptr;
         Param *param = nullptr; // a parameter's control: set by setValue
-        float *size = nullptr;  // a split's divider: setValue sets its first area's size (points), from min to max
         uint64_t parent = 0;    // 0: the view's
     };
-    bool handle(Clay_ElementId hid, const char *name, float &size, float *kept, float min, float most, bool vertical, float origin, int sign);
+    bool handle(Clay_ElementId hid, const char *name, float &size, float min, float most, bool vertical, float origin, int sign);
     void handleBox(Clay_ElementId hid, bool vertical);
     std::vector<Described> described;
     std::vector<std::pair<uint64_t, float>> reading; // each control's place in layout order, for Tab too
@@ -468,6 +467,8 @@ private:
     bool tooltipWaiting = false;
     bool settle = false;        // input arrived this frame: draw one more
     bool animateAsked = false;   // animate() this frame
+    const void *splitterAsked = nullptr; // a splitter a screen reader set, taken when it's next drawn
+    double splitterTo = 0;               // to this size (points)
     std::vector<const void *> scopes; // pushId's, innermost last
     bool leftAfterRelease = false; // the pointer left the view after a release this frame hasn't seen
 

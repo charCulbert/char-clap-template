@@ -239,6 +239,7 @@ private:
             CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}, .childAlignment = {.y = CLAY_ALIGN_Y_BOTTOM}}})
             {
                 t = ui.tabs(titles.data(), int(titles.size()), n.shown, index);
+                ui.label("Panels");
                 if (options.popOut) popOut(ui, n, window, index);
             }
             if (t.held >= 0) holdTab(ui, n, t);

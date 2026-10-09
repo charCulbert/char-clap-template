@@ -302,6 +302,34 @@ void Ui::end(const wgpu::RenderPassEncoder &pass, const std::function<void(int, 
     draw.flush(pass);
 }
 
+// What a role is called, for warnings (no default: each role must have one).
+static const char *roleName(Accessible::Role role)
+{
+    switch (role)
+    {
+    case Accessible::Role::window: return "window";
+    case Accessible::Role::group: return "group";
+    case Accessible::Role::button: return "button";
+    case Accessible::Role::checkBox: return "check box";
+    case Accessible::Role::radioGroup: return "radio group";
+    case Accessible::Role::radioButton: return "radio button";
+    case Accessible::Role::comboBox: return "combo box (dropdown)";
+    case Accessible::Role::slider: return "slider";
+    case Accessible::Role::spinButton: return "spin button (number box)";
+    case Accessible::Role::textInput: return "text field";
+    case Accessible::Role::label: return "label";
+    case Accessible::Role::image: return "image";
+    case Accessible::Role::listBox: return "list box";
+    case Accessible::Role::option: return "option";
+    case Accessible::Role::splitter: return "splitter";
+    case Accessible::Role::dialog: return "window (dialog)";
+    case Accessible::Role::tabList: return "tab list";
+    case Accessible::Role::tab: return "tab";
+    case Accessible::Role::tabPanel: return "tab panel";
+    }
+    return "control";
+}
+
 // A control's id for screen readers: its address, as it is for focus.
 static uint64_t accessId(const void *me) { return uint64_t(reinterpret_cast<uintptr_t>(me)); }
 
@@ -406,6 +434,7 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
     edits.clear();
     typedToFocus.clear();
     accessClick = nullptr; // for a control no longer there
+    splitterAsked = nullptr;
     if (cursor != cursorShown && setCursor) setCursor(cursor), cursorShown = cursor;
     return draw.changed();
 }
@@ -575,7 +604,9 @@ void Ui::finishDescribing()
         // child of a node that isn't there is an error to AccessKit.
         if (!r || std::none_of(entries.begin(), entries.end(), [&](const Entry &e) { return e.node.id == dialogId; })) continue;
         for (Entry &e : entries)
-            if (!e.parent && e.node.id != dialogId && e.node.width > 0 && contains(*r, {e.node.x, e.node.y, e.node.width, e.node.height}))
+            // (Not another window: two in the same place would each take the other.)
+            if (!e.parent && e.node.id != dialogId && e.node.role != Accessible::Role::dialog && e.node.width > 0
+                && contains(*r, {e.node.x, e.node.y, e.node.width, e.node.height}))
                 e.parent = dialogId;
     }
     // label, description, hidden: on the control whose element they name, or
@@ -596,6 +627,16 @@ void Ui::finishDescribing()
             if (e.node.description == e.node.name) e.node.description.clear(); // said once is enough
             if (!w.everything) break;
         }
+    }
+
+    // Hidden, and so is all that's in it (a window's children with it).
+    for (bool more = true; more;)
+    {
+        more = false;
+        for (Entry &e : entries)
+            if (!e.hidden && e.parent)
+                for (const Entry &p : entries)
+                    if (p.node.id == e.parent && p.hidden) e.hidden = more = true;
     }
 
     Accessibility tree;
@@ -644,9 +685,7 @@ void Ui::finishDescribing()
             static std::vector<uint64_t> warned;
             if (std::find(warned.begin(), warned.end(), n.id) != warned.end()) continue;
             warned.push_back(n.id);
-            static const char *const roles[] = {"window", "group", "button", "check box", "radio group", "radio button", "combo box (dropdown)",
-                                                "slider", "spin button (number box)", "text field", "label", "image", "list box", "option"};
-            std::fprintf(stderr, "draw2d: a %s has no name for screen readers: give it ui.label(\"...\")\n", roles[int(n.role)]);
+            std::fprintf(stderr, "draw2d: a %s has no name for screen readers: give it ui.label(\"...\")\n", roleName(n.role));
         }
 #endif
     const bool unchanged = tree.focus == accessTree.focus && tree.nodes.size() == accessTree.nodes.size()
@@ -667,6 +706,12 @@ void Ui::accessAction(uint64_t id, Accessible::Action action, double value)
     case Accessible::click: focus = me, accessClick = me; break;
     case Accessible::increment: // as the arrow keys would, on the focused control
     case Accessible::decrement:
+        if (d->node.role == Accessible::Role::splitter) // its size, more or less, whichever way it lies
+        {
+            focus = me, focusVisible = true;
+            splitterAsked = me, splitterTo = std::clamp(d->node.number + (action == Accessible::increment ? 16 : -16), d->node.min, d->node.max);
+            break;
+        }
         if (d->parent && d->param) // a part of one control (an XY pad's axis): step it directly
         {
             const double by = action == Accessible::increment ? 0.01 : -0.01;
@@ -678,7 +723,8 @@ void Ui::accessAction(uint64_t id, Accessible::Action action, double value)
         break;
     case Accessible::setValue:
         if (d->param) set(*d->params, *d->param, value);
-        if (d->size) *d->size = float(std::clamp(value, d->node.min, d->node.max));
+        // A splitter takes it when it's next drawn, from its caller's size as it is then.
+        if (d->node.role == Accessible::Role::splitter) splitterAsked = me, splitterTo = std::clamp(value, d->node.min, d->node.max);
         break;
     case Accessible::expand: // a dropdown or drawer, opened by its click when it's closed
     case Accessible::collapse:
@@ -1688,8 +1734,7 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
 // collapse its area and restore it. size is that area's (points), measured
 // from origin, growing in direction sign along the handle's axis (y when
 // vertical). Declare its element with handleBox after.
-bool Ui::handle(Clay_ElementId hid, const char *name, float &size, float *kept, float min, float most, bool vertical, float origin,
-                int sign)
+bool Ui::handle(Clay_ElementId hid, const char *name, float &size, float min, float most, bool vertical, float origin, int sign)
 {
     const float before = size;
     auto clamp = [&](float v) { return std::clamp(v, min, most); };
@@ -1720,6 +1765,7 @@ bool Ui::handle(Clay_ElementId hid, const char *name, float &size, float *kept, 
             else size = clamp(saved->second);
         }
     }
+    if (splitterAsked == me) size = clamp(float(splitterTo)), splitterAsked = nullptr; // a screen reader's value
     if (focus == me) focusUses |= keyBit(View::Key::home) | keyBit(View::Key::end);
     Described &d = describe(me, Accessible::Role::splitter, name);
     char text[32];
@@ -1727,7 +1773,6 @@ bool Ui::handle(Clay_ElementId hid, const char *name, float &size, float *kept, 
     d.element = hid.id, d.node.value = text, d.node.numeric = true, d.node.number = size, d.node.min = min, d.node.max = most;
     d.node.orientation = vertical ? 1 : 2; // a separator's orientation is its line's
     d.node.actions |= Accessible::increment | Accessible::decrement | Accessible::setValue;
-    d.size = kept; // a screen reader's setValue lands in the caller's size, not this frame's copy
     if ((Clay_PointerOver(hid) && !active) || a.held) cursor = vertical ? View::Cursor::resizeUpDown : View::Cursor::resizeLeftRight;
     return size != before;
 }
@@ -1761,7 +1806,7 @@ bool Ui::split(const char *name, float &size, const std::function<void()> &first
     // Drawn within the room it has now, while size keeps what was set: a
     // room that shrinks for a moment (a resize) doesn't lose it.
     float shown = laidOut.found ? std::clamp(size, options.min, most) : size;
-    if (handle(did, name, shown, &size, options.min, most, options.stacked, options.stacked ? box.y : box.x, 1)) size = shown;
+    if (handle(did, name, shown, options.min, most, options.stacked, options.stacked ? box.y : box.x, 1)) size = shown;
 
     // The first area is a share of the room, not a fixed size: Clay counts a
     // fixed size in its parents' minimum, so dragging it bigger made the
@@ -1800,7 +1845,7 @@ bool Ui::drawer(const char *title, bool &open, float &size, const std::function<
         const float header = across ? 0 : theme.textSize * 1.25f + 8 + 1; // a column's header sits above what the handle sizes
         const std::string name = std::string("Resize ") + title;
         float content = size;
-        if (handle(hid, name.c_str(), content, &size, options.min, options.max, !across,
+        if (handle(hid, name.c_str(), content, options.min, options.max, !across,
                    fromEnd ? origin - (across ? 0 : header) : origin + header, fromEnd ? -1 : 1))
             size = content;
     }
@@ -1935,7 +1980,7 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
                                .attachPoints = {CLAY_ATTACH_POINT_RIGHT_BOTTOM, CLAY_ATTACH_POINT_RIGHT_BOTTOM}, .attachTo = CLAY_ATTACH_TO_PARENT},
                   .custom = {.customData = layout.custom(gripBox)}}) {}
     }
-    lastElement = wid.id;
+    lastElement = hid.id; // label() and hidden() after it are about the window: its node is its header's
     return open;
 }
 

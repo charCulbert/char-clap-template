@@ -44,6 +44,11 @@ set(DRAW2D_PATCHED "${CMAKE_BINARY_DIR}/stb-patched")
 
 function(draw2d_add_to target)
     target_sources(${target} PRIVATE "${DRAW2D_DIR}/draw2d.cpp" "${DRAW2D_DIR}/layout.cpp" "${DRAW2D_DIR}/ui.cpp")
+    if(MSVC) # a role with no name (roleName's switch) is an error
+        set_source_files_properties("${DRAW2D_DIR}/ui.cpp" PROPERTIES COMPILE_OPTIONS /we4062)
+    else()
+        set_source_files_properties("${DRAW2D_DIR}/ui.cpp" PROPERTIES COMPILE_OPTIONS -Werror=switch)
+    endif()
     # Third-party headers: their own warnings aren't the plugin's to fix.
     target_include_directories(${target} SYSTEM PRIVATE "${DRAW2D_PATCHED}" "${stb_SOURCE_DIR}" "${clay_SOURCE_DIR}" "${nanosvg_SOURCE_DIR}/src")
     # Clay's API is designated initializers that leave the rest of a struct at

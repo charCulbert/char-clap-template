@@ -784,6 +784,44 @@ static void dockableWindows()
     CHECK(std::abs(layout.space.size - 400.0f / 3) < 1); // the third the outline showed, on the left
 }
 
+// The accessibility tree keeps its shape in odd cases: two windows in the
+// same place, a hidden window, and a screen reader stepping or setting a
+// splitter (taken when it's next drawn; increment makes its first area larger).
+static void accessibilityEdgeCases()
+{
+    Ui ui;
+    gpu::Rect one{40, 40, 200, 150}, two{40, 40, 200, 150};
+    bool open1 = true, open2 = true, hideTwo = false;
+    float size = 100;
+    auto draw = [&] {
+        frame(ui, [&] {
+            ui.split("Sides", size, [] {}, [] {});
+            ui.window("One", one, open1, [&] { ui.button("A"); });
+            ui.window("Two", two, open2, [&] { ui.button("B"); });
+            if (hideTwo) ui.hidden();
+        });
+        CHECK(everyNodeHasParent(ui));
+    };
+    draw();
+    draw();
+    hideTwo = true;
+    draw();
+    draw();
+    bool b = false;
+    for (const gpu::Accessible &n : ui.accessibility()->nodes) b |= n.name == "B" || n.name == "Two";
+    CHECK(!b); // hidden, with what's in it
+    uint64_t splitter = 0;
+    for (const gpu::Accessible &n : ui.accessibility()->nodes)
+        if (n.role == gpu::Accessible::Role::splitter) splitter = n.id;
+    CHECK(splitter != 0);
+    ui.accessAction(splitter, gpu::Accessible::increment, 0);
+    draw();
+    CHECK(size == 116);
+    ui.accessAction(splitter, gpu::Accessible::setValue, 60);
+    draw();
+    CHECK(size == 60);
+}
+
 // The dock's defaults: only a dock space takes a window; let go anywhere
 // else (on another window too), it just moves. popOut and dockBack do it in
 // code, for a button of one's own.
@@ -1567,6 +1605,7 @@ int main()
     tabStrip();
     dockableWindows();
     dockSpaceOnly();
+    accessibilityEdgeCases();
     splitAtScale();
     parameterToggleAndSegmented();
     textFieldEdits();
