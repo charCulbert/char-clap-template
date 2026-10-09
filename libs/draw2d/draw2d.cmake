@@ -14,9 +14,12 @@ FetchContent_Declare(stb
     URL https://github.com/nothings/stb/archive/2c980bb59875b0d32144a71867fbdebb2f77cd20.tar.gz
     URL_HASH SHA256=9a955b1b49a4410088a2e0ee2a9c057c3c907d0c1d75454144cb980aca0ba515
     SOURCE_SUBDIR none) # headers only: don't run its CMakeLists
+# Clay at the commit after v0.14 that raises its scroll containers (each
+# .clip box) from 10 to 100 a frame: docked windows clip many boxes. Before
+# its next API change (ids out of the element declaration).
 FetchContent_Declare(clay
-    URL https://github.com/nicbarker/clay/archive/refs/tags/v0.14.tar.gz
-    URL_HASH SHA256=ee8f6477020dd72afe8cf6f8d3ab6855980028289a2b677a1423d17aab983585
+    URL https://github.com/nicbarker/clay/archive/7f767d230191bf494d6e158190f0afbff68f8e2a.tar.gz
+    URL_HASH SHA256=cad7eb3d3b150f319402362dd393b8100b81ebd68476d8b46ef5153665b7c93f
     SOURCE_SUBDIR none) # its CMakeLists builds examples we don't want
 # nanosvg parses SVG and rasterizes it, for Draw2D::addSvg. Two single headers.
 FetchContent_Declare(nanosvg
