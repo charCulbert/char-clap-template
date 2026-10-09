@@ -862,6 +862,22 @@ static void dockSpaceOnly()
     t = title("Edit");
     drag(t.x + 30, t.y + 6, 200, 150);
     CHECK(layout.windows.size() == 1 && layout.space.tabs == Tabs{"Edit"});
+    // The pop-out button, clicked by a screen reader as a mouse would.
+    dock.options.popOut = true;
+    draw();
+    draw();
+    uint64_t button = 0;
+    for (const gpu::Accessible &node : ui.accessibility()->nodes)
+        if (node.name == "Pop out Edit") button = node.id;
+    ui.accessAction(button, gpu::Accessible::click, 0);
+    draw();
+    draw();
+    CHECK(button != 0 && layout.space.tabs.empty() && layout.windows.size() == 2);
+    dock.dockBack("Edit");
+    draw();
+    dock.options.popOut = false;
+    draw();
+    CHECK(layout.space.tabs == Tabs{"Edit"});
     // popOut and dockBack, as a button of one's own would.
     dock.popOut("Edit");
     draw();

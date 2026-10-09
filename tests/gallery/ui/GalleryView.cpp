@@ -221,7 +221,8 @@ private:
     void custom(const char *expect, Cell kind)
     {
         cell(expect, [&] {
-            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = ui.paint([this, kind](gpu::Rect r) { drawCell(kind, r); })}}) {}
+            void *box = ui.paint([this, kind](gpu::Rect r) { drawCell(kind, r); }); // (MSVC: not inside CLAY's braces)
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = box}}) {}
         });
     }
     void label(const char *text, gpu::Color color, int size = 0, int font = 0) // size 0: the theme's

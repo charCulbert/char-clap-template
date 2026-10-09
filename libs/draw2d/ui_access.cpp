@@ -63,6 +63,14 @@ void Ui::accessible(Accessible::Role role, const char *name, const char *value, 
     d.node.x = r.x, d.node.y = r.y, d.node.width = r.w, d.node.height = r.h;
 }
 
+void Ui::accessible(Clay_ElementId element, Accessible::Role role, const char *name, const char *description)
+{
+    const void *me = reinterpret_cast<const void *>(uintptr_t(element.id)); // as element() knows it, for its clicks
+    Described &d = describe(me, role, name);
+    d.element = element.id, d.node.actions |= Accessible::click;
+    if (description) d.node.description = description;
+}
+
 void Ui::label(const char *name)
 {
     if (lastElement && name) said.push_back({lastElement, name, {}});

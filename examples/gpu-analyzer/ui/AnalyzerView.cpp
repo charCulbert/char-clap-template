@@ -228,10 +228,10 @@ public:
                 {
                     // 74 points keeps each dial 40 across above its two lines of text.
                     for (gpu::Param *p : {smoothing, colour, tilt})
-                        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(80), CLAY_SIZING_GROW(74, 108)}},
-                              .custom = {.customData = ui.paint([&, p](gpu::Rect r) {
-                                  ui.knob(params, p, r, p == tilt ? "%.1f dB/oct" : "%.0f");
-                              })}}) {}
+                    {
+                        void *knob = ui.paint([&, p](gpu::Rect r) { ui.knob(params, p, r, p == tilt ? "%.1f dB/oct" : "%.0f"); });
+                        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(80), CLAY_SIZING_GROW(74, 108)}}, .custom = {.customData = knob}}) {}
+                    }
                 }
             }
         }

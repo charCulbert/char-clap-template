@@ -297,6 +297,9 @@ public:
     // aria-label does: what it is, its name, its value if any, and more about
     // it if needed (aria-description).
     void accessible(Accessible::Role role, const char *name, const char *value, Rect r, const char *description = nullptr);
+    // The same for an element you declared and press with element(): a screen
+    // reader's click on it arrives as a click there (a button of your own).
+    void accessible(Clay_ElementId element, Accessible::Role role, const char *name, const char *description = nullptr);
     // Where the pointer is (pixels) and whether it's down: for a drag that
     // outlives the control it began on (a dock's tab pulled into a window).
     struct PointerAt { float x, y; bool down; };

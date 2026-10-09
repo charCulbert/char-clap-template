@@ -278,8 +278,8 @@ private:
                   ui.draw.line(cx - 1 * s, cy + 1 * s, cx + h + 1 * s, cy - h - 1 * s, 1.4f * s, ink);
                   const float tip[] = {cx + h - 3 * s, cy - h - 1 * s, cx + h + 1 * s, cy - h - 1 * s, cx + h + 1 * s, cy - h + 3 * s};
                   ui.draw.polyline(tip, 3, 1.4f * s, ink);
-                  ui.accessible(Accessible::Role::button, name.c_str(), nullptr, r, "Puts the shown panel in a window of its own");
               })}}) {}
+        ui.accessible(id, Accessible::Role::button, name.c_str(), "Puts the shown panel in a window of its own");
         if (a.clicked)
         {
             Node *at = &n;
