@@ -4,7 +4,7 @@
 namespace gpu {
 
 // What a role is called, for warnings (no default: each role must have one).
-static const char *roleName(Accessible::Role role)
+[[maybe_unused]] static const char *roleName(Accessible::Role role) // (warnings are debug builds only)
 {
     switch (role)
     {
