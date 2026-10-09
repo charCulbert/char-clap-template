@@ -95,6 +95,7 @@ private:
         Node *node = nullptr; // a group, or (none) a side of the dock space
         Side side = Side::middle;
         Rect preview{}; // where it would go, points
+        Rect region{};  // what it goes beside, points: its split shares this
     };
     // What the pointer is doing: a tab held (moving along its bar), or a
     // window moving (by its title, by a tab bar, or pulled out and carried).
@@ -356,13 +357,13 @@ private:
         float distance = 0;
         if (!overWindow && whole.w > 0 && inside(whole, px, py))
             if (const Side side = nearest(whole, px, py, distance); distance < 24) // the space's own edge
-                target = {nullptr, side, part(whole, side, 1.0f / 3)}, found = true;
+                target = {nullptr, side, part(whole, side, 1.0f / 3), whole}, found = true;
         if (!found && under && under->box.w > 0)
         {
             const Rect &u = under->box;
             const Side side = nearest(u, px, py, distance);
             const float band = std::min(80.0f, 0.3f * (side == Side::left || side == Side::right ? u.w : u.h));
-            target = distance < band ? Target{under->node, side, part(u, side, 0.5f)} : Target{under->node, Side::middle, u};
+            target = distance < band ? Target{under->node, side, part(u, side, 0.5f), u} : Target{under->node, Side::middle, u, u};
             found = true;
         }
         // The outline glides to where it would go, and fades when there's nowhere.
@@ -453,7 +454,11 @@ private:
         layout.windows[index].root = Node{};
         std::vector<std::string> all;
         panelsOf(moved, all);
-        const float size = t.side == Side::left || t.side == Side::right ? t.preview.w : t.preview.h;
+        // The split keeps its first side's size: the new one's, or (on the
+        // right or below) the rest of the room, less the divider.
+        const bool across = t.side == Side::left || t.side == Side::right;
+        float size = across ? t.preview.w : t.preview.h;
+        if (t.side == Side::right || t.side == Side::bottom) size = (across ? t.region.w : t.region.h) - size - 7;
         if (!t.node) split(layout.space, std::move(moved), t.side, size); // a side of the dock space
         else if (t.side == Side::middle) // its tabs join the group's
         {

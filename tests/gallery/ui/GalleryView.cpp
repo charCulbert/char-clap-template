@@ -544,9 +544,10 @@ private:
     void dockPage()
     {
         viewsData();
-        label("Drag a window by its title onto another, or onto the dock space below: the middle target joins it as tabs, "
-              "a side splits it. A tab bar's empty part moves its window; drag a tab along the bar, or out of it into a "
-              "window of its own. Keys: Alt and the arrows on a focused tab; Alt and Enter pulls it out.",
+        label("Drag a window by its title over another, or over the dock space below: an outline shows where it would go. "
+              "In the middle it joins as a tab, near an edge it goes beside, near the space's own edge along all of it. "
+              "A tab bar's empty part moves its window; drag a tab along the bar, or out of it into a window of its own. "
+              "Keys: Alt and the arrows on a focused tab; Alt and Enter pulls it out.",
               ui.theme.dim);
         if (dock.layout.space.tabs.empty() && dock.layout.space.children.empty() && dock.layout.windows.empty())
             dock.layout.space.tabs = {"Spectrogram"};

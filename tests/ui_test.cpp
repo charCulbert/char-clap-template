@@ -718,6 +718,7 @@ static void dockableWindows()
     drag(t.x + 30, t.y + 6, g.x + g.width - 10, g.y + g.height / 2);
     CHECK(layout.windows.size() == 1 && layout.windows[0].root.children.size() == 2 && !layout.windows[0].root.stacked);
     CHECK(layout.windows[0].root.children.size() == 2 && layout.windows[0].root.children[1].tabs == Tabs{"Notes"});
+    CHECK(std::abs(layout.windows[0].root.size - (g.width / 2 - 7)) < 1); // the half the outline showed, on the right
 
     // The bar's empty part moves the window.
     const float x0 = both.x;
@@ -760,6 +761,7 @@ static void dockableWindows()
     drag(wb.x + wb.width - 6, wb.y + 6, 4 + 12, 150);
     CHECK(layout.windows.empty() && layout.space.children.size() == 2 && !layout.space.stacked);
     CHECK(layout.space.children.size() == 2 && layout.space.children[1].tabs == Tabs{"Edit"});
+    CHECK(std::abs(layout.space.size - 400.0f / 3) < 1); // the third the outline showed, on the left
 }
 
 // The views: laid out, each an image for screen readers saying what it
