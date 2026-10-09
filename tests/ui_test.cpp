@@ -60,8 +60,10 @@ static void layoutSizes()
     Ui ui;
     std::vector<gpu::Rect> boxes;
     frame(ui, [&] {
-        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(50), CLAY_SIZING_FIXED(20)}}, .custom = {.customData = ui.paint([&](gpu::Rect r) { boxes.push_back(r); })}}) {}
-        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(20)}}, .custom = {.customData = ui.paint([&](gpu::Rect r) { boxes.push_back(r); })}}) {}
+        // (Made before CLAY(...): MSVC can't take a lambda there inside another lambda.)
+        void *first = ui.paint([&](gpu::Rect r) { boxes.push_back(r); }), *second = ui.paint([&](gpu::Rect r) { boxes.push_back(r); });
+        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(50), CLAY_SIZING_FIXED(20)}}, .custom = {.customData = first}}) {}
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(20)}}, .custom = {.customData = second}}) {}
     });
     CHECK(boxes.size() == 2);
     CHECK(boxes[0].x == 10 && boxes[0].y == 10 && boxes[0].w == 50 && boxes[0].h == 20);
@@ -782,6 +784,51 @@ static void dockableWindows()
     CHECK(layout.windows.empty() && layout.space.children.size() == 2 && !layout.space.stacked);
     CHECK(layout.space.children.size() == 2 && layout.space.children[1].tabs == Tabs{"Edit"});
     CHECK(std::abs(layout.space.size - 400.0f / 3) < 1); // the third the outline showed, on the left
+}
+
+// As the gallery's Dock page: a page button above a dock space holding one
+// panel, three windows over it; two dropped into the space's middle, then
+// the page button still takes a click.
+static void clicksAfterDocking()
+{
+    Ui ui;
+    gpu::Dock dock;
+    int clicks = 0;
+    const std::vector<gpu::Dock::Panel> panels = {{"Spectrogram", [] {}}, {"Scope", [] {}}, {"Waveform", [] {}}, {"Controls", [&] { ui.button("Reset"); }}};
+    dock.layout.space.tabs = {"Spectrogram"};
+    auto draw = [&] {
+        ui.begin(1600, 1200, 2);
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+        {
+            if (ui.button("Page")) ++clicks;
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) { dock.space(ui, "Gallery", panels); }
+        }
+        dock.windows(ui, panels);
+        ui.end(wgpu::RenderPassEncoder{});
+        CHECK(everyNodeHasParent(ui));
+    };
+    auto in = [&](const char *name, int index = 0) { return Ui::idIn(&dock, name, index); };
+    auto title = [&](const char *name) { return Clay_GetElementData(in("WindowHeader", int(in(name).id))).boundingBox; };
+    auto drag = [&](float x0, float y0, float x1, float y1) { // pixels: scale 2
+        pointer(ui, View::Pointer::move, x0, y0), draw(), pointer(ui, View::Pointer::down, x0, y0), draw();
+        for (int i = 1; i <= 6; ++i) pointer(ui, View::Pointer::move, x0 + (x1 - x0) * i / 6, y0 + (y1 - y0) * i / 6), draw();
+        pointer(ui, View::Pointer::up, x1, y1), draw(), draw();
+    };
+    draw();
+    draw();
+    const Clay_BoundingBox space = Clay_GetElementData(in("Gallery")).boundingBox;
+    const float mx = (space.x + space.width * 0.75f) * 2, my = (space.y + space.height / 2) * 2; // clear of the windows
+    for (const char *name : {"Controls", "Waveform"})
+    {
+        const Clay_BoundingBox t = title(name);
+        drag((t.x + 30) * 2, (t.y + 6) * 2, mx, my);
+    }
+    CHECK(dock.layout.space.tabs.size() == 3 && dock.layout.windows.size() == 1);
+    const Clay_BoundingBox page = box("Page");
+    pointer(ui, View::Pointer::move, (page.x + 5) * 2, (page.y + 5) * 2), draw();
+    pointer(ui, View::Pointer::down, (page.x + 5) * 2, (page.y + 5) * 2), draw();
+    pointer(ui, View::Pointer::up, (page.x + 5) * 2, (page.y + 5) * 2), draw();
+    CHECK(clicks == 1);
 }
 
 // The accessibility tree keeps its shape in odd cases: two windows in the
@@ -1620,6 +1667,7 @@ int main()
     dockableWindows();
     dockSpaceOnly();
     accessibilityEdgeCases();
+    clicksAfterDocking();
     splitAtScale();
     parameterToggleAndSegmented();
     textFieldEdits();
