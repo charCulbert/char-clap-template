@@ -92,7 +92,16 @@ void Context::configure(uint32_t newWidth, uint32_t newHeight)
     {
         wgpu::SurfaceCapabilities capabilities;
         surface.GetCapabilities(adapter, &capabilities);
+        // A plain 8-bit format, not an sRGB one: our colours are sRGB already,
+        // and an sRGB surface would encode them again (washed out, as Vulkan
+        // on Linux lists one first).
         format = capabilities.formatCount ? capabilities.formats[0] : wgpu::TextureFormat::BGRA8Unorm;
+        for (size_t i = 0; i < capabilities.formatCount; ++i)
+            if (capabilities.formats[i] == wgpu::TextureFormat::BGRA8Unorm || capabilities.formats[i] == wgpu::TextureFormat::RGBA8Unorm)
+            {
+                format = capabilities.formats[i];
+                break;
+            }
         // Mailbox shows the newest image without tearing. Fifo can hold
         // images back (an X server without Present shows each one a frame or
         // two late), and frames come from our timer anyway, not the display.
