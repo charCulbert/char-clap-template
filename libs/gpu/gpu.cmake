@@ -66,10 +66,8 @@ elseif(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")
 endif()
 
 # AccessKit: the view's accessibility tree to the system's screen-reader API
-# (NSAccessibility, UI Automation). Its prebuilt static libraries; Linux not
-# yet (its adapter is far larger, and the plugins would have to keep its
-# symbols to themselves).
-if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR WIN32) # macOS (not iOS) and Windows
+# (NSAccessibility, UI Automation, AT-SPI). Its prebuilt static libraries.
+if(CMAKE_SYSTEM_NAME MATCHES "^(Darwin|Linux)$" OR WIN32) # macOS (not iOS), Linux and Windows
     FetchContent_Declare(accesskit
         URL https://github.com/AccessKit/accesskit-c/releases/download/0.23.1/accesskit-c-0.23.1.zip
         URL_HASH SHA256=35b7ca8a6f1e038b5da35e1e9e5a0adaed9bfcf21e1496d29598fbbadcc7043f
@@ -91,6 +89,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR WIN32) # macOS (not iOS) and Windows
             endif()
             set_target_properties(gpu_accesskit PROPERTIES IMPORTED_LOCATION "${universal}"
                 INTERFACE_LINK_LIBRARIES "-framework AppKit;-framework Foundation;-framework CoreFoundation;objc")
+        elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux") # x86_64 only, as Dawn's release
+            # Its AT-SPI adapter talks D-Bus from a thread of its own that never
+            # ends, so the plugin stays loaded once loaded (nodelete), and the
+            # Rust library's symbols stay inside it (exclude-libs): two plugins
+            # in one host each keep their own.
+            find_package(Threads REQUIRED)
+            set_target_properties(gpu_accesskit PROPERTIES IMPORTED_LOCATION "${accesskit_SOURCE_DIR}/lib/linux/x86_64/static/libaccesskit.a"
+                INTERFACE_LINK_LIBRARIES "Threads::Threads;${CMAKE_DL_LIBS};m"
+                INTERFACE_LINK_OPTIONS "LINKER:--exclude-libs,libaccesskit.a;LINKER:-z,nodelete")
         else()
             if(CMAKE_GENERATOR_PLATFORM MATCHES "^(ARM64|arm64)$" OR CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64)$")
                 set(arch arm64)
@@ -134,8 +141,8 @@ function(gpu_add_to target)
         target_link_libraries(${target} PUBLIC advapi32 ole32 shell32 dxgi) # RegGetValueW (darkMode); drag and drop; vblank
     else()
         find_package(X11 REQUIRED)
-        target_sources(${target} PRIVATE "${GPU_DIR}/native_linux.cpp")
-        target_link_libraries(${target} PUBLIC X11::X11 X11::Xrandr) # Xrandr: the monitor's refresh rate
+        target_sources(${target} PRIVATE "${GPU_DIR}/native_linux.cpp" "${GPU_DIR}/accesskit_tree.cpp")
+        target_link_libraries(${target} PUBLIC gpu_accesskit X11::X11 X11::Xrandr) # Xrandr: the monitor's refresh rate
     endif()
 endfunction()
 

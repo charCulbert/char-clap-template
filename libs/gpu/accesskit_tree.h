@@ -3,7 +3,7 @@
 #include <accesskit.h>
 
 // A view's accessibility tree in AccessKit's terms, which its platform
-// adapters (macOS, Windows) hand to the system's accessibility API.
+// adapters (macOS, Windows, Linux) hand to the system's accessibility API.
 namespace gpu::accesskit {
 
 // The whole tree as one update (AccessKit takes ownership of it).

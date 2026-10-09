@@ -1,4 +1,5 @@
 #include "native.h"
+#include "accesskit_tree.h" // before Xlib's macros
 #include <X11/extensions/Xrandr.h>
 #include <X11/Xlib.h> // after webgpu_cpp.h: Xlib defines macros such as Status and None
 #include <X11/keysym.h>
@@ -13,6 +14,8 @@
 #include <cstring>
 #include <algorithm>
 #include <chrono>
+#include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -53,7 +56,106 @@ struct Window
     ::Window dragTo = 0;               // the XDND-aware window under the pointer
     bool dragTaken = false;            // which says it would take them
     std::vector<::Window> proxies;     // windows we marked XdndAware, sending their drops to us
+    accesskit_unix_adapter *access = nullptr; // screen readers, through AT-SPI
+    uintptr_t accessId = 0;                   // its inbox, below
+    ::Window outer = 0;                       // our outermost ancestor below the root: the host's frame
 };
+
+// Screen readers: AccessKit calls from a thread of its own, and may still
+// for a moment after a window is gone. So its callbacks find the window's
+// inbox by number, under a lock: the tree to start a screen reader on, and
+// its requests, which pumpEvents hands the view on the main thread.
+struct AccessRequest
+{
+    uint64_t id;
+    Accessible::Action kind;
+    double value;
+};
+struct AccessInbox
+{
+    Accessibility tree; // the view's, as screen readers last had it
+    std::vector<AccessRequest> requests;
+};
+static std::mutex accessLock;
+static std::map<uintptr_t, AccessInbox> accessInboxes;
+static uintptr_t accessIds = 0;
+
+static accesskit_tree_update *accessStart(void *id)
+{
+    std::lock_guard lock(accessLock);
+    const auto inbox = accessInboxes.find(uintptr_t(id));
+    return inbox != accessInboxes.end() ? accesskit::update(inbox->second.tree) : nullptr;
+}
+
+static void accessAction(accesskit_action_request *request, void *id)
+{
+    uint64_t node;
+    Accessible::Action kind;
+    double value;
+    if (!accesskit::action(request, node, kind, value)) return;
+    std::lock_guard lock(accessLock);
+    if (const auto inbox = accessInboxes.find(uintptr_t(id)); inbox != accessInboxes.end())
+        inbox->second.requests.push_back({node, kind, value});
+}
+
+static void accessStop(void *) {}
+
+static accesskit_tree_update *wholeTree(void *tree) { return accesskit::update(*static_cast<const Accessibility *>(tree)); }
+
+void accessibility(Window *window, const Accessibility &tree)
+{
+    {
+        std::lock_guard lock(accessLock); // not held into AccessKit, which holds its own while it calls accessStart
+        accessInboxes[window->accessId].tree = tree;
+    }
+    accesskit_unix_adapter_update_if_active(window->access, wholeTree, const_cast<Accessibility *>(&tree));
+}
+
+// Where our window is on the screen, for the bounds screen readers show.
+static void accessBounds(Window *window)
+{
+    XWindowAttributes attributes;
+    int x, y;
+    ::Window child;
+    if (!XGetWindowAttributes(window->display, window->window, &attributes)
+        || !XTranslateCoordinates(window->display, window->window, DefaultRootWindow(window->display), 0, 0, &x, &y, &child))
+        return;
+    const accesskit_rect bounds = {double(x), double(y), double(x + attributes.width), double(y + attributes.height)};
+    accesskit_unix_adapter_set_root_window_bounds(window->access, bounds, bounds);
+}
+
+// Whether the host's window is the active one: the keyboard focus is in it.
+static void accessFocus(Window *window)
+{
+    ::Window focus, root, up, *children;
+    int revert;
+    unsigned int count;
+    XGetInputFocus(window->display, &focus, &revert);
+    while (focus > PointerRoot && focus != window->outer && focus != DefaultRootWindow(window->display)
+           && XQueryTree(window->display, focus, &root, &up, &children, &count))
+    {
+        if (children) XFree(children);
+        focus = up;
+    }
+    accesskit_unix_adapter_update_window_focus_state(window->access, focus == window->outer);
+}
+
+// Our window moves with the host's, and the host's inside the window
+// manager's frame: we watch each window above ours for moves
+// (ConfigureNotify), new parents (ReparentNotify: watched again) and the
+// keyboard focus.
+static void watchAncestors(Window *window)
+{
+    const ::Window top = DefaultRootWindow(window->display);
+    for (::Window w = window->parent, root, up, *children; w && w != top; w = up)
+    {
+        XSelectInput(window->display, w, StructureNotifyMask | FocusChangeMask);
+        window->outer = w;
+        unsigned int count = 0;
+        if (!XQueryTree(window->display, w, &root, &up, &children, &count)) break;
+        if (children) XFree(children);
+    }
+}
 
 static ::Window xdndReceiver(Window *window, ::Window target);
 
@@ -148,9 +250,19 @@ Window *create(const Parent &parent, uint32_t width, uint32_t height, Callbacks 
         if (!XQueryTree(display, w, &root, &up, &children, &count)) break;
         if (children) XFree(children);
     }
-    XSelectInput(display, window->window,
-                 ButtonPressMask | ButtonReleaseMask | PointerMotionMask | LeaveWindowMask | KeyPressMask | ExposureMask);
+    XSelectInput(display, window->window, ButtonPressMask | ButtonReleaseMask | PointerMotionMask | LeaveWindowMask
+                                              | KeyPressMask | ExposureMask | StructureNotifyMask);
     XMapWindow(display, window->window);
+    {
+        std::lock_guard lock(accessLock);
+        window->accessId = ++accessIds;
+        accessInboxes[window->accessId];
+    }
+    void *id = reinterpret_cast<void *>(window->accessId);
+    window->access = accesskit_unix_adapter_new(accessStart, id, accessAction, id, accessStop, id);
+    watchAncestors(window);
+    accessBounds(window);
+    accessFocus(window);
     XFlush(display);
     return window;
 }
@@ -207,6 +319,11 @@ void lockPointer(Window *window, bool locked)
 
 void destroy(Window *window)
 {
+    accesskit_unix_adapter_free(window->access);
+    {
+        std::lock_guard lock(accessLock);
+        accessInboxes.erase(window->accessId);
+    }
     lockPointer(window, false);
     if (window->blank) XFreeCursor(window->display, window->blank);
     for (::Cursor shape : window->shapes)
@@ -321,9 +438,6 @@ bool onScreen(Window *window)
 
 // Files dragged out: we own XdndSelection while the button is down, and
 // pumpEvents tells the window under the pointer (see dragMotion).
-// Screen readers (AT-SPI): not yet.
-void accessibility(Window *, const Accessibility &) {}
-
 void dragFiles(Window *window, const std::vector<std::string> &paths)
 {
     window->dragging = paths;
@@ -632,10 +746,19 @@ static bool shortcut(Window *window, const XKeyEvent &event)
 
 void pumpEvents(Window *window)
 {
+    std::vector<AccessRequest> requests;
+    {
+        std::lock_guard lock(accessLock);
+        requests.swap(accessInboxes[window->accessId].requests);
+    }
+    for (const AccessRequest &r : requests) window->callbacks.access(r.id, r.kind, r.value);
     while (XPending(window->display))
     {
         XEvent event;
         XNextEvent(window->display, &event);
+        if (event.type == ReparentNotify && event.xreparent.window != window->window) watchAncestors(window);
+        if (event.type == ConfigureNotify || event.type == ReparentNotify) accessBounds(window);
+        if (event.type == FocusIn || event.type == FocusOut) accessFocus(window);
         if (event.type == SelectionRequest) answerSelection(window, event.xselectionrequest);
         if (event.type == ClientMessage) xdndEvent(window, event.xclient);
         if (event.type == Expose) window->callbacks.damaged(); // uncovered, without a compositor to keep it
