@@ -443,7 +443,7 @@ private:
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(120)}}})
                 {
                     ui.split("Sides", sides, pane("Left: a pane's text wraps to its width as the divider moves"), [&] {
-                        ui.split("Stack", stack, pane("Top"), pane("Bottom"), {.stacked = true, .min = 20, .secondMin = 20});
+                        ui.split("Stack", stack, pane("Top"), pane("Bottom"), {.stacked = true, .min = 40, .secondMin = 40});
                     });
                 }
             });
@@ -460,17 +460,13 @@ private:
             });
             cell("Envelope: drag points; double-click adds or removes", [&] { ui.envelope(envelope); });
             cell("Steps: drag across to paint", [&] { ui.steps(stepValues); });
-            cell("Drawer: click the header to open and close", [&] {
-                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 6, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+            cell("Drawer: the header opens and closes it; drag its edge, or focus it, to resize", [&] {
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
                 {
-                    if (ui.drawer("Advanced", advancedOpen))
-                    {
-                        CLAY({.layout = {.padding = {12, 0, 0, 0}, .childGap = 6, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
-                        {
-                            ui.toggle("Oversample", oversample);
-                            ui.toggle("Linear phase", linearPhase);
-                        }
-                    }
+                    ui.drawer("Advanced", advancedOpen, advancedSize, [&] {
+                        ui.toggle("Oversample", oversample);
+                        ui.toggle("Linear phase", linearPhase);
+                    }, {.min = 40, .max = 140});
                 }
             });
         });
@@ -651,6 +647,7 @@ private:
     int held = -1; // the piano note held down
     std::vector<gpu::Ui::Point> envelope = {{0, 0}, {0.08f, 1}, {0.3f, 0.6f}, {0.8f, 0.6f}, {1, 0}};
     float sides = 220, stack = 50; // the split's sizes (points)
+    float advancedSize = 70;       // the drawer's
     bool windowsOpen = false, mixerOpen = false, notesOpen = false;
     int windowRate = 1;
     gpu::Rect mixerFrame{60, 90, 220, 190}, notesFrame{320, 140, 260, 150}; // points
