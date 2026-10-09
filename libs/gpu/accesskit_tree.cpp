@@ -60,6 +60,7 @@ accesskit_tree_update *update(const Accessibility &tree)
                                  {Accessible::collapse, ACCESSKIT_ACTION_COLLAPSE}})
             if (a.actions & bit) accesskit_node_add_action(node, kind);
         for (uint64_t child : a.children) accesskit_node_push_child(node, child);
+        if (a.activeDescendant) accesskit_node_set_active_descendant(node, a.activeDescendant);
         accesskit_tree_update_push_node(result, a.id, node);
     }
     return result;

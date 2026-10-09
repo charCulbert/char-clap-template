@@ -32,6 +32,7 @@ struct Accessible
     float x = 0, y = 0, width = 0, height = 0; // pixels, in the view
     unsigned actions = 0;
     std::vector<uint64_t> children;
+    uint64_t activeDescendant = 0; // a combo box's highlighted option (aria-activedescendant)
 };
 
 struct Accessibility

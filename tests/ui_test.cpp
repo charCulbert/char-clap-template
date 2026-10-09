@@ -151,9 +151,38 @@ static void keyboardFocus()
     CHECK(selected == 2);
     ui.key(View::Key::tab, 0);
     draw();
+    // The dropdown, as HTML's select: Down opens it on the choice, Down
+    // moves the highlight, Enter chooses it.
     ui.key(View::Key::down, 0);
     draw();
+    CHECK(shape == 0 && ui.accessibility()->nodes.size() > 0);
+    ui.key(View::Key::down, 0);
+    draw();
+    CHECK(shape == 0); // only highlighted
+    ui.key(View::Key::enter, 0);
+    draw();
     CHECK(shape == 1);
+    // Escape closes it as it was.
+    ui.key(View::Key::enter, 0);
+    draw();
+    ui.key(View::Key::down, 0);
+    draw();
+    ui.key(View::Key::escape, 0);
+    draw();
+    CHECK(shape == 1);
+    // Space opens it and chooses; a letter jumps to its option.
+    CHECK(ui.text(" "));
+    draw();
+    ui.key(View::Key::down, 0);
+    draw();
+    CHECK(ui.text(" "));
+    draw();
+    CHECK(shape == 2);
+    CHECK(ui.text("a"));
+    draw();
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(shape == 0);
 }
 
 static void dropdownSelectsAndBlocks()

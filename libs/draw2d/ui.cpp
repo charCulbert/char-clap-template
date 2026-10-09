@@ -135,6 +135,7 @@ void Ui::pointer(const View::PointerEvent &event)
     else
         heldMove.reset(), mouse.x = event.x, mouse.y = event.y;
     mouse.modifiers = event.modifiers;
+    if (event.type == View::Pointer::move) mouse.moved = true;
     if (event.type == View::Pointer::down) mouse.down = true;
     if (event.type == View::Pointer::up) mouse.down = false;
     // While a control is dragged, nothing else is hovered (as in ImGui): Clay
@@ -191,7 +192,8 @@ bool Ui::key(View::Key key, unsigned modifiers)
 bool Ui::text(const char *utf8)
 {
     // A focused number box starts editing with what's typed, as compost's does.
-    if (!editing && focus && focusTakesDigits && utf8[0] && std::strchr("0123456789.,+-", utf8[0]))
+    if (!editing && focus && ((focusTakesDigits && utf8[0] && std::strchr("0123456789.,+-", utf8[0]))
+                              || (focusTakesLetters && static_cast<unsigned char>(utf8[0]) >= 0x20)))
     {
         typedToFocus += utf8;
         return true;
@@ -264,6 +266,7 @@ void Ui::begin(float width, float height, float scale)
     menuSeen = false;
     lastElement = 0;
     settle = mouse.pressed || mouse.released || !keys.empty() || mouse.wheel != 0;
+    focusTakesLetters = false; // a focused dropdown says so again
     tooltipWaiting = false;
 }
 
@@ -358,7 +361,7 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
     wheelUsed = false;
     // Each press, release, wheel turn and key is seen by one frame; moves
     // held back behind a press go in now, for the next.
-    mouse.pressed = mouse.released = mouse.doubleClicked = false;
+    mouse.pressed = mouse.released = mouse.doubleClicked = mouse.moved = false;
     mouse.wheel = mouse.scroll = 0;
     if (const std::optional<View::PointerEvent> move = std::exchange(heldMove, std::nullopt)) pointer(*move), settle = true;
     keys.clear();
@@ -437,7 +440,7 @@ static bool same(const Accessible &a, const Accessible &b)
     return a.id == b.id && a.role == b.role && a.name == b.name && a.value == b.value && a.description == b.description
         && a.live == b.live && a.orientation == b.orientation && a.numeric == b.numeric
         && a.number == b.number && a.min == b.min && a.max == b.max && a.step == b.step && a.checked == b.checked
-        && a.expanded == b.expanded && a.selected == b.selected && a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height
+        && a.expanded == b.expanded && a.selected == b.selected && a.activeDescendant == b.activeDescendant && a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height
         && a.actions == b.actions && a.children == b.children;
 }
 
@@ -950,19 +953,68 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
     const Clay_ElementId did = id("Dropdown", index), menu = id("DropdownMenu", index);
     const bool open = openMenu == menu.id;
     const Area a = element(did, eachPress);
-    if (a.pressed) openMenu = open ? 0 : menu.id;
+    auto openAt = [&](int option) { openMenu = menu.id, highlight = std::clamp(option, 0, count - 1); };
+    auto choose = [&] {
+        if (highlight >= 0 && highlight < count && highlight != selected) selected = highlight, changed = true;
+        openMenu = 0;
+    };
+    if (a.pressed)
+    {
+        if (open) openMenu = 0;
+        else openAt(selected);
+    }
+    // Keys, as HTML's select (the WAI-ARIA select-only combo box): closed,
+    // Enter, Space and the arrows open it on the choice, Home and End on the
+    // first and last; open, the arrows, Home and End move the highlight,
+    // Enter, Space or Tab choose it, Escape closes it as it was. Typing a
+    // letter jumps to the next option starting with it.
+    focusable(did, a);
+    if (focus == reinterpret_cast<const void *>(uintptr_t(did.id)))
+    {
+        focusUses |= keyBit(View::Key::escape) | keyBit(View::Key::home) | keyBit(View::Key::end) | keyBit(View::Key::pageUp)
+                   | keyBit(View::Key::pageDown);
+        focusTakesLetters = true;
+        for (auto [key, modifiers] : keys)
+        {
+            const bool isOpen = openMenu == menu.id;
+            switch (key)
+            {
+            case View::Key::enter: isOpen ? choose() : openAt(selected); break;
+            case View::Key::escape: openMenu = 0; break;
+            case View::Key::tab: if (isOpen) choose(); break;
+            case View::Key::down: isOpen ? void(highlight = std::min(highlight + 1, count - 1)) : openAt(selected); break;
+            case View::Key::up:
+                if (isOpen && modifiers & View::alt) choose();
+                else isOpen ? void(highlight = std::max(highlight - 1, 0)) : openAt(selected);
+                break;
+            case View::Key::home: case View::Key::pageUp: openAt(0); break;
+            case View::Key::end: case View::Key::pageDown: openAt(count - 1); break;
+            default: break;
+            }
+        }
+        for (char c : std::exchange(typedToFocus, {}))
+        {
+            if (c == ' ')
+            {
+                openMenu == menu.id ? choose() : openAt(selected);
+                continue;
+            }
+            const int from = openMenu == menu.id ? highlight : selected;
+            for (int k = 1; k <= count; ++k)
+            {
+                const int i = (from + k) % count;
+                if (std::tolower(static_cast<unsigned char>(items[i][0])) == std::tolower(static_cast<unsigned char>(c)))
+                {
+                    openAt(i);
+                    break;
+                }
+            }
+        }
+    }
+    const size_t combo = described.size(); // an index: its options are described after it
     Described &d = describe(reinterpret_cast<const void *>(uintptr_t(did.id)), Accessible::Role::comboBox, nullptr);
     d.element = did.id, d.node.value = items[std::clamp(selected, 0, count - 1)], d.node.expanded = openMenu == menu.id;
     d.node.actions |= Accessible::click | Accessible::expand | Accessible::collapse;
-    // Keys: Enter opens and closes it, Escape closes it, the arrows choose.
-    for (View::Key key : focusable(did, a))
-    {
-        if (key == View::Key::enter) openMenu = openMenu == menu.id ? 0 : menu.id;
-        if (key == View::Key::escape) openMenu = 0;
-        const int step = key == View::Key::down ? 1 : key == View::Key::up ? -1 : 0;
-        const int next = std::clamp(selected + step, 0, count - 1);
-        if (step && next != selected) selected = next, changed = true;
-    }
     // A press anywhere else closes it.
     if (open && mouse.pressed && !Clay_PointerOver(menu) && !Clay_PointerOver(did)) openMenu = 0;
     const bool hot = Clay_PointerOver(did);
@@ -990,7 +1042,8 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
             {
                 const Clay_ElementId item = id("DropdownItem", index * 1024 + i);
                 Described &option = describe(reinterpret_cast<const void *>(uintptr_t(item.id)), Accessible::Role::option, items[i], accessId(list));
-                option.element = item.id, option.node.selected = i == selected, option.node.actions |= Accessible::click;
+                option.element = item.id, option.node.selected = i == highlight, option.node.actions |= Accessible::click;
+                if (i == highlight) described[combo].node.activeDescendant = option.node.id;
             }
             CLAY({.id = menu, .layout = {.sizing = {.width = CLAY_SIZING_FIT(box.width)}, .padding = CLAY_PADDING_ALL(1),
                                          .layoutDirection = CLAY_TOP_TO_BOTTOM},
@@ -1007,8 +1060,9 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
                     const Clay_ElementId item = id("DropdownItem", index * 1024 + i);
                     if (element(item, eachPress).clicked) selected = i, changed = true, openMenu = 0;
                     const bool itemHot = Clay_PointerOver(item);
+                    if (itemHot && (mouse.moved || mouse.pressed)) highlight = i; // the pointer moves the highlight too
                     CLAY({.id = item, .layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {7, 7, 3, 3}},
-                          .backgroundColor = clayColor(itemHot ? theme.panel : Color{0, 0, 0, 0})})
+                          .backgroundColor = clayColor(i == highlight ? theme.panel : Color{0, 0, 0, 0})})
                     {
                         CLAY_TEXT(layout.text(items[i]), textConfig(i == selected ? theme.accent : theme.text));
                     }

@@ -307,7 +307,7 @@ private:
         float x = 0, y = 0, wheel = 0;
         float scroll = 0; // the wheel as the system scrolls content (natural scrolling flips it)
         unsigned modifiers = 0;
-        bool down = false, pressed = false, released = false, doubleClicked = false;
+        bool down = false, pressed = false, released = false, doubleClicked = false, moved = false;
     } mouse;
     std::chrono::steady_clock::time_point lastPress;
     float lastPressX = -1e9f, lastPressY = -1e9f;
@@ -334,6 +334,8 @@ private:
     unsigned focusUses = 0;      // the keys the focused control uses: a bit per View::Key
     bool focusTakesDigits = false; // it's a number box: typing a number starts editing it
     std::string typedToFocus;    // that typing, until the number box takes it
+    bool focusTakesLetters = false; // it's a dropdown: letters jump to an option, Space opens or chooses
+    int highlight = -1;             // the open dropdown's highlighted option (the keys move it)
     bool pressFocused = false;   // this frame's press focused a control
     bool wheelUsed = false;      // a control turned with this frame's wheel
     bool scrollWaiting = false;  // the wheel scrolls, in the next frame
