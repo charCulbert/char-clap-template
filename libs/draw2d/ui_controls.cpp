@@ -767,61 +767,13 @@ Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(in
     for (int n = lowest; n <= highest && under < 0; ++n)
         if (!isBlack(n) && inside(keyRect(n))) under = n;
 
-    const void *me = &playing;
-    order.push_back(me);
-    takePartFocus(me, lowest, highest);
-    // Keys have no release: a note played with Enter is let go in the next frame.
-    if (playingFromKey) notes.off = playing, playing = -1, playingFromKey = false;
     const auto a = area(&playing, r.x, r.y, r.w, r.h);
-    if (a.pressed) focus = me, pressFocused = true, within(me) = under >= 0 ? under : within(me);
     if (a.held && under != playing && (under >= 0 || !a.pressed)) // pressed, or slid onto another key
     {
         if (playing >= 0) notes.off = playing;
         playing = under, notes.on = under;
     }
     if (a.released && playing >= 0) notes.off = playing, notes.on = -1, playing = -1;
-
-    // Keys, as a toolbar's buttons: Left and Right choose a key, Up and Down
-    // an octave, Enter or Space plays it. A screen reader's click plays one.
-    int chosen = std::clamp(within(me), lowest, highest);
-    auto play = [&](int note) {
-        if (playing >= 0) notes.off = playing;
-        playing = note, notes.on = note, playingFromKey = true, settle = true;
-    };
-    if (focus == me)
-    {
-        focusUses = keyBit(View::Key::left) | keyBit(View::Key::right) | keyBit(View::Key::up) | keyBit(View::Key::down)
-                  | keyBit(View::Key::home) | keyBit(View::Key::end) | keyBit(View::Key::enter);
-        focusTakesDigits = false, focusTakesSpace = true;
-        for (auto [key, modifiers] : keys)
-            switch (key)
-            {
-            case View::Key::left: chosen = std::max(chosen - 1, lowest); break;
-            case View::Key::right: chosen = std::min(chosen + 1, highest); break;
-            case View::Key::up: chosen = std::min(chosen + 12, highest); break;
-            case View::Key::down: chosen = std::max(chosen - 12, lowest); break;
-            case View::Key::home: chosen = lowest; break;
-            case View::Key::end: chosen = highest; break;
-            case View::Key::enter: play(chosen); break;
-            default: break; // Tab: in end()
-            }
-    }
-    if (const int note = accessClick ? partOf(accessId(accessClick), me) : -1; note >= lowest && note <= highest)
-        accessClick = nullptr, chosen = note, focus = me, play(note);
-    within(me) = chosen;
-
-    // For screen readers: a group of buttons, one for each key, in pitch order.
-    Described &group = describe(me, Accessible::Role::group, "Piano");
-    group.node.x = r.x, group.node.y = r.y, group.node.width = r.w, group.node.height = r.h;
-    group.node.activeDescendant = accessId(partId(me, chosen));
-    for (int n = lowest; n <= highest; ++n)
-    {
-        const Rect k = keyRect(n);
-        Described &d = describe(partId(me, n), Accessible::Role::button, noteName(n).c_str(), accessId(me));
-        d.node.x = k.x, d.node.y = k.y, d.node.width = k.w, d.node.height = k.h;
-        d.node.actions |= Accessible::click;
-        d.place = float(n - lowest);
-    }
 
     // Square keys with a hairline edge; a pressed one in the accent; each C
     // named at its foot ("C4" is MIDI 60), small and muted.
@@ -834,7 +786,8 @@ Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(in
         if (!isBlack(n) && ((n % 12) + 12) % 12 == 0)
         {
             const float size = 0.7f * theme.textSize * s;
-            draw.text(k.x + k.w / 2, k.y + k.h - 0.6f * size, size, noteName(n), down ? theme.background : theme.dim, Draw2D::Align::center,
+            const std::string name = "C" + std::to_string(n / 12 - 1);
+            draw.text(k.x + k.w / 2, k.y + k.h - 0.6f * size, size, name, down ? theme.background : theme.dim, Draw2D::Align::center,
                       theme.labelFont);
         }
     };
@@ -842,12 +795,14 @@ Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(in
         if (!isBlack(n)) drawKey(n);
     for (int n = lowest; n <= highest; ++n)
         if (isBlack(n)) drawKey(n);
-    if (focusShown(me))
-    {
-        const Rect k = keyRect(chosen);
-        const bool down = chosen == playing || (lit && lit(chosen));
-        draw.rect(k.x + 2 * s, k.y + 2 * s, k.w - 4 * s, k.h - 4 * s, 0, {0, 0, 0, 0}, 2 * s, down ? theme.background : theme.accent);
-    }
+    // To screen readers, a picture of a keyboard: playing it is the mouse's
+    // job, or MIDI's, not something to walk key by key.
+    auto noteName = [](int n) {
+        static const char *const names[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+        return std::string(names[((n % 12) + 12) % 12]) + std::to_string(n / 12 - 1);
+    };
+    const std::string range = noteName(lowest) + " to " + noteName(highest);
+    accessible(Accessible::Role::image, "Piano", nullptr, r, range.c_str());
     return notes;
 }
 
@@ -855,10 +810,8 @@ Ui::Notes Ui::piano(int lowest, int highest, float heightPoints, const std::func
 {
     Placed board{nullptr, nullptr, nullptr, false};
     board.lowest = lowest, board.highest = highest, board.lit = lit;
-    const Clay_ElementId pid = id("Piano", lowest * 256 + highest);
-    CLAY({.id = pid, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(heightPoints)}},
+    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(heightPoints)}},
           .custom = {.customData = layout.custom(pianoBox, &placed.emplace_back(std::move(board)))}}) {}
-    lastElement = pid.id;
     const Notes notes = pianoNotes;
     pianoNotes = {};
     return notes;

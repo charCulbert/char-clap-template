@@ -1400,44 +1400,15 @@ static void editorKeysAndScreenReader()
     draw();
     CHECK(std::abs(points[2].y - 0.4f) < 1e-4 && std::abs(points[0].y - 0.05f) < 1e-4 && points[0].x == 0 && points[2].x == 1);
 
-    // Piano: a button for each key, in pitch order.
-    group = find("Piano");
-    CHECK(group && group->role == Role::group);
-    std::vector<const gpu::Accessible *> keys = childrenOf("Piano");
-    CHECK(keys.size() == 12 && keys[0]->name == "C4" && keys[1]->name == "C#4" && keys[11]->name == "B4");
-    CHECK(keys[0]->role == Role::button && keys[0]->actions & gpu::Accessible::click && keys[1]->height < keys[0]->height);
-    pointer(ui, View::Pointer::down, 210, 50); // C, to focus the keyboard
+    // Piano: one picture to screen readers, with its range; not a Tab stop.
+    const gpu::Accessible *piano = find("Piano");
+    CHECK(piano && piano->role == Role::image && piano->description == "C4 to B4" && piano->children.empty());
+    pointer(ui, View::Pointer::down, 210, 50); // played with the pointer, as before
     draw();
+    CHECK(notes.on == 60);
     pointer(ui, View::Pointer::up, 210, 50);
     draw();
     CHECK(notes.off == 60);
-    ui.key(View::Key::right, 0); // C sharp
-    ui.key(View::Key::enter, 0);
-    draw();
-    CHECK(notes.on == 61 && notes.off == -1 && ui.accessibility()->focus == find("C#4")->id);
-    draw(); // no key release: it ends in the next frame
-    CHECK(notes.on == -1 && notes.off == 61);
-    draw();
-    CHECK(notes.on == -1 && notes.off == -1);
-    ui.key(View::Key::end, 0);
-    ui.text(" "); // Space plays too
-    draw();
-    CHECK(notes.on == 71);
-    draw();
-    CHECK(notes.off == 71);
-    ui.key(View::Key::down, 0); // an octave down is below the lowest: stays at the lowest
-    ui.key(View::Key::enter, 0);
-    draw();
-    CHECK(notes.on == 60);
-    ui.accessAction(find("E4")->id, gpu::Accessible::click, 0); // a screen reader's click plays it
-    draw();
-    CHECK(notes.on == 64 && notes.off == 60);
-    draw();
-    CHECK(notes.off == 64);
-    ui.key(View::Key::left, 0);
-    ui.key(View::Key::enter, 0);
-    draw();
-    CHECK(notes.on == 63);
 
     // In a layout, the caller's label names the group.
     Ui laid;

@@ -269,10 +269,8 @@ public:
     bool steps(std::vector<float> &values, Rect r);
     // A piano keyboard from note lowest to highest (MIDI numbers; best from
     // and to a white key). Press a key, slide across keys; lit says which
-    // notes to show held (e.g. from incoming MIDI). Keys, with it focused:
-    // Left and Right choose a key, Up and Down an octave, Home and End the
-    // first and last; Enter or Space plays it (down in this frame, up in the
-    // next). For screen readers a group of one button per key.
+    // notes to show held (e.g. from incoming MIDI). Played with the pointer;
+    // to screen readers a picture of a keyboard, with its range.
     Notes piano(int lowest, int highest, Rect r, const std::function<bool(int)> &lit = {});
 
     // What a quick second press is: a double-click (the default: knobs reset,
@@ -499,7 +497,6 @@ private:
     bool leftAfterRelease = false; // the pointer left the view after a release this frame hasn't seen
 
     int playing = -1;           // the piano note held down, or -1
-    bool playingFromKey = false; // by Enter, so let go in the next frame (keys have no release)
     Notes pianoNotes;           // what the piano drawn last frame reported
     int grabbedPoint = -1;      // the envelope point being dragged
     uint32_t numberDrag = 0;    // the number box being dragged
