@@ -30,7 +30,7 @@ FetchContent_MakeAvailable(stb clay nanosvg)
 
 # stb_textedit 1.14 discarding a redo record moves one undo record past the
 # end of its array (undoing with a long history). Dear ImGui's copy has the
-# fix: move one record fewer. ui.cpp includes this patched copy.
+# fix: move one record fewer. ui_text.cpp includes this patched copy.
 file(READ "${stb_SOURCE_DIR}/stb_textedit.h" textedit)
 set(overrun "(size_t) ((STB_TEXTEDIT_UNDOSTATECOUNT - state->redo_point)*sizeof(state->undo_rec[0]))")
 string(FIND "${textedit}" "${overrun}" at)
@@ -43,11 +43,12 @@ file(COPY_FILE "${CMAKE_BINARY_DIR}/stb-patched/stb_textedit.h.new" "${CMAKE_BIN
 set(DRAW2D_PATCHED "${CMAKE_BINARY_DIR}/stb-patched")
 
 function(draw2d_add_to target)
-    target_sources(${target} PRIVATE "${DRAW2D_DIR}/draw2d.cpp" "${DRAW2D_DIR}/layout.cpp" "${DRAW2D_DIR}/ui.cpp")
+    target_sources(${target} PRIVATE "${DRAW2D_DIR}/draw2d.cpp" "${DRAW2D_DIR}/layout.cpp" "${DRAW2D_DIR}/ui.cpp"
+        "${DRAW2D_DIR}/ui_access.cpp" "${DRAW2D_DIR}/ui_controls.cpp" "${DRAW2D_DIR}/ui_panels.cpp" "${DRAW2D_DIR}/ui_text.cpp")
     if(MSVC) # a role with no name (roleName's switch) is an error
-        set_source_files_properties("${DRAW2D_DIR}/ui.cpp" PROPERTIES COMPILE_OPTIONS /we4062)
+        set_source_files_properties("${DRAW2D_DIR}/ui_access.cpp" PROPERTIES COMPILE_OPTIONS /we4062)
     else()
-        set_source_files_properties("${DRAW2D_DIR}/ui.cpp" PROPERTIES COMPILE_OPTIONS -Werror=switch)
+        set_source_files_properties("${DRAW2D_DIR}/ui_access.cpp" PROPERTIES COMPILE_OPTIONS -Werror=switch)
     endif()
     # Third-party headers: their own warnings aren't the plugin's to fix.
     target_include_directories(${target} SYSTEM PRIVATE "${DRAW2D_PATCHED}" "${stb_SOURCE_DIR}" "${clay_SOURCE_DIR}" "${nanosvg_SOURCE_DIR}/src")

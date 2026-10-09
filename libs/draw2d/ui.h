@@ -69,7 +69,7 @@ struct Theme
     }
 };
 
-struct TextEdit; // stb_textedit's state, in ui.cpp
+struct TextEdit; // stb_textedit's state, in ui_text.cpp
 
 // How a Ui::window may be sized, and whether it can close (points).
 struct WindowLimits

@@ -1,0 +1,875 @@
+// Ui controls: buttons, toggles, dropdowns, tabs, knobs, sliders, pads, meters, piano, envelope, steps, tooltip.
+#include "ui_internal.h"
+
+namespace gpu {
+
+double Ui::toUnit(const Param &p, double v, bool log)
+{
+    if (p.max <= p.min) return 0;
+    if (log && p.min > 0) return std::log(v / p.min) / std::log(p.max / p.min);
+    return (v - p.min) / (p.max - p.min);
+}
+
+double Ui::fromUnit(const Param &p, double u, bool log)
+{
+    u = std::clamp(u, 0.0, 1.0);
+    if (log && p.min > 0) return p.min * std::pow(p.max / p.min, u);
+    return p.min + u * (p.max - p.min);
+}
+
+void Ui::set(Params &params, Param &p, double value)
+{
+    params.begin(p);
+    params.change(p, value);
+    params.end(p);
+}
+
+// A control's identity: its parameter and where it is, so a knob and a slider
+// of one parameter drag, focus and step apart.
+const void *Ui::controlId(const Param &p, float x, float y)
+{
+    uint32_t bits[2];
+    std::memcpy(bits, &x, 4), std::memcpy(bits + 1, &y, 4);
+    const uintptr_t where = (uintptr_t(bits[0]) * 0x9E3779B1u) ^ bits[1];
+    return reinterpret_cast<const void *>(reinterpret_cast<uintptr_t>(&p) ^ (where << 3));
+}
+
+bool Ui::control(Params &params, Param &p, const void *me, float x, float y, float w, float h, bool vertical, float travel, bool log,
+                 bool typable, bool absolute)
+{
+    order.push_back(me);
+    const bool fine = mouse.modifiers & View::shift;
+    const double unit = toUnit(p, p.value, log);
+
+    // Knobs and sliders step, and Escape, Delete or Backspace reset them (as
+    // double-click does), as compost's do; one with a value to type also
+    // takes Enter and digits (typeInto).
+    if (focus == me)
+        focusUses = stepKeys | keyBit(View::Key::escape) | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward)
+                  | (typable ? keyBit(View::Key::enter) : 0),
+        focusTakesDigits = typable;
+    if (!active && over(x, y, w, h))
+    {
+        if (mouse.pressed) focus = me, pressFocused = true;
+        if (mouse.pressed)
+        {
+            active = me;
+            grabSecond = mouse.doubleClicked, grabMoved = false, pressX = mouse.x, pressY = mouse.y;
+            grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = fine || grabSecond; // measured from the press
+            grabRelative = !absolute || fine || grabSecond;
+            params.begin(p);
+            // Relative: the pointer stays put while the value moves; absolute:
+            // the value jumps to the pointer, which it then follows.
+            if (grabRelative && lockPointer) lockPointer(true);
+            held = {&params, &p, nullptr, grabRelative};
+        }
+        else if (mouse.wheel != 0)
+            set(params, p, fromUnit(p, unit + mouse.wheel * (fine ? 0.002 : 0.02), log)), wheelUsed = true;
+    }
+
+    if (focus == me)
+        for (auto [key, modifiers] : keys)
+        {
+            // Shift for fine, Alt for a page's step (compost's large step).
+            const double step = modifiers & View::shift ? 0.001 : modifiers & View::alt ? 0.1 : 0.01, u = toUnit(p, p.value, log);
+            switch (key)
+            {
+            case View::Key::up: case View::Key::right: set(params, p, fromUnit(p, u + step, log)); break;
+            case View::Key::down: case View::Key::left: set(params, p, fromUnit(p, u - step, log)); break;
+            case View::Key::pageUp: set(params, p, fromUnit(p, u + 0.1, log)); break;
+            case View::Key::pageDown: set(params, p, fromUnit(p, u - 0.1, log)); break;
+            case View::Key::home: set(params, p, p.min); break;
+            case View::Key::end: set(params, p, p.max); break;
+            case View::Key::escape: case View::Key::backspace: case View::Key::deleteForward: set(params, p, p.defaultValue); break;
+            default: break; // Tab: in end()
+            }
+        }
+
+    if (active != me) return false;
+    activeSeen = true;
+    if (!grabMoved && std::hypot(mouse.x - pressX, mouse.y - pressY) > 4 * s) grabMoved = true;
+    // A second press drags fine once it moves; until then it changes nothing.
+    const bool slow = fine || grabSecond;
+    if (slow && !grabRelative) grabRelative = true, grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = slow;
+    if (!grabRelative) // absolute: the value under the pointer
+    {
+        const double u = std::clamp(vertical ? (y + h - mouse.y) / h : (mouse.x - x) / w, 0.0f, 1.0f);
+        const double value = fromUnit(p, u, log);
+        if (value != p.value) params.change(p, value);
+    }
+    else if (!grabSecond || grabMoved)
+    {
+        // Switching to or from fine mid-drag continues from where the value is.
+        if (slow != grabFine) grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = slow;
+        const double moved = (vertical ? grabY - mouse.y : mouse.x - grabX) / (travel * (slow ? 10 : 1));
+        // Past an end the value stops, and so does the count: turning back
+        // moves it at once (as compost's), not after undoing the overshoot.
+        const double u = grabUnit + moved;
+        if (u > 1) grabUnit -= u - 1;
+        if (u < 0) grabUnit -= u;
+        const double value = fromUnit(p, std::clamp(u, 0.0, 1.0), log);
+        if (value != p.value) params.change(p, value);
+    }
+    if (!mouse.down)
+    {
+        if (grabSecond && !grabMoved) params.change(p, p.defaultValue); // a double-click: reset, in this gesture
+        params.end(p);
+        active = nullptr;
+        if (held.locked && lockPointer) lockPointer(false);
+        held = {};
+    }
+    return true;
+}
+
+void Ui::knob(Params &params, Param *p, Rect box, const char *format, bool log)
+{
+    if (!p) return;
+    // The dial fills the width, leaving room below for two lines of text.
+    const float size = theme.textSize * s;
+    const float r = std::min(box.w, box.h - 3 * size) / 2, cx = box.x + box.w / 2, cy = box.y + r;
+    const void *me = controlId(*p, cx, cy);
+    const bool dragging = control(params, *p, me, cx - r, cy - r, 2 * r, 2 * r, true, 200 * s, log, true);
+    // 270 degrees of travel, from 7:30 to 4:30; the ring a tenth of the dial (as compost's knob).
+    const float from = 3.927f, sweep = 4.712f, u = float(toUnit(*p, p->value, log));
+    const float width = std::max(2.0f * s, r * 0.19f);
+    if (focusShown(me)) draw.circle(cx, cy, r + 2 * s, {0, 0, 0, 0}, 1 * s, theme.accent);
+    draw.arc(cx, cy, r - width, width, from, from + sweep, theme.track);
+    if (u > 0) draw.arc(cx, cy, r - width, width, from, from + sweep * u, theme.accent);
+    const float angle = from + sweep * u, inner = r - 1.6f * width;
+    draw.circle(cx, cy, inner, theme.background, 1 * s, theme.edge);
+    draw.line(cx + std::sin(angle) * inner * 0.3f, cy - std::cos(angle) * inner * 0.3f,
+              cx + std::sin(angle) * inner * 0.9f, cy - std::cos(angle) * inner * 0.9f, (dragging ? 2.0f : 1.4f) * s,
+              dragging ? theme.accent : theme.text);
+    char value[32];
+    std::snprintf(value, sizeof(value), format, p->value);
+    describeParam(me, params, *p, value, box).node.orientation = 2; // dragged up and down
+    typeInto(me, &p->defaultValue, *p);
+    if (!valueEntry(params, *p, &p->defaultValue, {box.x, cy + r + 0.3f * size, box.w, 1.3f * size}, Draw2D::Align::center))
+        draw.text(cx, cy + r + 1.3f * size, size, value, theme.text, Draw2D::Align::center, theme.valueFont);
+    draw.text(cx, cy + r + 2.6f * size, size, p->name, theme.dim, Draw2D::Align::center, theme.labelFont);
+}
+
+// As compost's slider: the name on the left and the value on the right above
+// a 3-point track, filled with the accent up to the value, and a 2-point
+// thumb line across it.
+void Ui::slider(Params &params, Param *p, Rect box, const char *format, bool log)
+{
+    if (!p) return;
+    const float px = box.x, py = box.y, w = box.w, h = box.h, size = theme.textSize * s;
+    char value[32];
+    std::snprintf(value, sizeof(value), format, p->value);
+    // The value first: a click on it types, rather than starting a drag.
+    const float valueWidth = std::max(draw.measure(size, value, theme.valueFont), 3 * size) + 4 * s;
+    const void *me = controlId(*p, px, py);
+    typeInto(me, &p->max, *p);
+    const bool typing = valueEntry(params, *p, &p->max, {px + w - valueWidth, py, valueWidth, 1.4f * size}, Draw2D::Align::right);
+    describeParam(me, params, *p, value, box).node.orientation = 1;
+    const bool dragging = control(params, *p, me, px, py, w, h, false, w, log, true, sliderDrag == Drag::absolute);
+    const bool hot = dragging || (!active && over(px, py, w, h));
+    const float u = float(toUnit(*p, p->value, log)), thumb = 1.125f * size, track = py + h - thumb / 2;
+    if (focusShown(me)) draw.rect(px - 3 * s, py - 2 * s, w + 6 * s, h + 4 * s, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
+    draw.text(px, py + size, size, p->name, theme.dim, Draw2D::Align::left, theme.labelFont);
+    if (!typing) draw.text(px + w, py + size, size, value, theme.dim, Draw2D::Align::right, theme.valueFont);
+    draw.rect(px, track - 1.5f * s, w, 3 * s, 0, theme.track);
+    draw.rect(px, track - 1.5f * s, w * u, 3 * s, 0, theme.accent);
+    const float x = px + w * u, thumbWidth = (hot ? 3.0f : 2.0f) * s;
+    draw.rect(x - thumbWidth / 2, track - thumb / 2, thumbWidth, thumb, 0, theme.text);
+}
+
+bool Ui::button(const char *label, int index)
+{
+    const Clay_ElementId bid = id(label, index);
+    Described &d = describe(reinterpret_cast<const void *>(uintptr_t(bid.id)), Accessible::Role::button, label);
+    d.element = bid.id, d.node.actions |= Accessible::click;
+    const Area a = element(bid, eachPress);
+    bool clicked = a.clicked;
+    for (View::Key key : focusable(bid, a)) clicked |= key == View::Key::enter;
+    const bool hot = Clay_PointerOver(bid);
+    CLAY({.id = bid, .layout = {.padding = {10, 10, 4, 4}, .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
+          .backgroundColor = clayColor(a.held ? theme.text : hot ? theme.panel : Color{0, 0, 0, 0}),
+          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+          .border = {.color = clayColor(focusShown(bid) ? theme.accent : hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+    {
+        CLAY_TEXT(layout.text(label), textConfig(a.held ? theme.background : theme.text));
+    }
+    lastElement = bid.id;
+    return clicked;
+}
+
+// Off: an outline. On: filled with the text colour, its label in the
+// background's (Slide's Sync button).
+bool Ui::toggle(const char *label, bool &on, int index)
+{
+    const Clay_ElementId tid = id(label, index);
+    const Area a = element(tid, eachPress);
+    bool clicked = a.clicked;
+    for (View::Key key : focusable(tid, a)) clicked |= key == View::Key::enter;
+    if (clicked) on = !on;
+    Described &d = describe(reinterpret_cast<const void *>(uintptr_t(tid.id)), Accessible::Role::checkBox, label);
+    d.element = tid.id, d.node.checked = on, d.node.actions |= Accessible::click;
+    const bool hot = Clay_PointerOver(tid);
+    CLAY({.id = tid, .layout = {.padding = {7, 7, 3, 3}, .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
+          .backgroundColor = clayColor(on ? theme.text : hot ? theme.panel : Color{0, 0, 0, 0}),
+          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+          .border = {.color = clayColor(focusShown(tid) ? theme.accent : on || a.held ? theme.text : theme.edge),
+                     .width = CLAY_BORDER_OUTSIDE(1)}})
+    {
+        CLAY_TEXT(layout.text(label), textConfig(on ? theme.background : theme.text));
+    }
+    lastElement = tid.id;
+    return clicked;
+}
+
+bool Ui::segmented(const char *const *items, int count, int &selected, int index)
+{
+    bool changed = false;
+    const Clay_ElementId sid = id("Segmented", index);
+    CLAY({.id = sid, .border = {.color = clayColor(focusShown(sid) ? theme.accent : theme.edge), .width = CLAY_BORDER_ALL(1)}})
+    {
+        // Clicks and keys first, so every cell draws the new choice.
+        Area any;
+        for (int i = 0; i < count; ++i)
+        {
+            const Area a = element(id("Segment", index * 64 + i), eachPress);
+            if (a.clicked && selected != i) selected = i, changed = true;
+            any.pressed |= a.pressed;
+        }
+        for (View::Key key : focusable(sid, any))
+        {
+            const int step = key == View::Key::right || key == View::Key::down ? 1 : key == View::Key::left || key == View::Key::up ? -1 : 0;
+            const int next = std::clamp(selected + step, 0, count - 1);
+            if (next != selected) selected = next, changed = true;
+        }
+        const void *group = reinterpret_cast<const void *>(uintptr_t(sid.id));
+        describe(group, Accessible::Role::radioGroup, nullptr).element = sid.id;
+        for (int i = 0; i < count; ++i)
+        {
+            const Clay_ElementId cell = id("Segment", index * 64 + i);
+            Described &d = describe(reinterpret_cast<const void *>(uintptr_t(cell.id)), Accessible::Role::radioButton, items[i], accessId(group));
+            d.element = cell.id, d.node.checked = selected == i, d.node.actions |= Accessible::click;
+        }
+        for (int i = 0; i < count; ++i)
+        {
+            const Clay_ElementId cell = id("Segment", index * 64 + i);
+            const bool on = selected == i, hot = Clay_PointerOver(cell);
+            CLAY({.id = cell, .layout = {.padding = {8, 8, 3, 3}},
+                  .backgroundColor = clayColor(on ? theme.text : hot ? theme.panel : Color{0, 0, 0, 0})})
+            {
+                CLAY_TEXT(layout.text(items[i]), textConfig(on ? theme.background : hot ? theme.text : theme.dim));
+            }
+        }
+    }
+    lastElement = sid.id;
+    return changed;
+}
+
+Ui::Tabs Ui::tabs(const char *const *items, int count, int &selected, int index)
+{
+    Tabs result;
+    const Clay_ElementId lid = id("TabList", index);
+    const void *me = reinterpret_cast<const void *>(uintptr_t(lid.id));
+    // Presses and keys first, so every tab draws the new choice.
+    Area any;
+    for (int i = 0; i < count; ++i)
+    {
+        const Area a = element(id("Tab", index * 64 + i), eachPress);
+        if (a.pressed && selected != i) selected = i, result.changed = true;
+        if (a.held) result.held = i, result.x = a.x, result.y = a.y, result.released = a.released;
+        // Under the pointer now (Clay's hover trails it by a frame): the last frame's box.
+        if (const Clay_ElementData d = Clay_GetElementData(id("Tab", index * 64 + i)); d.found)
+        {
+            const Clay_BoundingBox &b = d.boundingBox;
+            if (mouse.x >= b.x * s && mouse.x < (b.x + b.width) * s && mouse.y >= b.y * s && mouse.y < (b.y + b.height) * s) result.over = i;
+        }
+        any.pressed |= a.pressed;
+    }
+    // The bar's empty part, after the tabs: a press on a tab is the tab's.
+    if (const Area bar = element(lid); bar.held && result.held < 0)
+        result.barHeld = true, result.x = bar.x, result.y = bar.y, result.released = bar.released;
+    order.push_back(me);
+    if (any.pressed) focus = me, pressFocused = true;
+    if (focus == me)
+    {
+        focusUses = keyBit(View::Key::left) | keyBit(View::Key::right) | keyBit(View::Key::home) | keyBit(View::Key::end)
+                  | keyBit(View::Key::up) | keyBit(View::Key::down) | keyBit(View::Key::enter);
+        focusTakesDigits = false;
+        for (auto [key, modifiers] : keys)
+        {
+            if (modifiers & View::alt)
+            {
+                result.altKey = true, result.key = key;
+                continue;
+            }
+            // The arrows wrap, as APG's tabs do.
+            int next = selected;
+            if (key == View::Key::right) next = (selected + 1) % count;
+            else if (key == View::Key::left) next = (selected + count - 1) % count;
+            else if (key == View::Key::home) next = 0;
+            else if (key == View::Key::end) next = count - 1;
+            if (next != selected) selected = next, result.changed = true;
+        }
+    }
+    if (const Clay_ElementData bar = Clay_GetElementData(lid); bar.found)
+        result.bar = {bar.boundingBox.x * s, bar.boundingBox.y * s, bar.boundingBox.width * s, bar.boundingBox.height * s};
+    describe(me, Accessible::Role::tabList, nullptr).element = lid.id;
+    for (int i = 0; i < count; ++i)
+    {
+        const Clay_ElementId tab = id("Tab", index * 64 + i);
+        Described &d = describe(reinterpret_cast<const void *>(uintptr_t(tab.id)), Accessible::Role::tab, items[i], accessId(me));
+        d.element = tab.id, d.node.selected = selected == i, d.node.actions |= Accessible::click;
+    }
+    CLAY({.id = lid, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}},
+          .border = {.color = clayColor(focusShown(me) ? theme.accent : theme.edge), .width = {.bottom = 1}}})
+    {
+        for (int i = 0; i < count; ++i)
+        {
+            const Clay_ElementId tab = id("Tab", index * 64 + i);
+            const bool on = selected == i, hot = Clay_PointerOver(tab);
+            CLAY({.id = tab, .layout = {.padding = {10, 10, 4, 4}}, .backgroundColor = clayColor(on ? theme.panel : Color{0, 0, 0, 0}),
+                  .cornerRadius = {theme.radius, theme.radius, 0, 0},
+                  .border = {.color = clayColor(on ? theme.edge : Color{0, 0, 0, 0}), .width = {1, 1, 1, 0}}})
+            {
+                CLAY_TEXT(layout.text(items[i]), textConfig(on || hot ? theme.text : theme.dim));
+            }
+        }
+    }
+    lastElement = lid.id;
+    return result;
+}
+
+bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
+{
+    bool changed = false;
+    const Clay_ElementId did = id("Dropdown", index), menu = id("DropdownMenu", index);
+    const bool open = openMenu == menu.id;
+    const Area a = element(did, eachPress);
+    auto openAt = [&](int option) { openMenu = menu.id, highlight = std::clamp(option, 0, count - 1); };
+    auto choose = [&] {
+        if (highlight >= 0 && highlight < count && highlight != selected) selected = highlight, changed = true;
+        openMenu = 0;
+    };
+    if (a.pressed)
+    {
+        if (open) openMenu = 0;
+        else openAt(selected);
+    }
+    // Keys, as HTML's select (the WAI-ARIA select-only combo box): closed,
+    // Enter, Space and the arrows open it on the choice, Home and End on the
+    // first and last; open, the arrows, Home and End move the highlight,
+    // Enter, Space or Tab choose it, Escape closes it as it was. Typing a
+    // letter jumps to the next option starting with it.
+    focusable(did, a);
+    if (focus == reinterpret_cast<const void *>(uintptr_t(did.id)))
+    {
+        focusUses |= keyBit(View::Key::escape) | keyBit(View::Key::home) | keyBit(View::Key::end) | keyBit(View::Key::pageUp)
+                   | keyBit(View::Key::pageDown);
+        focusTakesLetters = true;
+        for (auto [key, modifiers] : keys)
+        {
+            const bool isOpen = openMenu == menu.id;
+            switch (key)
+            {
+            case View::Key::enter: isOpen ? choose() : openAt(selected); break;
+            case View::Key::escape: openMenu = 0; break;
+            case View::Key::tab: if (isOpen) choose(); break;
+            case View::Key::down: isOpen ? void(highlight = std::min(highlight + 1, count - 1)) : openAt(selected); break;
+            case View::Key::up:
+                if (isOpen && modifiers & View::alt) choose();
+                else isOpen ? void(highlight = std::max(highlight - 1, 0)) : openAt(selected);
+                break;
+            case View::Key::home: case View::Key::pageUp: openAt(0); break;
+            case View::Key::end: case View::Key::pageDown: openAt(count - 1); break;
+            default: break;
+            }
+        }
+        for (char c : std::exchange(typedToFocus, {}))
+        {
+            if (c == ' ')
+            {
+                openMenu == menu.id ? choose() : openAt(selected);
+                continue;
+            }
+            const int from = openMenu == menu.id ? highlight : selected;
+            for (int k = 1; k <= count; ++k)
+            {
+                const int i = (from + k) % count;
+                if (std::tolower(static_cast<unsigned char>(items[i][0])) == std::tolower(static_cast<unsigned char>(c)))
+                {
+                    openAt(i);
+                    break;
+                }
+            }
+        }
+    }
+    const size_t combo = described.size(); // an index: its options are described after it
+    Described &d = describe(reinterpret_cast<const void *>(uintptr_t(did.id)), Accessible::Role::comboBox, nullptr);
+    d.element = did.id, d.node.value = items[std::clamp(selected, 0, count - 1)], d.node.expanded = openMenu == menu.id;
+    d.node.actions |= Accessible::click | Accessible::expand | Accessible::collapse;
+    // A press anywhere else closes it.
+    if (open && mouse.pressed && !Clay_PointerOver(menu) && !Clay_PointerOver(did)) openMenu = 0;
+    const bool hot = Clay_PointerOver(did);
+    // The menu opens below, or above where there's no room below (sizes from
+    // the last frame, in points).
+    const Clay_BoundingBox box = Clay_GetElementData(did).boundingBox;
+    const float menuHeight = float(count) * (theme.textSize * 1.25f + 6) + 4;
+    const bool up = box.y + box.height + menuHeight > viewHeight && box.y - menuHeight >= 0;
+    CLAY({.id = did, .layout = {.padding = {7, 7, 3, 3}, .childGap = 8, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
+          .backgroundColor = clayColor(hot || open ? theme.panel : Color{0, 0, 0, 0}),
+          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+          .border = {.color = clayColor(focusShown(did) ? theme.accent : open || hot ? theme.text : theme.edge),
+                     .width = CLAY_BORDER_OUTSIDE(1)}})
+    {
+        CLAY_TEXT(layout.text(selected >= 0 && selected < count ? items[selected] : ""), textConfig(theme.text));
+        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(7), CLAY_SIZING_FIXED(7)}}, .custom = {.customData = layout.custom(chevronBox)}}) {}
+        if (openMenu == menu.id)
+        {
+            menuSeen = true;
+            // Its list, for screen readers: the options, the chosen one selected.
+            const void *list = reinterpret_cast<const void *>(uintptr_t(menu.id));
+            Described &listBox = describe(list, Accessible::Role::listBox, nullptr, accessId(reinterpret_cast<const void *>(uintptr_t(did.id))));
+            listBox.element = menu.id, listBox.node.actions = 0; // the dropdown names it and has the focus
+            for (int i = 0; i < count; ++i)
+            {
+                const Clay_ElementId item = id("DropdownItem", index * 1024 + i);
+                Described &option = describe(reinterpret_cast<const void *>(uintptr_t(item.id)), Accessible::Role::option, items[i], accessId(list));
+                option.element = item.id, option.node.selected = i == highlight, option.node.actions |= Accessible::click;
+                if (i == highlight) described[combo].node.activeDescendant = option.node.id;
+            }
+            CLAY({.id = menu, .layout = {.sizing = {.width = CLAY_SIZING_FIT(box.width)}, .padding = CLAY_PADDING_ALL(1),
+                                         .layoutDirection = CLAY_TOP_TO_BOTTOM},
+                  .backgroundColor = clayColor(theme.background), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+                  .floating = {.offset = {0, up ? -2.0f : 2.0f}, .zIndex = 100,
+                               .attachPoints = {up ? CLAY_ATTACH_POINT_LEFT_BOTTOM : CLAY_ATTACH_POINT_LEFT_TOP,
+                                                up ? CLAY_ATTACH_POINT_LEFT_TOP : CLAY_ATTACH_POINT_LEFT_BOTTOM},
+                               .attachTo = CLAY_ATTACH_TO_PARENT},
+                  .border = {.color = clayColor(theme.edge), .width = CLAY_BORDER_OUTSIDE(1)},
+                  .userData = layout.shadow(theme.shadow, 10, 0, 3)})
+            {
+                for (int i = 0; i < count; ++i)
+                {
+                    const Clay_ElementId item = id("DropdownItem", index * 1024 + i);
+                    if (element(item, eachPress).clicked) selected = i, changed = true, openMenu = 0;
+                    const bool itemHot = Clay_PointerOver(item);
+                    if (itemHot && (mouse.moved || mouse.pressed)) highlight = i; // the pointer moves the highlight too
+                    CLAY({.id = item, .layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {7, 7, 3, 3}},
+                          .backgroundColor = clayColor(i == highlight ? theme.panel : Color{0, 0, 0, 0})})
+                    {
+                        CLAY_TEXT(layout.text(items[i]), textConfig(i == selected ? theme.accent : theme.text));
+                    }
+                }
+            }
+        }
+    }
+    lastElement = did.id;
+    return changed;
+}
+
+void Ui::tooltip(const char *text)
+{
+    if (!lastElement) return;
+    said.push_back({lastElement, {}, text ? text : "", false, false, true}); // as HTML's title: its description
+    const Clay_ElementId target{lastElement, 0, 0, {}};
+    if (!Clay_PointerOver(target) || mouse.down || active)
+    {
+        if (hovered == lastElement) hovered = 0;
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (hovered != lastElement) hovered = lastElement, hoveredSince = now;
+    if (now - hoveredSince < std::chrono::milliseconds(500))
+    {
+        tooltipWaiting = true; // the presenter keeps drawing until it shows
+        return;
+    }
+    // Below the control, left-aligned with it; flipped where that would leave the view.
+    const Clay_BoundingBox box = Clay_GetElementData(target).boundingBox;
+    const float tipWidth = draw.measure(theme.textSize, text, theme.labelFont) + 12;
+    const float tipHeight = theme.textSize * 1.25f + 6;
+    const bool left = box.x + tipWidth > viewWidth, up = box.y + box.height + 4 + tipHeight > viewHeight;
+    const Clay_FloatingAttachPointType element = up ? (left ? CLAY_ATTACH_POINT_RIGHT_BOTTOM : CLAY_ATTACH_POINT_LEFT_BOTTOM)
+                                                    : (left ? CLAY_ATTACH_POINT_RIGHT_TOP : CLAY_ATTACH_POINT_LEFT_TOP);
+    const Clay_FloatingAttachPointType parent = up ? (left ? CLAY_ATTACH_POINT_RIGHT_TOP : CLAY_ATTACH_POINT_LEFT_TOP)
+                                                   : (left ? CLAY_ATTACH_POINT_RIGHT_BOTTOM : CLAY_ATTACH_POINT_LEFT_BOTTOM);
+    CLAY({.layout = {.padding = {6, 6, 3, 3}}, .backgroundColor = clayColor(theme.text),
+          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+          .floating = {.offset = {0, up ? -4.0f : 4.0f}, .parentId = lastElement, .zIndex = 200,
+                       .attachPoints = {element, parent},
+                       .pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH,
+                       .attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID},
+          .userData = layout.shadow(theme.shadow, 6, 0, 2)})
+    {
+        CLAY_TEXT(layout.text(text), textConfig(theme.background));
+    }
+}
+
+// A parameter's value as an item of a segmented control or dropdown.
+static int itemOf(const Param &p, int count) { return std::clamp(int(std::lround(p.value - p.min)), 0, count - 1); }
+
+bool Ui::toggle(Params &params, Param *p, const char *label)
+{
+    if (!p) return false;
+    bool on = p->value >= (p->min + p->max) / 2;
+    if (!toggle(label, on, p->id)) return false;
+    set(params, *p, on ? p->max : p->min);
+    return true;
+}
+
+bool Ui::segmented(Params &params, Param *p, const char *const *items, int count)
+{
+    if (!p || count < 1) return false;
+    int selected = itemOf(*p, count);
+    const bool chose = segmented(items, count, selected, p->id);
+    label(p->name.c_str()); // named for its parameter, as a knob is; a label after it still wins
+    if (!chose) return false;
+    set(params, *p, p->min + selected);
+    return true;
+}
+
+bool Ui::dropdown(Params &params, Param *p, const char *const *items, int count)
+{
+    if (!p || count < 1) return false;
+    int selected = itemOf(*p, count);
+    const bool chose = dropdown(items, count, selected, p->id);
+    label(p->name.c_str()); // named for its parameter, as a knob is; a label after it still wins
+    if (!chose) return false;
+    set(params, *p, p->min + selected);
+    return true;
+}
+
+void Ui::knob(Params &params, Param *p, const char *format, bool log, float diameter)
+{
+    if (!p) return;
+    const Clay_ElementId kid = id("Knob", p->id);
+    CLAY({.id = kid, .layout = {.sizing = {CLAY_SIZING_FIXED(std::max(diameter, 56.0f)), CLAY_SIZING_FIXED(diameter + 3.2f * theme.textSize)}},
+          .custom = {.customData = layout.custom(knobBox, &placed.emplace_back(Placed{&params, p, format, log}))}}) {}
+    lastElement = kid.id;
+}
+
+void Ui::slider(Params &params, Param *p, const char *format, bool log)
+{
+    if (!p) return;
+    const Clay_ElementId sid = id("Slider", p->id);
+    CLAY({.id = sid, .layout = {.sizing = {CLAY_SIZING_GROW(80), CLAY_SIZING_FIXED(theme.textSize * 2.6f + 6)}},
+          .custom = {.customData = layout.custom(sliderBox, &placed.emplace_back(Placed{&params, p, format, log}))}}) {}
+    lastElement = sid.id;
+}
+
+// Upright: the value above, the name below, filled from the bottom.
+void Ui::vslider(Params &params, Param *p, Rect box, const char *format, bool log)
+{
+    if (!p) return;
+    const float size = theme.textSize * s, cx = box.x + box.w / 2;
+    const float top = box.y + 1.6f * size, bottom = box.y + box.h - 1.6f * size, thumb = 1.125f * size;
+    const void *me = controlId(*p, box.x, box.y);
+    const bool dragging = control(params, *p, me, box.x, top - thumb / 2, box.w, bottom - top + thumb, true, bottom - top, log, false,
+                                  sliderDrag == Drag::absolute);
+    const bool hot = dragging || (!active && over(box.x, top, box.w, bottom - top));
+    const float u = float(toUnit(*p, p->value, log)), y = bottom - (bottom - top) * u;
+    if (focusShown(me)) draw.rect(box.x, box.y, box.w, box.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
+    char value[32];
+    std::snprintf(value, sizeof(value), format, p->value);
+    describeParam(me, params, *p, value, box).node.orientation = 2;
+    draw.text(cx, box.y + size, size, value, theme.dim, Draw2D::Align::center, theme.valueFont);
+    draw.text(cx, box.y + box.h - 0.3f * size, size, p->name, theme.dim, Draw2D::Align::center, theme.labelFont);
+    draw.rect(cx - 1.5f * s, top, 3 * s, bottom - top, 0, theme.track);
+    draw.rect(cx - 1.5f * s, y, 3 * s, bottom - y, 0, theme.accent);
+    const float thumbHeight = (hot ? 3.0f : 2.0f) * s;
+    draw.rect(cx - thumb / 2, y - thumbHeight / 2, thumb, thumbHeight, 0, theme.text);
+}
+
+// Two parameters, x and y, set by dragging a point; double-click resets both.
+void Ui::xyPad(Params &params, Param *px, Param *py, Rect r)
+{
+    if (!px || !py) return;
+    // Its own drag id: knobs and sliders of px already use px itself.
+    const auto a = area(&px->dragging, r.x, r.y, r.w, r.h);
+    auto setFrom = [&](float x, float y) {
+        params.change(*px, fromUnit(*px, (x - r.x) / r.w, false));
+        params.change(*py, fromUnit(*py, 1 - (y - r.y) / r.h, false));
+    };
+    const void *me = &px->dragging;
+    order.push_back(me);
+    if (a.pressed || a.doubleClicked) focus = me, pressFocused = true;
+    if (a.doubleClicked) set(params, *px, px->defaultValue), set(params, *py, py->defaultValue);
+    if (a.pressed) params.begin(*px), params.begin(*py), held = {&params, px, py, false};
+    // Keys, as two sliders': left and right move x, up and down y; Shift
+    // fine, Alt a page's step; Escape, Delete or Backspace reset both.
+    if (focus == me)
+    {
+        focusUses = stepKeys | keyBit(View::Key::escape) | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward);
+        focusTakesDigits = false;
+        for (auto [key, modifiers] : keys)
+        {
+            const double step = modifiers & View::shift ? 0.001 : modifiers & View::alt ? 0.1 : 0.01;
+            auto nudge = [&](Param &q, double by) { set(params, q, fromUnit(q, toUnit(q, q.value, false) + by, false)); };
+            switch (key)
+            {
+            case View::Key::left: nudge(*px, -step); break;
+            case View::Key::right: nudge(*px, step); break;
+            case View::Key::up: nudge(*py, step); break;
+            case View::Key::down: nudge(*py, -step); break;
+            case View::Key::escape: case View::Key::backspace: case View::Key::deleteForward:
+                set(params, *px, px->defaultValue), set(params, *py, py->defaultValue);
+                break;
+            default: break;
+            }
+        }
+    }
+    // For screen readers: a group of its two sliders.
+    Described &group = describe(me, Accessible::Role::group, (px->name + " and " + py->name).c_str());
+    group.node.x = r.x, group.node.y = r.y, group.node.width = r.w, group.node.height = r.h;
+    char text[32];
+    std::snprintf(text, sizeof(text), "%g", px->value);
+    describeParam(reinterpret_cast<const char *>(me) + 1, params, *px, text, r).parent = accessId(me);
+    std::snprintf(text, sizeof(text), "%g", py->value);
+    describeParam(reinterpret_cast<const char *>(me) + 2, params, *py, text, r).parent = accessId(me);
+    if (a.held) setFrom(a.x, a.y);
+    if (a.released) params.end(*px), params.end(*py), held = {};
+    const float x = r.x + r.w * float(toUnit(*px, px->value, false)), y = r.y + r.h * (1 - float(toUnit(*py, py->value, false)));
+    draw.rect(r.x, r.y, r.w, r.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, focusShown(me) ? theme.accent : theme.edge);
+    draw.line(x, r.y, x, r.y + r.h, 1 * s, theme.edge);
+    draw.line(r.x, y, r.x + r.w, y, 1 * s, theme.edge);
+    draw.circle(x, y, (a.held ? 7.0f : 6.0f) * s, theme.accent, 1.5f * s, theme.text);
+    const float size = theme.textSize * s;
+    draw.text(r.x + 4 * s, r.y + r.h - 4 * s, size, px->name, theme.dim, Draw2D::Align::left, theme.labelFont);
+    draw.text(r.x + 4 * s, r.y + size + 2 * s, size, py->name, theme.dim, Draw2D::Align::left, theme.labelFont);
+}
+
+// A level, 0 to 1, filled from the bottom, with a line at the peak (if 0 to 1).
+void Ui::meter(float level, float peak, Rect r)
+{
+    level = std::clamp(level, 0.0f, 1.0f);
+    draw.rect(r.x, r.y, r.w, r.h, 0, theme.track);
+    draw.rect(r.x, r.y + r.h * (1 - level), r.w, r.h * level, 0, theme.accent);
+    if (peak >= 0 && peak <= 1) draw.rect(r.x, r.y + r.h * (1 - peak) - 0.5f * s, r.w, 1 * s, 0, theme.text);
+}
+
+void Ui::vslider(Params &params, Param *p, const char *format, bool log, float heightPoints)
+{
+    if (!p) return;
+    const Clay_ElementId vid = id("VSlider", p->id);
+    CLAY({.id = vid, .layout = {.sizing = {CLAY_SIZING_FIXED(std::max(40.0f, 4 * theme.textSize)), CLAY_SIZING_FIXED(heightPoints)}},
+          .custom = {.customData = layout.custom(vsliderBox, &placed.emplace_back(Placed{&params, p, format, log}))}}) {}
+    lastElement = vid.id;
+}
+
+void Ui::xyPad(Params &params, Param *px, Param *py)
+{
+    if (!px || !py) return;
+    const Clay_ElementId xid = id("XYPad", px->id * 1024 + py->id);
+    CLAY({.id = xid, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
+          .custom = {.customData = layout.custom(xyBox, &placed.emplace_back(Placed{&params, px, nullptr, false, py}))}}) {}
+    lastElement = xid.id;
+}
+
+void Ui::meter(float level, float peak, float widthPoints)
+{
+    CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_GROW(0)}},
+          .custom = {.customData = layout.custom(meterBox, &placed.emplace_back(Placed{nullptr, nullptr, nullptr, false, nullptr, level, peak}))}}) {}
+}
+
+void Ui::imageKnob(Params &params, Param *p, int image, int frames, Rect r, bool log, bool across)
+{
+    if (!p || frames < 1) return;
+    const void *me = controlId(*p, r.x, r.y);
+    const bool dragging = control(params, *p, me, r.x, r.y, r.w, r.h, true, 200 * s, log);
+    describeParam(me, params, *p, plainNumber(p->value).c_str(), r);
+    const int frame = int(std::lround(toUnit(*p, p->value, log) * (frames - 1)));
+    const float step = 1.0f / float(frames), a = frame * step, b = a + step;
+    draw.image(image, r.x, r.y, r.w, r.h, {}, {1, 1, 1, 1}, across ? Draw2D::Source{a, 0, b, 1} : Draw2D::Source{0, a, 1, b});
+    if (focusShown(me) || dragging) draw.circle(r.x + r.w / 2, r.y + r.h / 2, std::min(r.w, r.h) / 2 + 2 * s, {0, 0, 0, 0}, 1 * s, theme.accent);
+}
+
+void Ui::imageKnob(Params &params, Param *p, int image, int frames, bool log, bool across)
+{
+    if (!p || frames < 1) return;
+    int width, height;
+    draw.imageSize(image, width, height);
+    const float w = across ? float(width) / frames : float(width), h = across ? float(height) : float(height) / frames;
+    const Clay_ElementId kid = id("ImageKnob", p->id);
+    Placed placedKnob{&params, p, nullptr, log};
+    placedKnob.image = image, placedKnob.frames = frames, placedKnob.across = across;
+    CLAY({.id = kid, .layout = {.sizing = {CLAY_SIZING_FIXED(w), CLAY_SIZING_FIXED(h)}},
+          .custom = {.customData = layout.custom(imageKnobBox, &placed.emplace_back(placedKnob))}}) {}
+    lastElement = kid.id;
+}
+
+// Which keys of an octave are black, from C.
+static bool isBlack(int note)
+{
+    const int n = ((note % 12) + 12) % 12;
+    return n == 1 || n == 3 || n == 6 || n == 8 || n == 10;
+}
+
+Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(int)> &lit)
+{
+    Notes notes;
+    int whites = 0;
+    for (int n = lowest; n <= highest; ++n) whites += !isBlack(n);
+    if (whites == 0) return notes;
+    // As compost's piano: whites 20 points wide and blacks 12, two thirds
+    // as tall, the keyboard at that width in the middle of r (narrower only
+    // where r is), C# and F# a little left of their gaps, D# and A# right.
+    const float keyWidth = std::min(20 * s, r.w / whites), blackWidth = keyWidth * 0.6f, blackHeight = r.h * 0.66f;
+    const float left = r.x + (r.w - whites * keyWidth) / 2;
+    auto keyRect = [&](int note) {
+        int whitesBefore = 0;
+        for (int n = lowest; n < note; ++n) whitesBefore += !isBlack(n);
+        if (!isBlack(note)) return Rect{left + whitesBefore * keyWidth, r.y, keyWidth, r.h};
+        static const float shift[12] = {0, -1, 0, 3, 0, 0, -1, 0, 0, 0, 3, 0}; // sixteenths of a black key's width
+        const float x = left + whitesBefore * keyWidth - blackWidth / 2 + shift[((note % 12) + 12) % 12] * blackWidth / 16;
+        return Rect{x, r.y, blackWidth, blackHeight};
+    };
+    auto inside = [&](Rect k) { return mouse.x >= k.x && mouse.x < k.x + k.w && mouse.y >= k.y && mouse.y < k.y + k.h; };
+    // The key under the pointer: a black one, being on top, first.
+    int under = -1;
+    for (int n = lowest; n <= highest && under < 0; ++n)
+        if (isBlack(n) && inside(keyRect(n))) under = n;
+    for (int n = lowest; n <= highest && under < 0; ++n)
+        if (!isBlack(n) && inside(keyRect(n))) under = n;
+
+    const auto a = area(&playing, r.x, r.y, r.w, r.h);
+    if (a.held && under != playing && (under >= 0 || !a.pressed)) // pressed, or slid onto another key
+    {
+        if (playing >= 0) notes.off = playing;
+        playing = under, notes.on = under;
+    }
+    if (a.released && playing >= 0) notes.off = playing, notes.on = -1, playing = -1;
+
+    // Square keys with a hairline edge; a pressed one in the accent; each C
+    // named at its foot ("C4" is MIDI 60), small and muted.
+    auto drawKey = [&](int n) {
+        const Rect k = keyRect(n);
+        const bool down = n == playing || (lit && lit(n));
+        const Color fill = down ? theme.accent : isBlack(n) ? theme.blackKey : theme.whiteKey;
+        const Color line = down ? theme.accent : isBlack(n) ? theme.blackKey : theme.edge;
+        draw.rect(k.x, k.y, k.w, k.h, Draw2D::Corners{}, fill, Draw2D::Sides{1 * s, 1 * s, 1 * s, 1 * s}, line);
+        if (!isBlack(n) && ((n % 12) + 12) % 12 == 0)
+        {
+            const float size = 0.7f * theme.textSize * s;
+            const std::string name = "C" + std::to_string(n / 12 - 1);
+            draw.text(k.x + k.w / 2, k.y + k.h - 0.6f * size, size, name, down ? theme.background : theme.dim, Draw2D::Align::center,
+                      theme.labelFont);
+        }
+    };
+    for (int n = lowest; n <= highest; ++n)
+        if (!isBlack(n)) drawKey(n);
+    for (int n = lowest; n <= highest; ++n)
+        if (isBlack(n)) drawKey(n);
+    return notes;
+}
+
+Ui::Notes Ui::piano(int lowest, int highest, float heightPoints, const std::function<bool(int)> &lit)
+{
+    Placed board{nullptr, nullptr, nullptr, false};
+    board.lowest = lowest, board.highest = highest, board.lit = lit;
+    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(heightPoints)}},
+          .custom = {.customData = layout.custom(pianoBox, &placed.emplace_back(std::move(board)))}}) {}
+    const Notes notes = pianoNotes;
+    pianoNotes = {};
+    return notes;
+}
+
+bool Ui::envelope(std::vector<Point> &points, Rect r)
+{
+    if (points.empty()) return false;
+    bool changed = false;
+    const float handle = 5 * s;
+    auto toPixels = [&](Point p) { return Point{r.x + p.x * r.w, r.y + (1 - p.y) * r.h}; };
+    auto toUnit = [&](float x, float y) {
+        return Point{std::clamp((x - r.x) / r.w, 0.0f, 1.0f), std::clamp(1 - (y - r.y) / r.h, 0.0f, 1.0f)};
+    };
+    int near = -1; // the point under the pointer
+    for (size_t i = 0; i < points.size(); ++i)
+    {
+        const Point p = toPixels(points[i]);
+        if (std::abs(mouse.x - p.x) <= handle * 1.6f && std::abs(mouse.y - p.y) <= handle * 1.6f) near = int(i);
+    }
+    const auto a = area(&grabbedPoint, r.x, r.y, r.w, r.h);
+    if (a.doubleClicked)
+    {
+        if (near > 0 && near + 1 < int(points.size())) points.erase(points.begin() + near), changed = true;
+        else if (near < 0)
+        {
+            const Point p = toUnit(mouse.x, mouse.y);
+            auto at = std::upper_bound(points.begin(), points.end(), p.x, [](float x, const Point &q) { return x < q.x; });
+            points.insert(at, p), changed = true;
+        }
+    }
+    if (a.pressed) grabbedPoint = near;
+    if (a.held && grabbedPoint >= 0 && grabbedPoint < int(points.size()))
+    {
+        Point p = toUnit(a.x, a.y);
+        const size_t i = size_t(grabbedPoint);
+        if (i == 0) p.x = points[i].x;
+        else if (i + 1 == points.size()) p.x = points[i].x;
+        else p.x = std::clamp(p.x, points[i - 1].x, points[i + 1].x);
+        if (p.x != points[i].x || p.y != points[i].y) points[i] = p, changed = true;
+    }
+    if (a.released) grabbedPoint = -1;
+
+    // Drawn: a fill under the line, the line, and a handle at each point.
+    std::vector<float> xy;
+    for (const Point &q : points)
+    {
+        const Point p = toPixels(q);
+        xy.push_back(p.x), xy.push_back(p.y);
+    }
+    std::vector<float> area = xy;
+    area.insert(area.end(), {xy[xy.size() - 2], r.y + r.h, xy[0], r.y + r.h});
+    draw.rect(r.x, r.y, r.w, r.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.edge);
+    draw.fill(area.data(), area.size() / 2, {theme.accent.r, theme.accent.g, theme.accent.b, 0.18f});
+    draw.polyline(xy.data(), points.size(), 1.5f * s, theme.accent);
+    for (size_t i = 0; i < points.size(); ++i)
+    {
+        const bool hot = int(i) == grabbedPoint || (grabbedPoint < 0 && int(i) == near);
+        draw.circle(xy[2 * i], xy[2 * i + 1], hot ? handle * 1.25f : handle, hot ? theme.accent : theme.background, 1.5f * s, theme.accent);
+    }
+    return changed;
+}
+
+bool Ui::steps(std::vector<float> &values, Rect r)
+{
+    if (values.empty()) return false;
+    bool changed = false;
+    const float width = r.w / float(values.size());
+    const auto a = area(&lastStep, r.x, r.y, r.w, r.h);
+    if (a.held)
+    {
+        // Paint every bar between the last one and this, so a fast drag leaves no gaps.
+        const int step = std::clamp(int((a.x - r.x) / width), 0, int(values.size()) - 1);
+        const float value = std::clamp(1 - (a.y - r.y) / r.h, 0.0f, 1.0f);
+        const int from = a.pressed || lastStep < 0 ? step : lastStep;
+        for (int i = std::min(from, step); i <= std::max(from, step); ++i)
+            if (values[size_t(i)] != value) values[size_t(i)] = value, changed = true;
+        lastStep = step;
+    }
+    if (a.released) lastStep = -1;
+    for (size_t i = 0; i < values.size(); ++i)
+    {
+        const float x = r.x + i * width, h = r.h * std::clamp(values[i], 0.0f, 1.0f);
+        draw.rect(x + 1 * s, r.y, width - 2 * s, r.h, 0, theme.track);
+        draw.rect(x + 1 * s, r.y + r.h - h, width - 2 * s, h, 0, theme.accent);
+    }
+    return changed;
+}
+
+bool Ui::envelope(std::vector<Point> &points)
+{
+    Placed editor{nullptr, nullptr, nullptr, false};
+    editor.points = &points;
+    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
+          .custom = {.customData = layout.custom(envelopeBox, &placed.emplace_back(std::move(editor)))}}) {}
+    return std::find(changedLast.begin(), changedLast.end(), &points) != changedLast.end();
+}
+
+bool Ui::steps(std::vector<float> &values)
+{
+    Placed editor{nullptr, nullptr, nullptr, false};
+    editor.values = &values;
+    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
+          .custom = {.customData = layout.custom(stepsBox, &placed.emplace_back(std::move(editor)))}}) {}
+    return std::find(changedLast.begin(), changedLast.end(), &values) != changedLast.end();
+}
+
+}
