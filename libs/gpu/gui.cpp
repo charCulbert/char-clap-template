@@ -133,7 +133,8 @@ bool Gui::create(const char *api, bool floating)
     if (context || !isApiSupported(api, floating)) return false;
     auto newContext = std::make_unique<Context>();
     if (!newContext->createDevice()) return false;
-    if (platform::needsTimer && !hostTimers->register_timer(host, 16, &timer))
+    period = 16;
+    if (platform::needsTimer && !hostTimers->register_timer(host, period, &timer))
     {
         timer = CLAP_INVALID_ID;
         return false;
@@ -198,16 +199,24 @@ bool Gui::setParent(const clap_window_t *parent)
     context->configure(w, h);
     dirty = true;
     view->prepare(context->device, context->format); // sends "ready"
-    // Where the host's timer draws frames, as often as the monitor refreshes
-    // (8 ms at 120 Hz), not just every 16 ms.
-    if (platform::needsTimer && timer != CLAP_INVALID_ID)
-        if (const float rate = platform::refreshRate(window); rate > 0)
-            if (const uint32_t period = uint32_t(std::clamp(1000.0f / rate, 4.0f, 16.0f)); period != 16)
-            {
-                hostTimers->unregister_timer(host, timer);
-                if (!hostTimers->register_timer(host, period, &timer)) hostTimers->register_timer(host, 16, &timer);
-            }
+    paceTimer();
     return true;
+}
+
+// Where the host's timer draws frames, as often as the monitor under the
+// window refreshes (8 ms at 120 Hz), not just every 16 ms. Asked again every
+// couple of seconds (onTimer): the window may have moved to another monitor.
+void Gui::paceTimer()
+{
+    paced = std::chrono::steady_clock::now();
+    if (!platform::needsTimer || timer == CLAP_INVALID_ID) return;
+    const float rate = platform::refreshRate(window);
+    uint32_t wanted = uint32_t(std::clamp(1000.0f / rate, 4.0f, 16.0f));
+    if (rate <= 0 || wanted == period) return;
+    hostTimers->unregister_timer(host, timer);
+    if (!hostTimers->register_timer(host, wanted, &timer) && !hostTimers->register_timer(host, wanted = 16, &timer))
+        timer = CLAP_INVALID_ID;
+    period = wanted;
 }
 
 void Gui::setSize(uint32_t newWidth, uint32_t newHeight)
@@ -271,6 +280,7 @@ void Gui::onTimer(clap_id id)
     if (id != timer || !window) return;
     platform::pumpEvents(window);
     frame();
+    if (std::chrono::steady_clock::now() - paced > std::chrono::seconds(2)) paceTimer();
 }
 
 void Gui::frame()

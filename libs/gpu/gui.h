@@ -47,6 +47,7 @@ private:
     void frame();
     float scale() const; // pixels per point
     void recover();      // after the GPU device was lost
+    void paceTimer();    // the host timer's period to the monitor's refresh rate
 
     const clap_plugin_t *plugin = nullptr;
     const clap_host_t *host = nullptr;
@@ -59,6 +60,7 @@ private:
     const clap_host_gui_t *hostGui = nullptr;      // request_resize, for the view's resize grip
     const clap_plugin_gui_t *pluginGui = nullptr;  // adjust_size: the plugin's own limits
     clap_id timer = CLAP_INVALID_ID;
+    uint32_t period = 16; // the timer's, in ms
     uint32_t width = 480, height = 300;
     std::unique_ptr<Context> context;
     std::unique_ptr<View> view;
@@ -70,6 +72,7 @@ private:
     unsigned accessVersion = 0; // the accessibility tree screen readers have
     std::chrono::steady_clock::time_point appearanceChecked; // see platform::darkMode
     std::chrono::steady_clock::time_point recoveryTried;     // see recover
+    std::chrono::steady_clock::time_point paced;             // see paceTimer
 #endif
 };
 
