@@ -701,6 +701,8 @@ static void dockableWindows()
     auto release = [&](float x, float y) { pointer(ui, View::Pointer::up, x, y); draw(); draw(); };
     auto drag = [&](float x0, float y0, float x1, float y1) { press(x0, y0); moveTo((x0 + x1) / 2, (y0 + y1) / 2); moveTo(x1, y1); release(x1, y1); };
     auto title = [&](const char *name) { return box("WindowHeader", Clay_GetElementIdWithIndex(Clay_String{false, int32_t(std::strlen(name)), name}, 0).id); };
+    int changes = 0;
+    dock.changed = [&] { ++changes; };
     draw();
     CHECK(layout.windows.size() == 3 && layout.space.tabs.empty());
     layout.windows[0].frame = {20, 20, 240, 180}, layout.windows[1].frame = {300, 20, 240, 180}, layout.windows[2].frame = {20, 300, 240, 180};
@@ -711,6 +713,20 @@ static void dockableWindows()
     Clay_BoundingBox t = title("Edit");
     drag(t.x + 30, t.y + 6, 20 + 120, 20 + 90);
     CHECK(layout.windows.size() == 2 && layout.windows[0].root.tabs == (Tabs{"Mix", "Edit"}));
+    CHECK(changes >= 1); // told, to save it
+    auto popOuts = [&] {
+        int n = 0;
+        for (const gpu::Accessible &node : ui.accessibility()->nodes) n += node.name.rfind("Pop out ", 0) == 0;
+        return n;
+    };
+    CHECK(popOuts() == 1); // its tab bar's pop-out button
+    dock.options.popOut = false;
+    draw();
+    draw();
+    CHECK(popOuts() == 0);
+    dock.options.popOut = true;
+    draw();
+    draw();
     // Notes' title near that window's right edge: a split in it.
     const gpu::Rect &both = layout.windows[0].frame;
     const Clay_BoundingBox g = box("DockGroup", 0); // its group, under the bar

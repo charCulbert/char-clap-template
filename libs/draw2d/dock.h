@@ -56,6 +56,22 @@ public:
         std::vector<Window> windows;
     } layout;
 
+    // How it behaves; defaults as ImGui's and macOS's. The look follows the
+    // Ui's theme (the outline is its accent).
+    struct Options
+    {
+        bool popOut = true;          // a button at the end of each tab bar that pops the shown panel out
+        bool closeDocks = true;      // a lone panel's window has a close button that docks it into the dock space
+        float pullOut = 8;           // points past its tab bar that pull a tab out into a window
+        float edge = 80;             // points from a group's edge (at most 30% of it) that dock beside it
+        float spaceEdge = 24;        // points from the dock space's own edge that dock along all of it
+        float spaceShare = 1.0f / 3; // what a panel docked along the dock space's edge takes of it
+        Rect window{40, 60, 300, 220}; // a new window's place and size, points (new ones cascade from it)
+    } options;
+    // Called after the user rearranges it (a drop, a key, a pop-out, a close):
+    // the time to save layout with the plugin's state.
+    std::function<void()> changed;
+
     // A dock space: fills the box it's declared in. Optional; call it where
     // it goes on the page, before windows().
     void space(Ui &ui, const char *name, const std::vector<Panel> &panels)
@@ -124,7 +140,8 @@ private:
             for (Window &w : layout.windows) known |= find(w.root, p.name) != nullptr;
             if (known) continue;
             const float step = 24 * float(layout.windows.size() % 8); // cascaded, as new windows are
-            layout.windows.push_back({Node{{p.name}}, {40 + step, 60 + step, 300, 220}});
+            const Rect &w = options.window;
+            layout.windows.push_back({Node{{p.name}}, {w.x + step, w.y + step, w.w, w.h}});
         }
     }
     static Node *find(Node &n, const std::string &panel)
@@ -187,7 +204,13 @@ private:
         {
             std::vector<const char *> titles;
             for (const std::string &t : n.tabs) titles.push_back(t.c_str());
-            const Ui::Tabs t = ui.tabs(titles.data(), int(titles.size()), n.shown, index);
+            Ui::Tabs t;
+            // The tabs, then a button that pops the shown one out into a window.
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}, .childAlignment = {.y = CLAY_ALIGN_Y_BOTTOM}}})
+            {
+                t = ui.tabs(titles.data(), int(titles.size()), n.shown, index);
+                if (options.popOut) popOut(ui, n, window, index);
+            }
             if (t.held >= 0) holdTab(ui, n, t);
             if (t.barHeld && window >= 0) holdBar(ui, window, n, t);
             if (t.altKey)
@@ -202,6 +225,34 @@ private:
               .backgroundColor = clayColor(ui.theme.panel), .clip = {.vertical = true}})
         {
             if (!n.tabs.empty()) contents(n.tabs[size_t(n.shown)], panels);
+        }
+    }
+
+    // A small button at the end of a tab bar: the shown panel into a window
+    // of its own (as Alt and Enter do).
+    void popOut(Ui &ui, Node &n, int window, int index)
+    {
+        const Clay_ElementId id = Clay_GetElementIdWithIndex(text("DockPopOut"), uint32_t(index));
+        const Ui::Area a = ui.element(id, Ui::eachPress);
+        const bool hot = Clay_PointerOver(id);
+        const std::string name = "Pop out " + n.tabs[size_t(n.shown)];
+        const Theme theme = ui.theme;
+        CLAY({.id = id, .layout = {.sizing = {CLAY_SIZING_FIXED(28), CLAY_SIZING_FIXED(theme.textSize + 10)}},
+              .backgroundColor = clayColor(hot ? theme.panel : Color{0, 0, 0, 0}), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+              .custom = {.customData = ui.paint([&ui, theme, hot, name](Rect r) {
+                  // A window with an arrow out of its corner.
+                  const float s = ui.s, cx = r.x + r.w / 2, cy = r.y + r.h / 2, h = 5 * s;
+                  const Color ink = hot ? theme.text : theme.dim;
+                  ui.draw.rect(cx - h, cy - h + 2 * s, 2 * h - 2 * s, 2 * h - 2 * s, 1.5f * s, {0, 0, 0, 0}, 1.2f * s, ink);
+                  ui.draw.line(cx - 1 * s, cy + 1 * s, cx + h + 1 * s, cy - h - 1 * s, 1.4f * s, ink);
+                  const float tip[] = {cx + h - 3 * s, cy - h - 1 * s, cx + h + 1 * s, cy - h - 1 * s, cx + h + 1 * s, cy - h + 3 * s};
+                  ui.draw.polyline(tip, 3, 1.4f * s, ink);
+                  ui.accessible(Accessible::Role::button, name.c_str(), nullptr, r, "Puts the shown panel in a window of its own");
+              })}}) {}
+        if (a.clicked)
+        {
+            Node *at = &n;
+            later = [this, at, window](Ui &u) { keyMove(u, *at, window, View::Key::enter); };
         }
     }
 
@@ -228,14 +279,17 @@ private:
             n.tabs.erase(n.tabs.begin() + from);
             n.tabs.insert(n.tabs.begin() + t.over, std::move(moved));
             n.shown = t.over;
+            if (changed) changed();
         }
         if (t.released)
         {
             drag = {};
             return;
         }
-        const float off = std::max(t.bar.y - t.y, t.y - (t.bar.y + t.bar.h));
-        if (t.bar.h > 0 && off > t.bar.h) // out of the bar: a window, carried
+        // Out of the bar (8 points above or below it, or past an end): a window, carried.
+        const float slack = options.pullOut * ui.s;
+        const bool out = t.y < t.bar.y - slack || t.y > t.bar.y + t.bar.h + slack || t.x < t.bar.x - slack || t.x > t.bar.x + t.bar.w + slack;
+        if (t.bar.h > 0 && out)
         {
             const std::string panel = drag.panel;
             Node *source = &n;
@@ -266,7 +320,7 @@ private:
         if (lone)
         {
             const std::string &name = w.root.tabs.front();
-            ui.window(name.c_str(), w.frame, open, [&] { contents(name, panels); }, {.closable = hasSpace}, 0, &title);
+            ui.window(name.c_str(), w.frame, open, [&] { contents(name, panels); }, {.closable = hasSpace && options.closeDocks}, 0, &title);
             // Its box, for targets: the window itself.
             groups.push_back({&w.root, w.frame, int(i)});
         }
@@ -312,6 +366,7 @@ private:
         const bool over = targets(ui, moved, px, py, target);
         if (p.down) return;
         if (over) later = [this, moved, target](Ui &u) { dock(u, size_t(moved), target); };
+        else if (changed) changed(); // it moved
         drag = {}, outlineAlpha = 0;
     }
 
@@ -356,13 +411,13 @@ private:
         const Rect whole = hasSpace ? box(spaceId) : Rect{};
         float distance = 0;
         if (!overWindow && whole.w > 0 && inside(whole, px, py))
-            if (const Side side = nearest(whole, px, py, distance); distance < 24) // the space's own edge
-                target = {nullptr, side, part(whole, side, 1.0f / 3), whole}, found = true;
+            if (const Side side = nearest(whole, px, py, distance); distance < options.spaceEdge) // the space's own edge
+                target = {nullptr, side, part(whole, side, options.spaceShare), whole}, found = true;
         if (!found && under && under->box.w > 0)
         {
             const Rect &u = under->box;
             const Side side = nearest(u, px, py, distance);
-            const float band = std::min(80.0f, 0.3f * (side == Side::left || side == Side::right ? u.w : u.h));
+            const float band = std::min(options.edge, 0.3f * (side == Side::left || side == Side::right ? u.w : u.h));
             target = distance < band ? Target{under->node, side, part(u, side, 0.5f), u} : Target{under->node, Side::middle, u, u};
             found = true;
         }
@@ -424,6 +479,7 @@ private:
         prune(layout.space);
         for (Window &w : layout.windows) prune(w.root);
         std::erase_if(layout.windows, [](const Window &w) { return w.root.children.empty() && w.root.tabs.empty(); });
+        if (changed) changed();
     }
     static void prune(Node &n)
     {
@@ -483,7 +539,7 @@ private:
         if (key == View::Key::enter)
         {
             take(panel, &n);
-            layout.windows.push_back({Node{{panel}}, {80, 80, 300, 220}});
+            layout.windows.push_back({Node{{panel}}, options.window});
             ui.announce((panel + " in a window of its own").c_str());
         }
         else if (side != Side::middle)
