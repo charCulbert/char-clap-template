@@ -480,13 +480,13 @@ void Ui::finishDescribing()
     std::vector<Entry> entries;
     for (Described &d : described)
     {
-        float reading = 1e9f + float(entries.size());
+        float at = 1e9f + float(entries.size()); // its place in reading order
         if (d.element) // laid out by Clay: its box, and its place
         {
             if (const std::optional<Rect> r = box(d.element))
             {
                 d.node.x = r->x, d.node.y = r->y, d.node.width = r->w, d.node.height = r->h;
-                if (const float at = place(*r); at >= 0) reading = at;
+                if (const float first = place(*r); first >= 0) at = first;
             }
         }
         else // drawn at a rectangle: the place of the smallest box around it (not a menu floating over it)
@@ -496,10 +496,10 @@ void Ui::finishDescribing()
             {
                 const float area = drawn[i].pixels.w * drawn[i].pixels.h;
                 if (!drawn[i].text && within(d.node, drawn[i].pixels) && (smallest == 0 || area < smallest))
-                    smallest = area, reading = float(i) + 0.5f;
+                    smallest = area, at = float(i) + 0.5f;
             }
         }
-        entries.push_back({d.node, reading, d.parent, false});
+        entries.push_back({d.node, at, d.parent, false});
     }
     // What the page says around them: its text runs, those a control doesn't
     // already say (a button's label, a knob's value), a line's runs as one.
