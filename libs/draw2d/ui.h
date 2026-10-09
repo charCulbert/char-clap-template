@@ -293,7 +293,7 @@ public:
     // A box that draws itself: pass the result as .custom = {.customData = ...};
     // draw gets the box's rectangle in pixels when it's laid out. For views of
     // your own (views.h is made this way) without a kind number in onCustom.
-    void *paint(std::function<void(Rect)> draw);
+    void *paint(std::function<void(Rect)> drawing);
     // For screen readers, about the control declared just before, as the
     // aria- attributes do. Controls name themselves (a button by its label, a
     // knob by its parameter); a dropdown, text field or segmented control has

@@ -443,9 +443,9 @@ Ui::Described &Ui::describeParam(const void *me, Params &params, Param &p, const
     return d;
 }
 
-void *Ui::paint(std::function<void(Rect)> draw)
+void *Ui::paint(std::function<void(Rect)> drawing)
 {
-    return layout.custom(paintBox, &painters.emplace_back(std::move(draw)));
+    return layout.custom(paintBox, &painters.emplace_back(std::move(drawing)));
 }
 
 void Ui::accessible(Accessible::Role role, const char *name, const char *value, Rect r, const char *description)
