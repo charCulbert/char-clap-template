@@ -251,6 +251,10 @@ static void parameterToggleAndSegmented()
     draw();
     clickAt(ui, box("Sync", a->id), draw);
     CHECK(a->value == 0);
+    // A screen reader hears the segmented control by its parameter's name.
+    bool named = false;
+    for (const gpu::Accessible &n : ui.accessibility()->nodes) named |= n.role == gpu::Accessible::Role::radioGroup && n.name == "B";
+    CHECK(named);
 }
 
 // Controls describe themselves for screen readers, and take their requests.

@@ -1399,7 +1399,9 @@ bool Ui::segmented(Params &params, Param *p, const char *const *items, int count
 {
     if (!p || count < 1) return false;
     int selected = itemOf(*p, count);
-    if (!segmented(items, count, selected, p->id)) return false;
+    const bool chose = segmented(items, count, selected, p->id);
+    label(p->name.c_str()); // named for its parameter, as a knob is; a label after it still wins
+    if (!chose) return false;
     set(params, *p, p->min + selected);
     return true;
 }
@@ -1408,7 +1410,9 @@ bool Ui::dropdown(Params &params, Param *p, const char *const *items, int count)
 {
     if (!p || count < 1) return false;
     int selected = itemOf(*p, count);
-    if (!dropdown(items, count, selected, p->id)) return false;
+    const bool chose = dropdown(items, count, selected, p->id);
+    label(p->name.c_str()); // named for its parameter, as a knob is; a label after it still wins
+    if (!chose) return false;
     set(params, *p, p->min + selected);
     return true;
 }
