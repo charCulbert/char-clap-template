@@ -9,7 +9,8 @@ standalone and WCLAP (for browser hosts), from the same source.
 |---|---|---|
 | [`examples/headless-gain`](examples/headless-gain) | Gain and pan | None: the host shows its own controls |
 | [`examples/webview-synth`](examples/webview-synth) | Polyphonic sine synth | A web page (HTML, CSS, JS) |
-| [`examples/gpu-analyzer`](examples/gpu-analyzer) | Spectrum analyzer | Our own WebGPU drawing: Draw2D shapes and text, Clay layout and the controls (`libs/draw2d`) |
+| [`examples/gpu-analyzer`](examples/gpu-analyzer) | Spectrum analyzer | A drawing of your own: a WGSL shader through `Draw2D::custom`, inside draw2d's layout and controls |
+| [`examples/gpu-spectrogram`](examples/gpu-spectrogram) | Scrolling spectrogram, as Listener's | Only draw2d's parts: its views (`draw2d/views.h`) and controls, no drawing code of its own |
 | [`examples/imgui-filter`](examples/imgui-filter) | Lowpass/bandpass/highpass filter | Dear ImGui on WebGPU |
 
 Pick the one closest to what you want to make. The interfaces aren't tied to

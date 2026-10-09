@@ -19,6 +19,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # build/compile_commands.json, where clang
 add_subdirectory(examples/headless-gain)
 add_subdirectory(examples/webview-synth)
 add_subdirectory(examples/gpu-analyzer)
+add_subdirectory(examples/gpu-spectrogram)
 add_subdirectory(examples/imgui-filter)
 
 if(NOT CMAKE_SYSTEM_NAME MATCHES "WASI|iOS")
