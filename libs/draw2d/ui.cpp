@@ -1044,6 +1044,9 @@ Ui::Tabs Ui::tabs(const char *const *items, int count, int &selected, int index)
         }
         any.pressed |= a.pressed;
     }
+    // The bar's empty part, after the tabs: a press on a tab is the tab's.
+    if (const Area bar = element(lid); bar.held && result.held < 0)
+        result.barHeld = true, result.x = bar.x, result.y = bar.y, result.released = bar.released;
     order.push_back(me);
     if (any.pressed) focus = me, pressFocused = true;
     if (focus == me)
@@ -1815,6 +1818,7 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
         frame.y = std::clamp(frame.y, 0.0f, std::max(0.0f, viewHeight - frame.h));
     };
     // Its close button first, so a press on it isn't the header's drag.
+    limits.closable &= limits.header; // its close button is in its header
     const Area close = limits.closable ? element(cid, eachPress) : Area{};
     // Dragged by its header.
     const Area header = element(hid);
@@ -1835,8 +1839,8 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
     // Keys, on its header: the arrows move it, Alt and the arrows resize it,
     // Escape closes it (the moves a drag makes, without one: WCAG 2.5.7).
     const void *me = reinterpret_cast<const void *>(uintptr_t(hid.id));
-    focusable(hid, header);
-    if (focus == me)
+    if (limits.header) focusable(hid, header);
+    if (focus == me && limits.header)
     {
         focusUses |= keyBit(View::Key::escape);
         for (auto [key, modifiers] : keys)
@@ -1868,6 +1872,7 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
           .border = {.color = clayColor(focusShown(hid) ? theme.accent : front ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)},
           .userData = layout.shadow(theme.shadow, front ? 14.0f : 8.0f, 0, front ? 4.0f : 2.0f)})
     {
+        if (limits.header)
         CLAY({.id = hid, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}, .padding = {8, 6, 5, 5}, .childGap = 8,
                                     .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
               .backgroundColor = clayColor(theme.background)})

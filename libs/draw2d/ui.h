@@ -76,6 +76,7 @@ struct WindowLimits
 {
     float minWidth = 140, minHeight = 90, maxWidth = 1e9f, maxHeight = 1e9f;
     bool resizable = true, closable = true;
+    bool header = true; // its title bar; without one, the caller moves it (a dock, by its tab bars)
 };
 
 // Where a Ui::drawer docks, and how far it can be resized (points).
@@ -159,7 +160,8 @@ public:
         bool changed = false;
         int held = -1; // the tab held down, or -1
         int over = -1; // the tab under the pointer, or -1
-        float x = 0, y = 0; // the pointer while one is held, pixels
+        bool barHeld = false;  // the bar's empty part held down (a dock moves its window by it)
+        float x = 0, y = 0; // the pointer while a tab or the bar is held, pixels
         Rect bar{};    // the tab list's box, pixels (the last frame's)
         bool released = false; // let go this frame
         bool altKey = false;
