@@ -37,6 +37,8 @@ public:
     // if the font is unusable; everything else still works, and text draws
     // nothing.
     bool prepare(const wgpu::Device &device, wgpu::TextureFormat format, std::string fontData);
+    // Counts prepare's: images added before it changed are gone (a lost device).
+    unsigned prepared() const { return preparations; }
     // Adds another font after prepare; returns its number, or -1 if unusable.
     int addFont(std::string fontData);
 
@@ -74,6 +76,10 @@ public:
     // keeping its proportions, as an image. Rasterize at the size it's drawn,
     // scale included, for sharp edges.
     int addSvg(std::string_view svg, int width, int height);
+    // Replaces a rectangle of an image's pixels (RGBA, straight alpha, rows
+    // top down, width * 4 bytes each): for pictures that change, as a
+    // spectrogram's history. Where it's drawn counts as changed.
+    void updateImage(int image, const uint8_t *rgba, int x, int y, int width, int height);
     // Draws an image (or the part of it in source, 0..1 across and down)
     // stretched over the rectangle, its corners rounded, each pixel multiplied
     // by tint: white draws it as it is, a lower alpha fades it, and a colour
@@ -138,7 +144,7 @@ private:
         uint32_t clip[4];      // scissor rectangle, pixels
         size_t callback;       // for custom: index into callbacks
         int image;             // for shapes: the image bound, or -1 for the glyph atlas
-        uint64_t version;      // for custom: see custom()
+        uint64_t version;      // for custom: see custom(); for an image: how many times it was updated
     };
     Run &run(Run::Kind kind, int image = -1);
     uint64_t signature() const; // a hash of everything recorded
@@ -159,7 +165,10 @@ private:
     wgpu::Texture atlasTexture;
     wgpu::Sampler sampler;
     std::vector<wgpu::BindGroup> images; // each image's textures, bound in place of the atlas
+    std::vector<wgpu::Texture> imageTextures;
     std::vector<std::pair<int, int>> imageSizes;
+    std::vector<uint64_t> imageVersions;
+    unsigned preparations = 0;
     size_t capacity = 0, styleCapacity = 0, pointCapacity = 0;
     std::vector<LineStyle> styles;
     std::vector<LinePoint> points;

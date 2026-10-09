@@ -241,6 +241,7 @@ fn roundedBox(p: vec2f, b: vec2f, r4: vec4f) -> f32 {
 bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, std::string fontData)
 {
     device = newDevice;
+    ++preparations;
     drawn = 0;
     uniformSize[0] = uniformSize[1] = -1;
     fonts.clear();
@@ -258,7 +259,9 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
     samplerDescriptor.minFilter = wgpu::FilterMode::Linear;
     sampler = device.CreateSampler(&samplerDescriptor); // clamps to the edge: images don't wrap
     images.clear();
+    imageTextures.clear();
     imageSizes.clear();
+    imageVersions.clear();
 
     wgpu::ShaderSourceWGSL source;
     source.code = shader;
@@ -662,8 +665,26 @@ int Draw2D::addImage(const uint8_t *rgba, int width, int height)
     descriptor.entryCount = 3;
     descriptor.entries = entries;
     images.push_back(device.CreateBindGroup(&descriptor));
+    imageTextures.push_back(texture);
     imageSizes.push_back({width, height});
+    imageVersions.push_back(0);
     return int(images.size() - 1);
+}
+
+void Draw2D::updateImage(int number, const uint8_t *rgba, int x, int y, int width, int height)
+{
+    if (number < 0 || number >= int(images.size()) || !rgba || width <= 0 || height <= 0) return;
+    const auto [imageWidth, imageHeight] = imageSizes[size_t(number)];
+    if (x < 0 || y < 0 || x + width > imageWidth || y + height > imageHeight) return;
+    wgpu::TexelCopyTextureInfo destination;
+    destination.texture = imageTextures[size_t(number)];
+    destination.origin = {uint32_t(x), uint32_t(y), 0};
+    wgpu::TexelCopyBufferLayout layout;
+    layout.bytesPerRow = uint32_t(width) * 4;
+    layout.rowsPerImage = uint32_t(height);
+    const wgpu::Extent3D extent = {uint32_t(width), uint32_t(height), 1};
+    device.GetQueue().WriteTexture(&destination, rgba, size_t(width) * height * 4, &layout, &extent);
+    ++imageVersions[size_t(number)];
 }
 
 int Draw2D::addImage(std::string_view fileBytes)
@@ -707,7 +728,9 @@ void Draw2D::imageSize(int number, int &width, int &height) const
 void Draw2D::image(int number, float x, float y, float w, float h, Corners r, Color tint, Source source)
 {
     if (number < 0 || number >= int(images.size())) return;
-    run(Run::shapes, number).count++;
+    Run &into = run(Run::shapes, number);
+    into.count++;
+    into.version = imageVersions[size_t(number)];
     batch.push_back({{x, y, w, h}, {source.u0, source.v0, source.u1, source.v1}, {tint.r, tint.g, tint.b, tint.a}, {}, {2, 0, 0, 0},
                      {r.topLeft, r.topRight, r.bottomRight, r.bottomLeft}});
 }
