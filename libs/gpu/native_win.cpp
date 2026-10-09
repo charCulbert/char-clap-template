@@ -32,6 +32,7 @@ struct Window
     bool tracking = false;   // asked for WM_MOUSELEAVE
     bool pressed = false;    // the left button went down here and hasn't come up
     wchar_t highSurrogate = 0; // the first half of a character beyond U+FFFF, typed
+    HCURSOR cursor = LoadCursor(nullptr, IDC_ARROW); // over the view (setCursor)
     accesskit_windows_adapter *access = nullptr; // screen readers, through UI Automation
     Accessibility tree;                          // the view's, as screen readers last had it
 };
@@ -366,6 +367,10 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
         delete request;
         return 0;
     }
+    case WM_SETCURSOR:
+        if (LOWORD(lParam) != HTCLIENT) break;
+        if (!window->locked) SetCursor(window->cursor);
+        return TRUE;
     case WM_GETOBJECT:
         if (window->access)
         {
@@ -498,6 +503,28 @@ wgpu::Surface createSurface(const wgpu::Instance &instance, Window *window)
     wgpu::SurfaceDescriptor descriptor;
     descriptor.nextInChain = &source;
     return instance.CreateSurface(&descriptor);
+}
+
+void setCursor(Window *window, View::Cursor cursor)
+{
+    LPCWSTR shape = IDC_ARROW;
+    switch (cursor)
+    {
+    case View::Cursor::arrow: break;
+    case View::Cursor::text: shape = IDC_IBEAM; break;
+    case View::Cursor::hand: shape = IDC_HAND; break;
+    case View::Cursor::move: shape = IDC_SIZEALL; break;
+    case View::Cursor::resizeLeftRight: shape = IDC_SIZEWE; break;
+    case View::Cursor::resizeUpDown: shape = IDC_SIZENS; break;
+    case View::Cursor::resizeDiagonal: shape = IDC_SIZENWSE; break;
+    }
+    window->cursor = LoadCursor(nullptr, shape);
+    // Now, not at the next pointer move, when the pointer is over the view.
+    POINT at;
+    RECT client;
+    if (!window->locked && GetCursorPos(&at) && ScreenToClient(window->hwnd, &at) && GetClientRect(window->hwnd, &client)
+        && PtInRect(&client, at))
+        SetCursor(window->cursor);
 }
 
 void lockPointer(Window *window, bool locked)

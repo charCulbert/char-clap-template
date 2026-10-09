@@ -2,6 +2,7 @@
 #include <X11/Xlib.h> // after webgpu_cpp.h: Xlib defines macros such as Status and None
 #include <X11/keysym.h>
 #include <X11/Xatom.h>
+#include <X11/cursorfont.h>
 #include <X11/Xutil.h> // XLookupString
 #include <poll.h>
 #include <unistd.h>
@@ -33,6 +34,7 @@ struct Window
     int anchorX = 0, anchorY = 0; // where the cursor is held while locked
     float x = 0, y = 0;           // pointer position reported to the view (pixels)
     Cursor blank = 0;             // an invisible cursor, made on first lock
+    Cursor shapes[7] = {};        // setCursor's, each made on first use
     std::string clipboard;        // what we've copied, while we own CLIPBOARD
     Atom clipboardAtom = 0, utf8 = 0, targets = 0, pasted = 0;
     float scale = 1;              // see desktopScale
@@ -162,6 +164,22 @@ wgpu::Surface createSurface(const wgpu::Instance &instance, Window *window)
     return instance.CreateSurface(&descriptor);
 }
 
+void setCursor(Window *window, View::Cursor cursor)
+{
+    if (cursor == View::Cursor::arrow) // the host window's
+    {
+        XUndefineCursor(window->display, window->window);
+        XFlush(window->display);
+        return;
+    }
+    static const unsigned glyph[7] = {XC_left_ptr, XC_xterm, XC_hand2, XC_fleur, XC_sb_h_double_arrow, XC_sb_v_double_arrow,
+                                      XC_bottom_right_corner};
+    ::Cursor &shape = window->shapes[int(cursor)];
+    if (!shape) shape = XCreateFontCursor(window->display, glyph[int(cursor)]);
+    XDefineCursor(window->display, window->window, shape);
+    XFlush(window->display);
+}
+
 void lockPointer(Window *window, bool locked)
 {
     if (window->locked == locked) return;
@@ -190,6 +208,8 @@ void destroy(Window *window)
 {
     lockPointer(window, false);
     if (window->blank) XFreeCursor(window->display, window->blank);
+    for (::Cursor shape : window->shapes)
+        if (shape) XFreeCursor(window->display, shape);
     for (::Window w : window->proxies) // ours to take back, unless something else took them over
         if (xdndReceiver(window, w) == window->window)
         {

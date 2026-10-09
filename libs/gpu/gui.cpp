@@ -123,6 +123,7 @@ bool Gui::create(const char *api, bool floating)
         pluginWebview->receive(plugin, bytes.data(), uint32_t(bytes.size()));
     };
     view->lockPointer = [this](bool locked) { if (window) platform::lockPointer(window, locked); };
+    view->setCursor = [this](View::Cursor cursor) { if (window) platform::setCursor(window, cursor); };
     view->copyText = [this](const std::string &utf8) { if (window) platform::copyText(window, utf8); };
     view->dragFiles = [this](const std::vector<std::string> &paths) { if (window) platform::dragFiles(window, paths); };
     if (hostGui && pluginGui)

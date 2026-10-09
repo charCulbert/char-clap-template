@@ -28,6 +28,7 @@ void accessFocused(Window *window, bool focused);
 @property(nonatomic) gpu::platform::Callbacks *callbacks;
 @property(nonatomic) gpu::platform::Window *owner; // for screen readers (accessibility)
 @property(nonatomic) BOOL locked;
+@property(nonatomic, strong) NSCursor *cursor; // over the view (setCursor)
 - (BOOL)handleKey:(NSEvent *)event;
 - (BOOL)handleNamedKey:(NSEvent *)event;
 - (BOOL)typeText:(NSString *)text;
@@ -80,6 +81,7 @@ void accessFocused(Window *window, bool focused);
 // in it from the tree the view records.
 - (BOOL)isAccessibilityElement { return NO; }
 - (BOOL)wantsUpdateLayer { return YES; }
+- (void)resetCursorRects { [self addCursorRect:self.bounds cursor:self.cursor ?: NSCursor.arrowCursor]; }
 - (CALayer *)makeBackingLayer { return [CAMetalLayer layer]; }
 
 - (void)viewDidChangeBackingProperties
@@ -369,6 +371,32 @@ wgpu::Surface createSurface(const wgpu::Instance &instance, Window *window)
     wgpu::SurfaceDescriptor descriptor;
     descriptor.nextInChain = &source;
     return instance.CreateSurface(&descriptor);
+}
+
+void setCursor(Window *window, View::Cursor cursor)
+{
+    NSCursor *shape = NSCursor.arrowCursor;
+    switch (cursor)
+    {
+    case View::Cursor::arrow: break;
+    case View::Cursor::text: shape = NSCursor.IBeamCursor; break;
+    case View::Cursor::hand: shape = NSCursor.pointingHandCursor; break;
+    case View::Cursor::move: shape = NSCursor.openHandCursor; break; // macOS has no four-way arrow
+    case View::Cursor::resizeLeftRight: shape = NSCursor.resizeLeftRightCursor; break;
+    case View::Cursor::resizeUpDown: shape = NSCursor.resizeUpDownCursor; break;
+    case View::Cursor::resizeDiagonal:
+        if (@available(macOS 15.0, *))
+            shape = [NSCursor frameResizeCursorFromPosition:NSCursorFrameResizePositionBottomRight
+                                               inDirections:NSCursorFrameResizeDirectionsAll];
+        else
+            shape = NSCursor.crosshairCursor;
+        break;
+    }
+    window->view.cursor = shape;
+    [window->view.window invalidateCursorRectsForView:window->view];
+    // Now, not at the next pointer move, when the pointer is over the view.
+    const NSPoint at = [window->view convertPoint:window->view.window.mouseLocationOutsideOfEventStream fromView:nil];
+    if (!window->view.locked && NSPointInRect(at, window->view.bounds)) [shape set];
 }
 
 void lockPointer(Window *window, bool locked)

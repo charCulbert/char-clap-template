@@ -33,6 +33,7 @@ float scale(Window *window); // pixels per logical point
 void setVisible(Window *window, bool visible);
 void pumpEvents(Window *window); // only where needsTimer
 void lockPointer(Window *window, bool locked); // see View::lockPointer
+void setCursor(Window *window, View::Cursor cursor); // see View::setCursor
 bool darkMode(Window *window); // the system's (or host window's) appearance; polled about once a second
 void copyText(Window *window, const std::string &utf8); // to the clipboard: View::copyText
 bool onScreen(Window *window); // false while hidden, minimised or covered: frames wait
