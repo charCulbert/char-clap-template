@@ -507,7 +507,7 @@ wgpu::Surface createSurface(const wgpu::Instance &instance, Window *window)
 
 void setCursor(Window *window, View::Cursor cursor)
 {
-    LPCWSTR shape = IDC_ARROW;
+    LPCTSTR shape = IDC_ARROW; // the IDC_ names are TCHAR strings
     switch (cursor)
     {
     case View::Cursor::arrow: break;
