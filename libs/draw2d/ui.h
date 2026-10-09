@@ -311,7 +311,8 @@ public:
     Clay_ElementId id(const char *name, int index = 0) const;
     void pushId(const void *scope);
     void popId();
-    // An id as declared inside pushId(scope): for finding it from outside (tests).
+    // An id as declared inside pushId(scope), with no scope around it: for
+    // finding it from outside (tests). Nested scopes mix with their parents'.
     static Clay_ElementId idIn(const void *scope, const char *name, int index = 0);
     // The last frame's box of an element (points; all 0 if it wasn't laid out),
     // and whether the pointer is over it.

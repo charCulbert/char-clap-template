@@ -75,12 +75,14 @@ public:
     void popOut(const std::string &panel)
     {
         later = [this, panel](Ui &ui) {
-            if (Node *n = find(layout.space, panel)) return keyMove(ui, *n, -1, View::Key::enter);
+            // keyMove takes a group's shown tab: show the one named first.
+            auto show = [&](Node &n) { n.shown = int(std::find(n.tabs.begin(), n.tabs.end(), panel) - n.tabs.begin()); };
+            if (Node *n = find(layout.space, panel)) return show(*n), keyMove(ui, *n, -1, View::Key::enter);
             for (size_t w = 0; w < layout.windows.size(); ++w)
                 if (Node *n = find(layout.windows[w].root, panel))
                 {
                     const bool alone = n == &layout.windows[w].root && n->tabs.size() == 1; // its own window already
-                    if (!alone) keyMove(ui, *n, int(w), View::Key::enter);
+                    if (!alone) show(*n), keyMove(ui, *n, int(w), View::Key::enter);
                     return;
                 }
         };
@@ -100,8 +102,9 @@ public:
         };
     }
 
-    // Called after the user rearranges it (a drop, a key, a pop-out, a close):
-    // the time to save layout with the plugin's state.
+    // Called after the user changes it: docks, pops out or closes a panel,
+    // reorders or shows another tab, moves or resizes a window or split (once
+    // a drag ends). The time to save layout with the plugin's state.
     std::function<void()> changed;
 
     // A dock space: fills the box it's declared in. Optional; call it where
@@ -130,6 +133,13 @@ public:
         // frame, where it was.
         if (later) later(ui);
         later = nullptr;
+        // Edits that don't reshape the layout (a tab shown, a split or window
+        // moved or resized), told once the pointer's let go: once a drag.
+        if (edited && !ui.pointerAt().down)
+        {
+            edited = false;
+            if (changed) changed();
+        }
         drawn = false, hasSpace = false;
         ui.popId();
     }
@@ -213,8 +223,8 @@ private:
         {
             if (n.size <= 0) n.size = 160;
             const char *label = strings.emplace_back(names(n.children[0]) + " and " + names(n.children[1])).c_str();
-            ui.split(label, n.size, [&] { tree(ui, n.children[0], panels, window); }, [&] { tree(ui, n.children[1], panels, window); },
-                     {.stacked = n.stacked}, splits++);
+            edited |= ui.split(label, n.size, [&] { tree(ui, n.children[0], panels, window); },
+                               [&] { tree(ui, n.children[1], panels, window); }, {.stacked = n.stacked}, splits++);
             return;
         }
         const int index = int(groups.size());
@@ -242,6 +252,7 @@ private:
                 ui.label("Panels");
                 if (options.popOut) popOut(ui, n, window, index);
             }
+            edited |= t.changed; // another tab shown
             if (t.held >= 0) holdTab(ui, n, t);
             if (t.barHeld && window >= 0) holdBar(ui, window, n, t);
             if (t.altKey)
@@ -348,6 +359,7 @@ private:
         const bool lone = w.root.children.empty() && w.root.tabs.size() == 1; // one panel: an ordinary window
         bool open = true;
         Ui::Area title;
+        const Rect before = w.frame; // moved or resized by its corner or keys: an edit
         if (lone)
         {
             const std::string &name = w.root.tabs.front();
@@ -358,6 +370,7 @@ private:
         else
             ui.window(strings.emplace_back(names(w.root)).c_str(), w.frame, open, [&] { tree(ui, w.root, panels, int(i)); },
                       {.minWidth = 200, .minHeight = 140, .header = false}, 0);
+        edited |= w.frame.x != before.x || w.frame.y != before.y || w.frame.w != before.w || w.frame.h != before.h;
         if (!open) // closed: into the dock space
         {
             const std::string panel = w.root.tabs.front();
@@ -591,6 +604,7 @@ private:
     int splits = 0; // this frame's, for their ids
     bool hasSpace = false, drawn = false, held = false;
     Drag drag;
+    bool edited = false; // an edit changed hasn't been told of yet
     Rect outline{};          // where the outline is now, points: gliding to where it would go
     float outlineAlpha = 0;  // and how much it shows
     std::chrono::steady_clock::time_point glided;

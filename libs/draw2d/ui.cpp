@@ -345,7 +345,14 @@ Clay_ElementId Ui::idIn(const void *scope, const char *name, int index)
 
 Clay_ElementId Ui::id(const char *name, int index) const { return idIn(scopes.empty() ? nullptr : scopes.back(), name, index); }
 
-void Ui::pushId(const void *scope) { scopes.push_back(scope); }
+void Ui::pushId(const void *scope)
+{
+    // Inside another scope, this one is mixed with it: the same owner inside
+    // two others is two scopes. Alone, it's the owner itself (as idIn has it).
+    uintptr_t key = reinterpret_cast<uintptr_t>(scope);
+    if (!scopes.empty()) key ^= reinterpret_cast<uintptr_t>(scopes.back()) * uintptr_t(0x9E3779B97F4A7C15ull);
+    scopes.push_back(reinterpret_cast<const void *>(key ? key : 1)); // never null: null is no scope
+}
 
 void Ui::popId()
 {

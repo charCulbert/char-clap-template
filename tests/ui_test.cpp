@@ -925,13 +925,45 @@ static void dockSpaceOnly()
     dock.options.popOut = false;
     draw();
     CHECK(layout.space.tabs == Tabs{"Edit"});
+    // popOut takes the panel named, not the shown one; showing another tab is a change.
+    dock.dockBack("Mix");
+    draw();
+    draw(); // (it moves once a frame's drawn; its tab is there the frame after)
+    CHECK(layout.space.tabs == (Tabs{"Edit", "Mix"}) && layout.space.shown == 0);
+    int changes = 0;
+    dock.changed = [&] { ++changes; };
+    clickAt(ui, Clay_GetElementData(in("Tab", 1)).boundingBox, draw); // Mix's tab
+    CHECK(layout.space.shown == 1 && changes >= 1);
+    clickAt(ui, Clay_GetElementData(in("Tab", 0)).boundingBox, draw); // back to Edit
+    dock.popOut("Mix");
+    draw();
+    draw();
+    CHECK(layout.space.tabs == Tabs{"Edit"} && layout.windows.size() == 1 && layout.windows[0].root.tabs == Tabs{"Mix"});
+    dock.changed = nullptr;
+    dock.dockBack("Mix");
+    draw();
     // popOut and dockBack, as a button of one's own would.
     dock.popOut("Edit");
     draw();
-    CHECK(layout.space.tabs.empty() && layout.windows.size() == 2);
+    CHECK(layout.space.tabs == Tabs{"Mix"} && layout.windows.size() == 1);
     dock.dockBack("Edit");
     draw();
-    CHECK(layout.space.tabs == Tabs{"Edit"} && layout.windows.size() == 1);
+    CHECK(layout.space.tabs == (Tabs{"Mix", "Edit"}) && layout.windows.empty());
+}
+
+// Id scopes: alone, a scope is its owner (as idIn finds it); nested, it mixes
+// with its parent, so one owner inside two others gives two ids.
+static void idScopes()
+{
+    Ui ui;
+    int a = 0, b = 0, c = 0;
+    Clay_ElementId alone{}, inA{}, inC{};
+    ui.begin(400, 300, 1);
+    ui.pushId(&b), alone = ui.id("X"), ui.popId();
+    ui.pushId(&a), ui.pushId(&b), inA = ui.id("X"), ui.popId(), ui.popId();
+    ui.pushId(&c), ui.pushId(&b), inC = ui.id("X"), ui.popId(), ui.popId();
+    ui.end(wgpu::RenderPassEncoder{});
+    CHECK(alone.id == Ui::idIn(&b, "X").id && inA.id != inC.id && inA.id != alone.id);
 }
 
 // The views: laid out, each an image for screen readers saying what it
@@ -1666,6 +1698,7 @@ int main()
     tabStrip();
     dockableWindows();
     dockSpaceOnly();
+    idScopes();
     accessibilityEdgeCases();
     clicksAfterDocking();
     splitAtScale();
