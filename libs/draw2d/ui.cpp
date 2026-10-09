@@ -274,6 +274,7 @@ void Ui::begin(float width, float height, float scale)
     lastElement = 0;
     settle = mouse.pressed || mouse.released || !keys.empty() || mouse.wheel != 0;
     focusTakesLetters = focusTakesSpace = false; // a focused dropdown, button or toggle says so again
+    cursor = View::Cursor::arrow;                // unless a control under the pointer wants another
     tooltipWaiting = false;
 }
 
@@ -375,6 +376,7 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
     edits.clear();
     typedToFocus.clear();
     accessClick = nullptr; // for a control no longer there
+    if (cursor != cursorShown && setCursor) setCursor(cursor), cursorShown = cursor;
     return draw.changed();
 }
 
@@ -1382,6 +1384,7 @@ bool Ui::textField(std::string &value, float widthPoints, int index)
     const Clay_BoundingBox box = Clay_GetElementData(fid).boundingBox; // last frame's
     committed |= editKeys(fid.id, value, Clay_PointerOver(fid), box.x + 5 - fieldScroll);
     const bool edit = editing == fid.id, hot = Clay_PointerOver(fid);
+    if (hot && !active) cursor = View::Cursor::text;
     // Text longer than the field scrolls to keep the caret in view, as far
     // as it must and no further; it shows its start again when not edited.
     float scroll = 0;
@@ -1535,6 +1538,7 @@ bool Ui::split(const char *name, float &size, const std::function<void()> &first
     const float whole = options.stacked ? box.height : box.width;
     const float most = std::max(options.min, std::min(options.max, whole > 0 ? whole - divider - options.secondMin : options.max));
     auto clamp = [&](float v) { return std::clamp(v, options.min, most); };
+    if (laidOut.found) size = clamp(size); // the room shrank (a smaller window): the second area keeps its minimum
     const Area a = element(did);
     const float along = (options.stacked ? mouse.y : mouse.x) / s, start = options.stacked ? box.y : box.x;
     if (a.pressed) splitGrab = along - (start + size), focusVisible = false;
@@ -1573,8 +1577,12 @@ bool Ui::split(const char *name, float &size, const std::function<void()> &first
     d.size = &size;
 
     const bool hot = Clay_PointerOver(did), lit = hot || a.held || focusShown(did);
+    if ((hot && !active) || a.held) cursor = options.stacked ? View::Cursor::resizeUpDown : View::Cursor::resizeLeftRight;
     const auto fixed = CLAY_SIZING_FIXED(size), grow = CLAY_SIZING_GROW(0);
-    CLAY({.id = sid, .layout = {.sizing = {grow, grow}, .layoutDirection = options.stacked ? CLAY_TOP_TO_BOTTOM : CLAY_LEFT_TO_RIGHT}})
+    // Clipped, so its box is the room it's given, not grown to fit a first
+    // area dragged past it (which would let the second slide out of view).
+    CLAY({.id = sid, .layout = {.sizing = {grow, grow}, .layoutDirection = options.stacked ? CLAY_TOP_TO_BOTTOM : CLAY_LEFT_TO_RIGHT},
+          .clip = {.horizontal = true, .vertical = true}})
     {
         CLAY({.layout = {.sizing = {options.stacked ? grow : fixed, options.stacked ? fixed : grow}},
               .clip = {.horizontal = true, .vertical = true}}) { first(); }

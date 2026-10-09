@@ -62,6 +62,7 @@ public:
         stripePipeline = device.CreateRenderPipeline(&pipelineDescriptor);
         params.send = send;
         ui.lockPointer = lockPointer;
+        ui.setCursor = setCursor;
         ui.copyText = copyText;
         ui.dragFiles = dragFiles;
         ui.resizeTo = resizeTo;

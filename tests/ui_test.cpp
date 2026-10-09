@@ -476,6 +476,32 @@ static void splitPanes()
     ui.accessAction(splitter->id, gpu::Accessible::setValue, 120);
     draw();
     CHECK(size == 120);
+
+    // Stacked, in a box 200 points tall: dragged far down, the second area
+    // keeps its 30 points; it can't be pushed out of view.
+    float top = 60;
+    auto stacked = [&] {
+        frame(ui, [&] {
+            CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(300), CLAY_SIZING_FIXED(200)}}})
+            {
+                ui.split("Stack", top, [] {}, [] {}, {.stacked = true, .min = 20, .secondMin = 30});
+            }
+        });
+    };
+    stacked();
+    stacked();
+    const Clay_BoundingBox line = box("SplitDivider", Clay_GetElementId(CLAY_STRING("Stack")).id);
+    pointer(ui, View::Pointer::down, line.x + 50, line.y + 3);
+    stacked();
+    for (float y = line.y + 20; y < 900; y += 40) // a slow drag, frame by frame
+    {
+        pointer(ui, View::Pointer::move, line.x + 50, y);
+        stacked();
+    }
+    pointer(ui, View::Pointer::up, line.x + 50, 900);
+    stacked();
+    stacked();
+    CHECK(std::abs(top - (200 - 7 - 30)) < 0.5f);
 }
 
 static void knobDragAndKeys()

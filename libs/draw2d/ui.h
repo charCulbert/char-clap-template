@@ -87,6 +87,7 @@ public:
     Layout layout;
     Theme theme;
     std::function<void(bool)> lockPointer;      // View::lockPointer: knob and slider drags lock the pointer
+    std::function<void(View::Cursor)> setCursor; // View::setCursor: a resize arrow over a divider, an I-beam over text
     std::function<void(float, float)> resizeTo; // View::resizeTo: for resizeGrip
     std::function<void(const std::string &)> copyText; // View::copyText: for copy and cut in text fields
     std::function<void(const std::vector<std::string> &)> dragFiles; // View::dragFiles: for dragSource
@@ -365,6 +366,7 @@ private:
     int highlight = -1;             // the open dropdown's highlighted option (the keys move it)
     float splitGrab = 0;            // a divider being dragged: from the pointer to the divider's start (points)
     std::vector<std::pair<uint32_t, float>> splitRestore; // a collapsed split's size before, by divider
+    View::Cursor cursor = View::Cursor::arrow, cursorShown = View::Cursor::arrow; // wanted this frame, and set
     bool pressFocused = false;   // this frame's press focused a control
     bool wheelUsed = false;      // a control turned with this frame's wheel
     bool scrollWaiting = false;  // the wheel scrolls, in the next frame
