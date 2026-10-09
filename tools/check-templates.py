@@ -6,6 +6,7 @@ example, a library or the generator. (CI doesn't: it's slow and local.)
 
     python3 tools/check-templates.py [example ...]
 """
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -13,7 +14,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
-EXAMPLES = ["synth", "analyzer", "spectrogram", "filter", "gain"]
+# The examples new-plugin.py knows: one list, there.
+_spec = importlib.util.spec_from_file_location("new_plugin", REPO / "tools" / "new-plugin.py")
+new_plugin = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(new_plugin)
+EXAMPLES = list(new_plugin.EXAMPLES)
 
 
 def run(command, cwd):
