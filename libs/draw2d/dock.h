@@ -7,14 +7,24 @@
 #include <string>
 #include <vector>
 
-// A dock, as ImGui's: panels in a tree of splits whose leaves are groups of
-// tabs, and panels floating in windows over it. Drag a tab, or a floating
-// window's header, over the dock: where it would land shows, and letting go
-// puts it there: in the middle of a group as a tab, near a group's edge in a
-// new split beside it. A tab let go anywhere else floats. Without the mouse
-// (WCAG 2.5.7): on a focused tab list, Alt and an arrow move the shown panel
-// to that side, Alt and Enter float it; closing a floating window docks it
-// back. Built on Ui's public surface: tabs, split, window.
+// A dock, as Dear ImGui's: panels in a tree of splits whose leaves are groups
+// of tabs, and groups floating in windows over it.
+//
+// - A tab dragged along its bar moves along it; pulled out of the bar it
+//   becomes a window that follows the pointer.
+// - While a window moves (that one, or any floating window by its header),
+//   drop targets show: a cross of five over the group under the pointer (the
+//   middle joins it as a tab, a side splits it), one over a floating window
+//   (join it), and one at each of the dock's edges (a side of the whole
+//   dock). Where it would go shows as one is pointed at; let go there to
+//   dock it, anywhere else to leave it floating.
+// - Without the mouse (WCAG 2.5.7): on a focused tab list, Alt and an arrow
+//   move the shown panel to that side, Alt and Enter float it; closing a
+//   floating window docks its panels back.
+//
+// The layout is plain data, the caller's to keep and save; panels it doesn't
+// mention join the first group. Built on Ui's public surface: tabs, split,
+// window, paint, pointerAt.
 namespace gpu {
 
 class Dock
@@ -25,8 +35,6 @@ public:
         const char *name; // unique; also its tab's and window's title
         std::function<void()> contents;
     };
-    // The arrangement: plain data, the caller's to keep and save. Panels it
-    // doesn't mention join the first group.
     struct Node
     {
         std::vector<std::string> tabs; // a group: its panels (when it has no children)
@@ -37,7 +45,7 @@ public:
     };
     struct Floating
     {
-        std::string panel;
+        Node group; // a group of tabs
         Rect frame; // points
     };
     struct Layout
@@ -49,44 +57,52 @@ public:
     // The dock fills the box it's declared in.
     void draw(Ui &ui, const char *name, const std::vector<Panel> &panels)
     {
-        strings.clear();
-        groups.clear();
+        strings.clear(), groups.clear();
         adopt(panels);
-        const Clay_ElementId did = Clay_GetElementIdWithIndex(text(std::string(name) + " dock"), 0);
-        CLAY({.id = did, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) { node(ui, layout.root, panels, 0); }
-        reshaped = false;
-        floating(ui, panels);
-        dragging(ui);
-        // Changes from keys wait until everything's drawn: a panel is drawn
+        dockId = Clay_GetElementIdWithIndex(text(std::string(name) + " dock"), 0);
+        CLAY({.id = dockId, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) { tree(ui, layout.root, panels, 0); }
+        for (size_t i = 0; i < layout.floating.size(); ++i) window(ui, i, panels);
+        moving(ui);
+        // Changes to the tree wait until it's all drawn: each panel is drawn
         // once a frame, where it was.
-        if (keyed.key != View::Key::tab && !reshaped) keyMove(ui, *keyed.node, keyed.key); // (not after a drop: the tree moved)
-        keyed = {};
+        if (later) later(ui);
+        later = nullptr;
     }
 
 private:
     enum class Side { middle, left, right, top, bottom };
+    static constexpr float button = 24, gap = 4; // the drop targets, points
     struct Group
     {
         Node *node;
-        Clay_ElementId id;
+        Rect box; // points, the last frame's
     };
+    struct Target
+    {
+        Node *node = nullptr; // a group in the tree, or
+        int floating = -1;    // a floating window, or neither: the whole dock
+        Side side = Side::middle;
+        Rect preview{};       // where it would go, points
+    };
+    // What the pointer is doing: a tab held (moving along its bar), or a
+    // window moving (pulled out of a bar and carried, or by its header).
+    enum class Mode { none, tab, carried, header };
     struct Drag
     {
-        std::string panel;
-        Node *from = nullptr; // its group, or null when it floats
-        float pressX = 0, pressY = 0, x = 0, y = 0; // pixels
-        bool moving = false, released = false;
+        Mode mode = Mode::none;
+        std::string panel;    // tab: the tab; carried or header: the window's group's first panel
+        Node *from = nullptr; // tab: its group
+        float grabX = 0, grabY = 0; // carried: where in the window it's held, points
     };
 
     Clay_String text(std::string s) { return {false, int32_t(strings.emplace_back(std::move(s)).size()), strings.back().c_str()}; }
 
-    // Panels the layout doesn't mention go into the first group.
     void adopt(const std::vector<Panel> &panels)
     {
         for (const Panel &p : panels)
         {
-            bool known = std::any_of(layout.floating.begin(), layout.floating.end(), [&](const Floating &f) { return f.panel == p.name; });
-            known = known || find(layout.root, p.name);
+            bool known = find(layout.root, p.name) != nullptr;
+            for (Floating &f : layout.floating) known |= find(f.group, p.name) != nullptr;
             if (!known) first(layout.root).tabs.push_back(p.name);
         }
     }
@@ -99,168 +115,254 @@ private:
     }
     static Node &first(Node &n) { return n.children.empty() ? n : first(n.children[0]); }
     static std::string names(const Node &n) { return n.children.empty() ? (n.tabs.empty() ? "" : n.tabs[0]) : names(n.children[0]); }
+    static Rect box(Clay_ElementId id)
+    {
+        const Clay_ElementData d = Clay_GetElementData(id);
+        return d.found ? Rect{d.boundingBox.x, d.boundingBox.y, d.boundingBox.width, d.boundingBox.height} : Rect{};
+    }
 
-    void node(Ui &ui, Node &n, const std::vector<Panel> &panels, int depth)
+    void tree(Ui &ui, Node &n, const std::vector<Panel> &panels, int depth)
     {
         if (n.children.size() == 2)
         {
             if (n.size <= 0) n.size = 200;
-            const std::string label = names(n.children[0]) + " and " + names(n.children[1]);
-            ui.split(strings.emplace_back(label).c_str(), n.size, [&] { node(ui, n.children[0], panels, depth + 1); },
-                     [&] { node(ui, n.children[1], panels, depth + 1); }, {.stacked = n.stacked}, int(groups.size()) * 16 + depth);
+            const char *label = strings.emplace_back(names(n.children[0]) + " and " + names(n.children[1])).c_str();
+            ui.split(label, n.size, [&] { tree(ui, n.children[0], panels, depth + 1); }, [&] { tree(ui, n.children[1], panels, depth + 1); },
+                     {.stacked = n.stacked}, int(groups.size()) * 16 + depth);
             return;
         }
         const int index = int(groups.size());
         const Clay_ElementId gid = Clay_GetElementIdWithIndex(text("DockGroup"), uint32_t(index));
-        groups.push_back({&n, gid});
-        std::vector<const char *> titles;
-        for (const std::string &t : n.tabs) titles.push_back(t.c_str());
-        n.shown = std::clamp(n.shown, 0, std::max(0, int(n.tabs.size()) - 1));
+        groups.push_back({&n, box(gid)});
         CLAY({.id = gid, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
         {
-            if (!titles.empty())
-            {
-                const Ui::Tabs t = ui.tabs(titles.data(), int(titles.size()), n.shown, 900 + index);
-                if (t.held >= 0) hold(n.tabs[size_t(t.held)], &n, t.x, t.y, t.released);
-                if (t.altKey) keyed = {&n, t.key};
-            }
-            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(8), .childGap = 8,
-                             .layoutDirection = CLAY_TOP_TO_BOTTOM},
-                  .backgroundColor = clayColor(ui.theme.panel), .clip = {.vertical = true}})
-            {
-                if (!n.tabs.empty())
-                    for (const Panel &p : panels)
-                        if (n.tabs[size_t(n.shown)] == p.name && p.contents) p.contents();
-            }
+            group(ui, n, panels, 900 + index, true);
         }
     }
 
-    void floating(Ui &ui, const std::vector<Panel> &panels)
+    // A group: its tab bar (a lone floating panel has its window's title
+    // instead), then the shown panel.
+    void group(Ui &ui, Node &n, const std::vector<Panel> &panels, int index, bool bar)
     {
-        for (size_t i = 0; i < layout.floating.size(); ++i)
+        n.shown = std::clamp(n.shown, 0, std::max(0, int(n.tabs.size()) - 1));
+        if (bar && !n.tabs.empty())
         {
-            Floating &f = layout.floating[i];
-            const Panel *p = nullptr;
-            for (const Panel &q : panels)
-                if (f.panel == q.name) p = &q;
-            bool open = true;
-            Ui::Area header;
-            ui.window(f.panel.c_str(), f.frame, open, [&] { if (p && p->contents) p->contents(); }, {}, 0, &header);
-            if (!open) // closed: back into the dock
+            std::vector<const char *> titles;
+            for (const std::string &t : n.tabs) titles.push_back(t.c_str());
+            const Ui::Tabs t = ui.tabs(titles.data(), int(titles.size()), n.shown, index);
+            if (t.held >= 0) holdTab(ui, n, t);
+            if (t.altKey)
             {
-                first(layout.root).tabs.push_back(f.panel);
-                ui.announce((f.panel + " docked").c_str());
-                layout.floating.erase(layout.floating.begin() + long(i));
-                reshaped = true;
-                return;
+                Node *at = &n;
+                const View::Key key = t.key;
+                later = [this, at, key](Ui &u) { keyMove(u, *at, key); };
             }
-            if (header.held) hold(f.panel, nullptr, header.x, header.y, header.released);
         }
-    }
-
-    // A tab or a floating window's header held down: past 6 points it's a drag.
-    void hold(const std::string &panel, Node *from, float x, float y, bool released)
-    {
-        if (drag.panel != panel || drag.from != from) drag = {panel, from, x, y, x, y};
-        drag.x = x, drag.y = y, drag.released = released;
-        seen = true;
-    }
-
-    // Where a drag would land: the group under the pointer and the side of it.
-    bool target(const Ui &ui, Group &into, Side &side, Rect &box) const
-    {
-        const float px = drag.x / ui.s, py = drag.y / ui.s; // Clay's boxes are in points
-        for (const Group &g : groups)
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(8), .childGap = 8,
+                         .layoutDirection = CLAY_TOP_TO_BOTTOM},
+              .backgroundColor = clayColor(ui.theme.panel), .clip = {.vertical = true}})
         {
-            const Clay_ElementData d = Clay_GetElementData(g.id);
-            const Clay_BoundingBox &b = d.boundingBox;
-            if (!d.found || px < b.x || py < b.y || px >= b.x + b.width || py >= b.y + b.height) continue;
-            const float u = (px - b.x) / b.width, v = (py - b.y) / b.height;
-            const float edge = std::min({u, 1 - u, v, 1 - v});
-            side = edge > 0.25f ? Side::middle : edge == u ? Side::left : edge == 1 - u ? Side::right : edge == v ? Side::top : Side::bottom;
-            into = g;
-            box = {b.x, b.y, b.width, b.height};
-            if (side == Side::left || side == Side::right) box.w /= 2;
-            if (side == Side::right) box.x += box.w;
-            if (side == Side::top || side == Side::bottom) box.h /= 2;
-            if (side == Side::bottom) box.y += box.h;
-            return true;
+            if (!n.tabs.empty())
+                for (const Panel &p : panels)
+                    if (n.tabs[size_t(n.shown)] == p.name && p.contents) p.contents();
         }
-        return false;
     }
 
-    void dragging(Ui &ui)
+    // A tab held: along its bar it moves there; out of it, it's pulled into a
+    // window of its own (once this frame is drawn). Ui knows a held tab by its
+    // place, so after a move this follows the panel by name.
+    void holdTab(Ui &ui, Node &n, const Ui::Tabs &t)
     {
-        if (!std::exchange(seen, false)) // nothing held this frame
+        if (drag.mode == Mode::none) drag = {Mode::tab, n.tabs[size_t(t.held)], &n};
+        if (drag.mode != Mode::tab || drag.from != &n) return;
+        const auto at = std::find(n.tabs.begin(), n.tabs.end(), drag.panel);
+        if (at == n.tabs.end()) return;
+        const int from = int(at - n.tabs.begin());
+        if (t.over >= 0 && t.over != from) // along the bar: it takes that place
+        {
+            std::string moved = std::move(n.tabs[size_t(from)]);
+            n.tabs.erase(n.tabs.begin() + from);
+            n.tabs.insert(n.tabs.begin() + t.over, std::move(moved));
+            n.shown = t.over;
+        }
+        if (t.released)
         {
             drag = {};
             return;
         }
-        if (!drag.moving && std::hypot(drag.x - drag.pressX, drag.y - drag.pressY) > 6 * ui.s) drag.moving = true;
-        if (!drag.moving) return;
-        Group into{};
-        Side side = Side::middle;
-        Rect box{};
-        const bool over = target(ui, into, side, box);
-        if (over && !drag.released) // where it would land
+        const float off = std::max(t.bar.y - t.y, t.y - (t.bar.y + t.bar.h));
+        if (t.bar.h > 0 && off > t.bar.h) // out of the bar: a window, carried
         {
-            Color a = ui.theme.accent;
-            CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(box.w), CLAY_SIZING_FIXED(box.h)}},
-                  .backgroundColor = clayColor({a.r, a.g, a.b, 0.25f}),
-                  .floating = {.offset = {box.x, box.y}, .zIndex = 150, .attachTo = CLAY_ATTACH_TO_ROOT},
-                  .border = {.color = clayColor(a), .width = CLAY_BORDER_OUTSIDE(2)}}) {}
+            const std::string panel = drag.panel;
+            Node *source = &n;
+            const float x = t.x / ui.s, y = t.y / ui.s;
+            const Rect size = groupBox(source);
+            later = [this, panel, source, x, y, size](Ui &) {
+                take(panel, source);
+                const float w = std::clamp(size.w, 220.0f, 480.0f), h = std::clamp(size.h, 140.0f, 360.0f);
+                layout.floating.push_back({Node{{panel}}, {x - 40, y - 12, w, h}});
+                tidy();
+                drag = {Mode::carried, panel, nullptr, 40, 12};
+            };
         }
-        if (!drag.released) return;
-        reshaped = true;
-        if (over) move(drag.panel, drag.from, *into.node, side, box);
-        else if (drag.from) // let go off the dock: it floats there
+    }
+
+    Rect groupBox(const Node *n) const
+    {
+        for (const Group &g : groups)
+            if (g.node == n && g.box.w > 0) return g.box;
+        return {0, 0, 280, 200};
+    }
+
+    void window(Ui &ui, size_t i, const std::vector<Panel> &panels)
+    {
+        Floating &f = layout.floating[i];
+        if (f.group.tabs.empty()) return;
+        f.group.shown = std::clamp(f.group.shown, 0, int(f.group.tabs.size()) - 1);
+        bool open = true;
+        Ui::Area header;
+        ui.window(f.group.tabs[size_t(f.group.shown)].c_str(), f.frame, open,
+                  [&] { group(ui, f.group, panels, 950 + int(i), f.group.tabs.size() > 1); }, {}, 0, &header);
+        if (!open) // closed: its panels go back into the dock
         {
-            take(drag.panel, drag.from);
-            layout.floating.push_back({drag.panel, {drag.x / ui.s - 40, drag.y / ui.s - 12, 280, 200}});
-            prune(layout.root);
+            const std::vector<std::string> tabs = f.group.tabs;
+            later = [this, tabs](Ui &u) {
+                for (const std::string &t : tabs) first(layout.root).tabs.push_back(t);
+                std::erase_if(layout.floating, [&](const Floating &g) { return g.group.tabs == tabs; });
+                u.announce((tabs.front() + " docked").c_str());
+            };
+            return;
         }
+        if (header.held && drag.mode == Mode::none) drag = {Mode::header, f.group.tabs.front()};
+        if (drag.mode == Mode::header && drag.panel == f.group.tabs.front() && !header.held) drag = {};
+    }
+
+    int floatingWith(const std::string &panel) const
+    {
+        for (size_t i = 0; i < layout.floating.size(); ++i)
+            if (!layout.floating[i].group.tabs.empty() && layout.floating[i].group.tabs.front() == panel) return int(i);
+        return -1;
+    }
+
+    // A window moving: it follows the pointer if carried; the targets show;
+    // let go over one, it docks there.
+    void moving(Ui &ui)
+    {
+        if (drag.mode != Mode::carried && drag.mode != Mode::header) return;
+        const int moved = floatingWith(drag.panel);
+        if (moved < 0)
+        {
+            drag = {};
+            return;
+        }
+        const Ui::PointerAt p = ui.pointerAt();
+        const float px = p.x / ui.s, py = p.y / ui.s;
+        if (drag.mode == Mode::carried)
+        {
+            Rect &frame = layout.floating[size_t(moved)].frame;
+            frame.x = px - drag.grabX, frame.y = py - drag.grabY;
+        }
+        Target target;
+        const bool over = targets(ui, moved, px, py, target);
+        if (p.down) return;
+        if (over) later = [this, moved, target](Ui &u) { dockFloating(u, size_t(moved), target); };
         drag = {};
     }
 
-    // Out of its group (or the floating list), not yet tidied.
-    void take(const std::string &panel, Node *from)
+    // The targets for what's under the pointer, and the dock's edges: drawn,
+    // and the one pointed at (if any) in target.
+    bool targets(Ui &ui, int moved, float px, float py, Target &target)
     {
-        if (from)
+        auto inside = [](const Rect &r, float x, float y) { return x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h; };
+        Rect under{};
+        Target base;
+        for (int i = int(layout.floating.size()) - 1; i >= 0 && under.w == 0; --i) // windows first: they're on top
+            if (i != moved && inside(layout.floating[size_t(i)].frame, px, py)) under = layout.floating[size_t(i)].frame, base.floating = i;
+        for (const Group &g : groups)
+            if (under.w == 0 && inside(g.box, px, py)) under = g.box, base.node = g.node;
+        auto part = [](Rect r, Side side, float share) {
+            if (side == Side::left) r.w *= share;
+            if (side == Side::right) r.x += r.w * (1 - share), r.w *= share;
+            if (side == Side::top) r.h *= share;
+            if (side == Side::bottom) r.y += r.h * (1 - share), r.h *= share;
+            return r;
+        };
+        struct Button { Rect r; Target t; };
+        std::vector<Button> buttons;
+        if (under.w > 0) // the cross: the middle, then the sides (a window takes tabs only)
         {
-            // It keeps showing what it showed, or the tab before the one taken.
-            const auto at = std::find(from->tabs.begin(), from->tabs.end(), panel);
-            if (at == from->tabs.end()) return;
-            const int index = int(at - from->tabs.begin());
-            if (index < from->shown || (index == from->shown && index > 0)) --from->shown;
-            from->tabs.erase(at);
+            const float cx = under.x + under.w / 2 - button / 2, cy = under.y + under.h / 2 - button / 2, d = button + gap;
+            const Side sides[] = {Side::middle, Side::left, Side::right, Side::top, Side::bottom};
+            const float dx[] = {0, -d, d, 0, 0}, dy[] = {0, 0, 0, -d, d};
+            for (int i = 0; i < (base.floating >= 0 ? 1 : 5); ++i)
+            {
+                Target t = base;
+                t.side = sides[i], t.preview = part(under, sides[i], 0.5f);
+                buttons.push_back({{cx + dx[i], cy + dy[i], button, button}, t});
+            }
         }
-        else std::erase_if(layout.floating, [&](const Floating &f) { return f.panel == panel; });
+        const Rect whole = box(dockId);
+        if (whole.w > 0 && inside(whole, px, py)) // the dock's edges: a side of all of it
+            for (Side side : {Side::left, Side::right, Side::top, Side::bottom})
+            {
+                const float x = side == Side::left ? whole.x + gap : side == Side::right ? whole.x + whole.w - gap - button
+                                                                                          : whole.x + whole.w / 2 - button / 2;
+                const float y = side == Side::top ? whole.y + gap : side == Side::bottom ? whole.y + whole.h - gap - button
+                                                                                          : whole.y + whole.h / 2 - button / 2;
+                Target t;
+                t.side = side, t.preview = part(whole, side, 1.0f / 3);
+                buttons.push_back({{x, y, button, button}, t});
+            }
+        bool found = false;
+        for (const Button &b : buttons)
+            if (inside(b.r, px, py)) target = b.t, found = true;
+        // Over everything: where it would go, then the buttons, each filled
+        // on the side it means.
+        const Theme theme = ui.theme;
+        const Target shown = target;
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
+              .floating = {.zIndex = 150, .pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH, .attachTo = CLAY_ATTACH_TO_ROOT},
+              .custom = {.customData = ui.paint([&ui, theme, buttons, shown, found](Rect) {
+                  const float s = ui.s;
+                  const Color a = theme.accent;
+                  if (found)
+                      ui.draw.rect(shown.preview.x * s, shown.preview.y * s, shown.preview.w * s, shown.preview.h * s, 2 * s,
+                                   {a.r, a.g, a.b, 0.25f}, 2 * s, a);
+                  for (const Button &b : buttons)
+                  {
+                      const bool hot = found && b.t.side == shown.side && b.t.node == shown.node && b.t.floating == shown.floating;
+                      const Rect r{b.r.x * s, b.r.y * s, b.r.w * s, b.r.h * s};
+                      ui.draw.rect(r.x, r.y, r.w, r.h, 3 * s, hot ? a : theme.panel, 1 * s, theme.text);
+                      Rect mark{r.x + 4 * s, r.y + 4 * s, r.w - 8 * s, r.h - 8 * s}; // the part it fills
+                      if (b.t.side == Side::left || b.t.side == Side::right) mark.w /= 2;
+                      if (b.t.side == Side::right) mark.x += mark.w;
+                      if (b.t.side == Side::top || b.t.side == Side::bottom) mark.h /= 2;
+                      if (b.t.side == Side::bottom) mark.y += mark.h;
+                      ui.draw.rect(mark.x, mark.y, mark.w, mark.h, 1 * s, hot ? theme.background : theme.dim);
+                  }
+              })}}) {}
+        return found;
     }
 
-    void move(const std::string &panel, Node *from, Node &into, Side side, Rect half)
+    // Out of its group, which may then be empty: tidy() after.
+    static void take(const std::string &panel, Node *from)
     {
-        take(panel, from);
-        if (side == Side::middle)
-        {
-            into.tabs.push_back(panel);
-            into.shown = int(into.tabs.size()) - 1;
-        }
-        else split(into, panel, side, side == Side::left || side == Side::right ? half.w : half.h);
+        if (!from) return;
+        // It keeps showing what it showed, or the tab before the one taken.
+        const auto at = std::find(from->tabs.begin(), from->tabs.end(), panel);
+        if (at == from->tabs.end()) return;
+        const int index = int(at - from->tabs.begin());
+        if (index < from->shown || (index == from->shown && index > 0)) --from->shown;
+        from->tabs.erase(at);
+    }
+
+    // Empty groups give their place to the other side of their split; empty
+    // windows go.
+    void tidy()
+    {
         prune(layout.root);
+        std::erase_if(layout.floating, [](const Floating &f) { return f.group.tabs.empty(); });
     }
-
-    // into becomes a split: the panel on one side, what it held on the other.
-    static void split(Node &into, const std::string &panel, Side side, float size)
-    {
-        Node mine{{panel}}, rest = std::move(into);
-        into = Node{};
-        into.stacked = side == Side::top || side == Side::bottom;
-        into.size = size > 0 ? size : 200;
-        if (side == Side::left || side == Side::top) into.children = {std::move(mine), std::move(rest)};
-        else into.children = {std::move(rest), std::move(mine)};
-    }
-
-    // An empty group gives its place to the other side of its split.
     static void prune(Node &n)
     {
         for (Node &c : n.children) prune(c);
@@ -268,6 +370,36 @@ private:
         auto empty = [](const Node &c) { return c.children.empty() && c.tabs.empty(); };
         if (empty(n.children[0])) n = Node(std::move(n.children[1]));
         else if (empty(n.children[1])) n = Node(std::move(n.children[0]));
+    }
+
+    // into becomes a split: the group on one side, what it held on the other.
+    static void split(Node &into, Node group, Side side, float size)
+    {
+        Node rest = std::move(into);
+        into = Node{};
+        into.stacked = side == Side::top || side == Side::bottom;
+        into.size = size > 0 ? size : 200;
+        if (side == Side::left || side == Side::top) into.children = {std::move(group), std::move(rest)};
+        else into.children = {std::move(rest), std::move(group)};
+    }
+
+    void dockFloating(Ui &ui, size_t index, const Target &t)
+    {
+        if (index >= layout.floating.size()) return;
+        Node group = std::move(layout.floating[index].group);
+        const std::string name = group.tabs.empty() ? "" : group.tabs[size_t(group.shown)];
+        layout.floating.erase(layout.floating.begin() + long(index));
+        const float size = t.side == Side::left || t.side == Side::right ? t.preview.w : t.preview.h;
+        auto join = [&](Node &g) {
+            g.shown = int(g.tabs.size()) + group.shown;
+            g.tabs.insert(g.tabs.end(), group.tabs.begin(), group.tabs.end());
+        };
+        if (t.floating >= 0) join(layout.floating[size_t(t.floating) - (size_t(t.floating) > index ? 1 : 0)].group); // a window's tabs
+        else if (!t.node) split(layout.root, std::move(group), t.side, size); // a side of the whole dock
+        else if (t.side == Side::middle) join(*t.node);
+        else split(*t.node, std::move(group), t.side, size);
+        tidy();
+        ui.announce((name + " docked").c_str());
     }
 
     // Alt and an arrow: the shown panel to that side of its group (of the
@@ -281,26 +413,25 @@ private:
         if (key == View::Key::enter)
         {
             take(panel, &n);
-            layout.floating.push_back({panel, {80, 80, 280, 200}});
+            layout.floating.push_back({Node{{panel}}, {80, 80, 280, 200}});
             ui.announce((panel + " floating; close it to dock it again").c_str());
         }
         else if (side != Side::middle)
         {
             Node &into = n.tabs.size() > 1 ? n : layout.root;
             take(panel, &n);
-            split(into, panel, side, 0);
-            prune(layout.root);
+            split(into, Node{{panel}}, side, 0);
             static const char *const sides[] = {"", "left", "right", "top", "bottom"};
             ui.announce((panel + " docked " + sides[int(side)]).c_str());
         }
+        tidy();
     }
 
     std::deque<std::string> strings; // this frame's names, alive until it ends
-    std::vector<Group> groups;       // this frame's groups, in drawing order
+    std::vector<Group> groups;       // this frame's groups in the tree, in drawing order
+    Clay_ElementId dockId{};
     Drag drag;
-    bool seen = false;     // a tab or header was held this frame
-    bool reshaped = false; // the tree changed this frame
-    struct Keyed { Node *node = nullptr; View::Key key = View::Key::tab; } keyed; // an Alt key on a group's tabs (tab: none)
+    std::function<void(Ui &)> later; // a change to the tree, once the frame is drawn
 };
 
 }
