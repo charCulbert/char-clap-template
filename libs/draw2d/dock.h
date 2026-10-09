@@ -8,12 +8,13 @@
 #include <string>
 #include <vector>
 
-// Dockable windows, as Dear ImGui's, shown as macOS shows a tile. Each panel
-// is a window of its own until it's docked: drag a window by its title over
-// another window or a dock space, and an outline shows where it would go. Near
-// a group's edge, beside it on that side; in its middle, among its tabs (a
-// ghost tab shows); near a dock space's own edge, along that side of all of
-// it. Let go to dock it there, anywhere else and it just moves.
+// Dockable windows, shown as macOS shows a tile. Each panel is a window of
+// its own until it's docked: drag a window by its title over a dock space,
+// and an outline shows where it would go: near a group's edge, beside it on
+// that side; in its middle, among its tabs (a ghost tab shows); near the dock
+// space's own edge, along that side of all of it. Let go to dock it there;
+// anywhere else, it stays a window where it's let go. With
+// Options::dockIntoWindows, windows dock into each other too, as ImGui's.
 //
 // - A window of several panels has no title: its tab bars are. Drag a bar's
 //   empty part to move the window; drag a tab along the bar to move it there,
@@ -60,7 +61,8 @@ public:
     // Ui's theme (the outline is its accent).
     struct Options
     {
-        bool popOut = true;          // a button at the end of each tab bar that pops the shown panel out
+        bool dockIntoWindows = false; // windows dock into each other too (ImGui's way); else only into a dock space
+        bool popOut = false;         // a button at the end of each tab bar that pops the shown panel out (or make your own: popOut())
         bool closeDocks = true;      // a lone panel's window has a close button that docks it into the dock space
         float pullOut = 8;           // points past its tab bar that pull a tab out into a window
         float edge = 80;             // points from a group's edge (at most 30% of it) that dock beside it
@@ -68,6 +70,36 @@ public:
         float spaceShare = 1.0f / 3; // what a panel docked along the dock space's edge takes of it
         Rect window{40, 60, 300, 220}; // a new window's place and size, points (new ones cascade from it)
     } options;
+    // A panel into a window of its own, or back into the dock space: for a
+    // button or menu item of your own. Done once the frame's drawn.
+    void popOut(const std::string &panel)
+    {
+        later = [this, panel](Ui &ui) {
+            if (Node *n = find(layout.space, panel)) return keyMove(ui, *n, -1, View::Key::enter);
+            for (size_t w = 0; w < layout.windows.size(); ++w)
+                if (Node *n = find(layout.windows[w].root, panel))
+                {
+                    const bool alone = n == &layout.windows[w].root && n->tabs.size() == 1; // its own window already
+                    if (!alone) keyMove(ui, *n, int(w), View::Key::enter);
+                    return;
+                }
+        };
+    }
+    void dockBack(const std::string &panel)
+    {
+        later = [this, panel](Ui &ui) {
+            for (Window &w : layout.windows)
+                if (Node *n = find(w.root, panel))
+                {
+                    take(panel, n);
+                    first(layout.space).tabs.push_back(panel);
+                    tidy();
+                    ui.announce((panel + " docked").c_str());
+                    return;
+                }
+        };
+    }
+
     // Called after the user rearranges it (a drop, a key, a pop-out, a close):
     // the time to save layout with the plugin's state.
     std::function<void()> changed;
@@ -399,9 +431,10 @@ private:
         for (int w = int(layout.windows.size()) - 1; w >= 0 && !overWindow; --w)
         {
             if (w == moved || !inside(layout.windows[size_t(w)].frame, px, py)) continue;
-            overWindow = true;
-            for (const Group &g : groups)
-                if (g.window == w && inside(g.box, px, py)) under = &g;
+            overWindow = true; // a window on top: the space under it isn't where it goes
+            if (options.dockIntoWindows)
+                for (const Group &g : groups)
+                    if (g.window == w && inside(g.box, px, py)) under = &g;
         }
         for (const Group &g : groups)
             if (!overWindow && !under && g.window < 0 && inside(g.box, px, py)) under = &g;

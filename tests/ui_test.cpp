@@ -704,6 +704,7 @@ static void dockableWindows()
     auto in = [&](const char *name, int index = 0) { return Ui::idIn(&dock, name, index); };
     auto at = [](Clay_ElementId id) { return Clay_GetElementData(id).boundingBox; };
     auto title = [&](const char *name) { return at(in("WindowHeader", int(in(name).id))); };
+    dock.options.dockIntoWindows = true, dock.options.popOut = true; // ImGui's way, and the button
     int changes = 0;
     dock.changed = [&] { ++changes; };
     draw();
@@ -781,6 +782,55 @@ static void dockableWindows()
     CHECK(layout.windows.empty() && layout.space.children.size() == 2 && !layout.space.stacked);
     CHECK(layout.space.children.size() == 2 && layout.space.children[1].tabs == Tabs{"Edit"});
     CHECK(std::abs(layout.space.size - 400.0f / 3) < 1); // the third the outline showed, on the left
+}
+
+// The dock's defaults: only a dock space takes a window; let go anywhere
+// else (on another window too), it just moves. popOut and dockBack do it in
+// code, for a button of one's own.
+static void dockSpaceOnly()
+{
+    Ui ui;
+    gpu::Dock dock;
+    const std::vector<gpu::Dock::Panel> panels = {{"Mix", [] {}}, {"Edit", [] {}}};
+    auto draw = [&] {
+        ui.begin(800, 600, 1);
+        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(800), CLAY_SIZING_FIXED(600)}}})
+        {
+            CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(400), CLAY_SIZING_FIXED(300)}}}) { dock.space(ui, "Main", panels); }
+        }
+        dock.windows(ui, panels);
+        ui.end(wgpu::RenderPassEncoder{});
+        CHECK(everyNodeHasParent(ui));
+    };
+    using Tabs = std::vector<std::string>;
+    gpu::Dock::Layout &layout = dock.layout;
+    auto in = [&](const char *name, int index = 0) { return Ui::idIn(&dock, name, index); };
+    auto title = [&](const char *name) { return Clay_GetElementData(in("WindowHeader", int(in(name).id))).boundingBox; };
+    auto drag = [&](float x0, float y0, float x1, float y1) {
+        pointer(ui, View::Pointer::move, x0, y0), draw(), pointer(ui, View::Pointer::down, x0, y0), draw();
+        pointer(ui, View::Pointer::move, (x0 + x1) / 2, (y0 + y1) / 2), draw(), draw();
+        pointer(ui, View::Pointer::move, x1, y1), draw(), draw();
+        pointer(ui, View::Pointer::up, x1, y1), draw(), draw();
+    };
+    draw();
+    layout.windows[0].frame = {420, 20, 240, 180}, layout.windows[1].frame = {420, 300, 240, 180};
+    draw();
+    draw();
+    // Onto the other window's middle: it moves, nothing docks.
+    Clay_BoundingBox t = title("Edit");
+    drag(t.x + 30, t.y + 6, 540, 110);
+    CHECK(layout.windows.size() == 2 && layout.space.tabs.empty());
+    // Onto the space: docked.
+    t = title("Edit");
+    drag(t.x + 30, t.y + 6, 200, 150);
+    CHECK(layout.windows.size() == 1 && layout.space.tabs == Tabs{"Edit"});
+    // popOut and dockBack, as a button of one's own would.
+    dock.popOut("Edit");
+    draw();
+    CHECK(layout.space.tabs.empty() && layout.windows.size() == 2);
+    dock.dockBack("Edit");
+    draw();
+    CHECK(layout.space.tabs == Tabs{"Edit"} && layout.windows.size() == 1);
 }
 
 // The views: laid out, each an image for screen readers saying what it
@@ -1516,6 +1566,7 @@ int main()
     signalViews();
     tabStrip();
     dockableWindows();
+    dockSpaceOnly();
     splitAtScale();
     parameterToggleAndSegmented();
     textFieldEdits();
