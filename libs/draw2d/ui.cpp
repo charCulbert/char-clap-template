@@ -460,9 +460,16 @@ void Ui::finishDescribing()
                 if (const float at = place(*r); at >= 0) reading = at;
             }
         }
-        else // drawn at a rectangle: the place of the innermost box around it
+        else // drawn at a rectangle: the place of the smallest box around it (not a menu floating over it)
+        {
+            float smallest = 0;
             for (size_t i = 0; i < drawn.size(); ++i)
-                if (!drawn[i].text && within(d.node, drawn[i].pixels)) reading = float(i) + 0.5f;
+            {
+                const float area = drawn[i].pixels.w * drawn[i].pixels.h;
+                if (!drawn[i].text && within(d.node, drawn[i].pixels) && (smallest == 0 || area < smallest))
+                    smallest = area, reading = float(i) + 0.5f;
+            }
+        }
         entries.push_back({d.node, reading, d.parent, false});
     }
     // What the page says around them: its text runs, those a control doesn't
@@ -478,7 +485,7 @@ void Ui::finishDescribing()
         const size_t first = i;
         auto nextLine = [&](const Layout::Drawn &line, const Layout::Drawn &next) { // of a wrapped paragraph
             return next.text && (next.id == line.id || (std::abs(next.pixels.x - drawn[first].pixels.x) < 1
-                                                       && std::abs(next.pixels.y - (line.pixels.y + line.pixels.h)) < 1));
+                                                       && std::abs(next.pixels.y - (line.pixels.y + line.pixels.h)) < line.pixels.h / 4));
         };
         while (i + 1 < drawn.size() && nextLine(drawn[i], drawn[i + 1]))
         {
@@ -507,6 +514,7 @@ void Ui::finishDescribing()
             if (w.hidden) e.hidden = true;
             if (!w.label.empty()) e.node.name = w.label;
             if (!w.description.empty() && !(w.fromTooltip && !e.node.description.empty())) e.node.description = w.description;
+            if (e.node.description == e.node.name) e.node.description.clear(); // said once is enough
             if (!w.everything) break;
         }
     }
