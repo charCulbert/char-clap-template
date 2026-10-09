@@ -613,7 +613,9 @@ static bool PluginSyncAudioToMain(MyPlugin *plugin)
 
     for (uint32_t i = 0; i < P_COUNT; i++)
     {
-        if (plugin->changed[i].exchange(false, std::memory_order_acquire))
+        // An edit from the main thread not yet sent to the audio thread is
+        // newer than the host's value: keep it.
+        if (plugin->changed[i].exchange(false, std::memory_order_acquire) && !plugin->mainChanged[i].load(std::memory_order_acquire))
         {
             plugin->mainParameters[i].store(plugin->parameters[i].load(std::memory_order_relaxed), std::memory_order_relaxed);
             anyChanged = true;
