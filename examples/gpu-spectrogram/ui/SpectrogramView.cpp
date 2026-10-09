@@ -61,11 +61,13 @@ public:
         spectrogram.configure(o); // cheap when nothing changed: it only redraws when its picture would
 
         ui.begin(width, height, scale);
-        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(12), .childGap = 10,
-                         .layoutDirection = CLAY_TOP_TO_BOTTOM},
+        // The spectrogram fills the window, under a slim bar of controls.
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM},
               .backgroundColor = gpu::clayColor(ui.theme.background)})
         {
-            CLAY({.layout = {.childGap = 12, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}, .padding = {10, 10, 6, 6}, .childGap = 12,
+                             .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
+                  .backgroundColor = gpu::clayColor(ui.theme.panel)})
             {
                 static const char *const palettes[] = {"System", "Bone", "Inferno", "Viridis", "Magma"};
                 static const char *const scales[] = {"Linear", "Log", "Mel"};
@@ -73,7 +75,7 @@ public:
                 ui.segmented(params, scaleSetting, scales, 3);
                 ui.numberBox(params, floor, "%.0f dB");
             }
-            // The spectrogram fills the rest: a box that draws itself (Ui::paint).
+            // A box that draws itself (Ui::paint), edge to edge.
             CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
                   .custom = {.customData = ui.paint([this](gpu::Rect r) { spectrogram.draw(ui, "Spectrogram", r); })}}) {}
         }
