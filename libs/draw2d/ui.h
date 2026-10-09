@@ -71,6 +71,13 @@ struct Theme
 
 struct TextEdit; // stb_textedit's state, in ui.cpp
 
+// How a Ui::split lays out and limits its two areas (points).
+struct Split
+{
+    bool stacked = false; // one above the other, not side by side
+    float min = 40, max = 1e9f, secondMin = 40;
+};
+
 class Ui
 {
 public:
@@ -150,6 +157,15 @@ public:
     // A header that opens and closes the section under it: declare the
     // section while this returns true.
     bool drawer(const char *title, bool &open, int index = 0);
+    // Two areas side by side (stacked: one above the other) with a divider
+    // between them, as the WAI-ARIA window splitter: drag it, or focus it
+    // and use the arrows (16 points; Shift 1), Home and End for the limits,
+    // Enter to collapse the first area and restore it. size is the first
+    // area's, in points, kept from min to max and leaving the second
+    // secondMin. first and second declare the areas' contents. Returns true
+    // when size changed.
+    bool split(const char *name, float &size, const std::function<void()> &first, const std::function<void()> &second,
+               Split options = {}, int index = 0);
     // Controls of their own size, in the layout.
     void knob(Params &params, Param *p, const char *format, bool log = false, float diameter = 44);
     void slider(Params &params, Param *p, const char *format, bool log = false);
@@ -276,6 +292,7 @@ private:
         uint32_t element = 0;  // a Clay element: its box is the bounds, once laid out
         Params *params = nullptr;
         Param *param = nullptr; // a parameter's control: set by setValue
+        float *size = nullptr;  // a split's divider: setValue sets its first area's size (points), from min to max
         uint64_t parent = 0;    // 0: the view's
     };
     std::vector<Described> described;
@@ -346,6 +363,8 @@ private:
     bool focusTakesLetters = false; // it's a dropdown: letters jump to an option, Space opens or chooses
     bool focusTakesSpace = false;   // it's a button, toggle or drawer: Space presses it, as Enter does
     int highlight = -1;             // the open dropdown's highlighted option (the keys move it)
+    float splitGrab = 0;            // a divider being dragged: from the pointer to the divider's start (points)
+    std::vector<std::pair<uint32_t, float>> splitRestore; // a collapsed split's size before, by divider
     bool pressFocused = false;   // this frame's press focused a control
     bool wheelUsed = false;      // a control turned with this frame's wheel
     bool scrollWaiting = false;  // the wheel scrolls, in the next frame

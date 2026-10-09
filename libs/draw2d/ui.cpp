@@ -625,6 +625,7 @@ void Ui::accessAction(uint64_t id, Accessible::Action action, double value)
         break;
     case Accessible::setValue:
         if (d->param) set(*d->params, *d->param, value);
+        if (d->size) *d->size = float(std::clamp(value, d->node.min, d->node.max));
         break;
     case Accessible::expand: // a dropdown or drawer, opened by its click when it's closed
     case Accessible::collapse:
@@ -1522,6 +1523,74 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
 
 // A header that opens and closes the section under it (compost's drawer,
 // ImGui's collapsing header). Declare the section only while it returns true.
+bool Ui::split(const char *name, float &size, const std::function<void()> &first, const std::function<void()> &second,
+               Split options, int index)
+{
+    const Clay_ElementId sid = id(name, index), did = id("SplitDivider", sid.id);
+    const float before = size, divider = 7; // points: wide enough to grab, a 1-point line in it
+    // The room the first area has, from the last frame's layout.
+    const Clay_ElementData laidOut = Clay_GetElementData(sid);
+    const Clay_BoundingBox box = laidOut.boundingBox;
+    if (!laidOut.found) settle = true; // its room isn't known until it's laid out: one more frame
+    const float whole = options.stacked ? box.height : box.width;
+    const float most = std::max(options.min, std::min(options.max, whole > 0 ? whole - divider - options.secondMin : options.max));
+    auto clamp = [&](float v) { return std::clamp(v, options.min, most); };
+    const Area a = element(did);
+    const float along = (options.stacked ? mouse.y : mouse.x) / s, start = options.stacked ? box.y : box.x;
+    if (a.pressed) splitGrab = along - (start + size), focusVisible = false;
+    if (a.held) size = clamp(along - start - splitGrab);
+    if (a.doubleClicked) size = clamp(options.min); // as Enter: collapse
+    const void *me = reinterpret_cast<const void *>(uintptr_t(did.id));
+    for (View::Key key : focusable(did, a))
+    {
+        const bool fine = mouse.modifiers & View::shift;
+        const float step = fine ? 1 : 16;
+        const bool back = options.stacked ? key == View::Key::up : key == View::Key::left;
+        const bool forth = options.stacked ? key == View::Key::down : key == View::Key::right;
+        if (back) size = clamp(size - step);
+        if (forth) size = clamp(size + step);
+        if (key == View::Key::home) size = clamp(options.min);
+        if (key == View::Key::end) size = most;
+        if (key == View::Key::enter) // collapse the first area, or restore it
+        {
+            const auto saved = std::find_if(splitRestore.begin(), splitRestore.end(), [&](auto &r) { return r.first == did.id; });
+            if (size > options.min || saved == splitRestore.end())
+            {
+                if (saved != splitRestore.end()) saved->second = size;
+                else splitRestore.push_back({did.id, size});
+                size = clamp(options.min);
+            }
+            else size = clamp(saved->second);
+        }
+    }
+    if (focus == me) focusUses |= keyBit(View::Key::home) | keyBit(View::Key::end);
+    Described &d = describe(me, Accessible::Role::splitter, name);
+    char text[32];
+    std::snprintf(text, sizeof(text), "%.0f points", size);
+    d.element = did.id, d.node.value = text, d.node.numeric = true, d.node.number = size, d.node.min = options.min, d.node.max = most;
+    d.node.orientation = options.stacked ? 1 : 2; // a separator's orientation is its line's: across a stack, it's horizontal
+    d.node.actions |= Accessible::increment | Accessible::decrement | Accessible::setValue;
+    d.size = &size;
+
+    const bool hot = Clay_PointerOver(did), lit = hot || a.held || focusShown(did);
+    const auto fixed = CLAY_SIZING_FIXED(size), grow = CLAY_SIZING_GROW(0);
+    CLAY({.id = sid, .layout = {.sizing = {grow, grow}, .layoutDirection = options.stacked ? CLAY_TOP_TO_BOTTOM : CLAY_LEFT_TO_RIGHT}})
+    {
+        CLAY({.layout = {.sizing = {options.stacked ? grow : fixed, options.stacked ? fixed : grow}},
+              .clip = {.horizontal = true, .vertical = true}}) { first(); }
+        CLAY({.id = did, .layout = {.sizing = {options.stacked ? grow : CLAY_SIZING_FIXED(divider), options.stacked ? CLAY_SIZING_FIXED(divider) : grow},
+                                    .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}}})
+        {
+            const float line = lit ? 2 : 1;
+            CLAY({.layout = {.sizing = {options.stacked ? grow : CLAY_SIZING_FIXED(line), options.stacked ? CLAY_SIZING_FIXED(line) : grow}},
+                  .backgroundColor = clayColor(lit ? theme.accent : theme.edge)}) {}
+        }
+        CLAY({.layout = {.sizing = {grow, grow}}, .clip = {.horizontal = true, .vertical = true}}) { second(); }
+    }
+    lastElement = did.id;
+    return size != before;
+}
+
 bool Ui::drawer(const char *title, bool &open, int index)
 {
     const Clay_ElementId did = id("Drawer", index);

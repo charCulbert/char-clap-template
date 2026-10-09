@@ -432,6 +432,52 @@ static void doubleClickOrFineDrag()
     CHECK(std::abs(b->value - (b->defaultValue + 0.02)) < 0.005);
 }
 
+// A split's divider: dragged, moved with the keys, collapsed and restored
+// with Enter, and a splitter for screen readers.
+static void splitPanes()
+{
+    Ui ui;
+    float size = 150;
+    auto draw = [&] {
+        frame(ui, [&] { ui.split("Panes", size, [] {}, [] {}, {.min = 50, .secondMin = 60}); });
+    };
+    draw();
+    draw(); // the second frame knows the split's box
+    const Clay_BoundingBox divider = box("SplitDivider", Clay_GetElementId(CLAY_STRING("Panes")).id);
+    CHECK(divider.width == 7 && std::abs(divider.x - (10 + 150)) < 1);
+    const float x = divider.x + 3, y = divider.y + 20;
+    pointer(ui, View::Pointer::down, x, y);
+    draw();
+    pointer(ui, View::Pointer::move, x + 40, y);
+    draw();
+    pointer(ui, View::Pointer::up, x + 40, y);
+    draw();
+    CHECK(std::abs(size - 190) < 0.5f);
+    pointer(ui, View::Pointer::down, x + 40, y); // to the far right: stops leaving the second area 60
+    draw();
+    pointer(ui, View::Pointer::move, 2000, y);
+    draw();
+    pointer(ui, View::Pointer::up, 2000, y);
+    draw();
+    CHECK(std::abs(size - (380 - 7 - 60)) < 0.5f);
+    ui.key(View::Key::left, 0); // focused by the press: 16 points
+    draw();
+    CHECK(std::abs(size - (380 - 7 - 60 - 16)) < 0.5f);
+    ui.key(View::Key::enter, 0); // collapse
+    draw();
+    CHECK(size == 50);
+    ui.key(View::Key::enter, 0); // restore
+    draw();
+    CHECK(std::abs(size - (380 - 7 - 60 - 16)) < 0.5f);
+    const gpu::Accessible *splitter = nullptr;
+    for (const gpu::Accessible &n : ui.accessibility()->nodes)
+        if (n.role == gpu::Accessible::Role::splitter) splitter = &n;
+    CHECK(splitter && splitter->name == "Panes" && splitter->number == size && splitter->min == 50);
+    ui.accessAction(splitter->id, gpu::Accessible::setValue, 120);
+    draw();
+    CHECK(size == 120);
+}
+
 static void knobDragAndKeys()
 {
     Ui ui;
@@ -1007,6 +1053,7 @@ int main()
     numberBoxTabs();
     keyboardReachesEverything();
     doubleClickOrFineDrag();
+    splitPanes();
     parameterToggleAndSegmented();
     textFieldEdits();
     textFieldShortcuts();

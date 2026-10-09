@@ -21,6 +21,7 @@ static accesskit_role role(Accessible::Role role)
     case Accessible::Role::image: return ACCESSKIT_ROLE_IMAGE;
     case Accessible::Role::listBox: return ACCESSKIT_ROLE_LIST_BOX;
     case Accessible::Role::option: return ACCESSKIT_ROLE_LIST_BOX_OPTION;
+    case Accessible::Role::splitter: return ACCESSKIT_ROLE_SPLITTER;
     }
     return ACCESSKIT_ROLE_GENERIC_CONTAINER;
 }

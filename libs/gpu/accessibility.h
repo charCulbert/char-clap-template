@@ -13,7 +13,7 @@ namespace gpu {
 struct Accessible
 {
     enum class Role { window, group, button, checkBox, radioGroup, radioButton, comboBox, slider, spinButton,
-                      textInput, label, image, listBox, option }; // label: text to read (a caption), its words in value
+                      textInput, label, image, listBox, option, splitter }; // label: text to read (a caption), its words in value
     // What a screen reader may ask of it: bits.
     enum Action : unsigned { focus = 1, click = 2, increment = 4, decrement = 8, setValue = 16, expand = 32, collapse = 64 };
 
