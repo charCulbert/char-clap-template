@@ -273,6 +273,9 @@ void Ui::end(const wgpu::RenderPassEncoder &pass, const std::function<void(int, 
     draw.flush(pass);
 }
 
+// A control's id for screen readers: its address, as it is for focus.
+static uint64_t accessId(const void *me) { return uint64_t(reinterpret_cast<uintptr_t>(me)); }
+
 bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
 {
     layout.end([&](int kind, void *data, Rect r) {
@@ -299,6 +302,14 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
         else if (onCustom) onCustom(kind, data, r);
     });
     finishDescribing();
+    // Tab goes in layout order too, not the order controls were declared in
+    // (a knob Clay places is drawn after the controls declared beside it).
+    auto place = [&](const void *control) {
+        for (auto [id, at] : reading)
+            if (id == accessId(control)) return at;
+        return 1e9f;
+    };
+    std::stable_sort(order.begin(), order.end(), [&](const void *a, const void *b) { return place(a) < place(b); });
     drawGrip();
     grip = {};
     changedLast.swap(changedNow);
@@ -362,7 +373,6 @@ double Ui::fromUnit(const Param &p, double u, bool log)
     return p.min + u * (p.max - p.min);
 }
 
-static uint64_t accessId(const void *me) { return uint64_t(reinterpret_cast<uintptr_t>(me)); }
 static constexpr uint64_t viewNode = 1; // the root: no control's address
 
 Ui::Described &Ui::describe(const void *me, Accessible::Role role, const char *name, uint64_t parent)
@@ -531,6 +541,8 @@ void Ui::finishDescribing()
         if (!e.parent) top.push_back(&e);
     }
     std::stable_sort(top.begin(), top.end(), [](const Entry *a, const Entry *b) { return a->order < b->order; });
+    reading.clear();
+    for (const Entry &e : entries) reading.push_back({e.node.id, e.order});
     for (const Entry *e : top) tree.nodes.front().children.push_back(e->node.id);
     for (const Entry &e : entries)
         if (e.parent && !e.hidden)

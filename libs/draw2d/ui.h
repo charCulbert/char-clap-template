@@ -271,6 +271,7 @@ private:
         uint64_t parent = 0;    // 0: the view's
     };
     std::vector<Described> described;
+    std::vector<std::pair<uint64_t, float>> reading; // each control's place in layout order, for Tab too
     // label, description and hidden, for a control's element: applied once
     // the frame is laid out (a knob is described as Clay draws it).
     struct Said

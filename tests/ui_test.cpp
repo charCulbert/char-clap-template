@@ -301,6 +301,25 @@ static void screenReaderReading()
     CHECK(announced);
 }
 
+// Tab reaches a number box after a knob, and its keys step it.
+static void numberBoxTabs()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A"), *b = params.find("B");
+    auto draw = [&] { frame(ui, [&] { ui.knob(params, a, "%.2f"); ui.numberBox(params, b, "%.2f"); }); };
+    draw();
+    ui.key(View::Key::tab, 0); // the knob
+    draw();
+    ui.key(View::Key::tab, 0); // the number box
+    draw();
+    const double before = b->value;
+    CHECK(ui.key(View::Key::up, 0));
+    draw();
+    CHECK(b->value > before && a->value == a->defaultValue);
+}
+
 static void knobDragAndKeys()
 {
     Ui ui;
@@ -631,6 +650,9 @@ static void keysBackToHost()
     CHECK(ui.key(View::Key::up, 0) && ui.key(View::Key::escape, 0) && !ui.key(View::Key::undo, 0));
     draw();
     CHECK(a->value == a->defaultValue);
+    ui.key(View::Key::up, View::alt); // a page's step
+    draw();
+    CHECK(std::abs(a->value - (a->defaultValue + 0.1)) < 1e-9);
     a->value = 0.8;
     CHECK(ui.key(View::Key::backspace, 0));
     draw();
@@ -870,6 +892,7 @@ int main()
     knobDragAndKeys();
     screenReader();
     screenReaderReading();
+    numberBoxTabs();
     parameterToggleAndSegmented();
     textFieldEdits();
     textFieldShortcuts();
