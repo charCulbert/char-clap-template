@@ -104,6 +104,8 @@ public:
                 static const char *const pages[] = {"Shapes", "Text", "Controls", "Layout", "More"};
                 ui.segmented(pages, 5, page, 0);
                 ui.label("Page");
+                if (ui.toggle("Windows", windowsOpen)) mixerOpen = notesOpen = windowsOpen;
+                ui.tooltip("Two windows over the page: drag, resize, Tab to a header and use the arrows");
                 CLAY({.layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}}}) {}
                 static const char *const themes[] = {"System", "Dark", "Light"};
                 ui.segmented(themes, 3, themeMode, 1);
@@ -120,6 +122,20 @@ public:
                 if (page == 4) morePage();
             }
         }
+        // Windows over the page, as compost's.
+        ui.window("Settings", mixerFrame, mixerOpen, [&] {
+            static const char *const rates[] = {"44.1", "48", "96"};
+            ui.segmented(rates, 3, windowRate, 5);
+            ui.label("Sample rate (kHz)");
+            ui.toggle("Sync", sync, 1);
+            if (ui.button("Reset", 1)) windowRate = 1, sync = false;
+        });
+        ui.window("Notes", notesFrame, notesOpen, [&] {
+            label("A window keeps inside the view and comes to the front when pressed. Its header takes Tab: "
+                  "the arrows move it, Alt and the arrows resize it, Escape closes it.",
+                  ui.theme.text);
+        }, {.minWidth = 160, .minHeight = 80});
+        if (!mixerOpen && !notesOpen) windowsOpen = false;
         ui.resizeGrip(width, height);
         const bool changed = ui.record([&](int kind, void *data, gpu::Rect r) { drawCell(kind, data, r); });
         sendEdit();
@@ -426,7 +442,7 @@ private:
                 };
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(120)}}})
                 {
-                    ui.split("Sides", sides, pane("Left"), [&] {
+                    ui.split("Sides", sides, pane("Left: a pane's text wraps to its width as the divider moves"), [&] {
                         ui.split("Stack", stack, pane("Top"), pane("Bottom"), {.stacked = true, .min = 20, .secondMin = 20});
                     });
                 }
@@ -635,6 +651,9 @@ private:
     int held = -1; // the piano note held down
     std::vector<gpu::Ui::Point> envelope = {{0, 0}, {0.08f, 1}, {0.3f, 0.6f}, {0.8f, 0.6f}, {1, 0}};
     float sides = 220, stack = 50; // the split's sizes (points)
+    bool windowsOpen = false, mixerOpen = false, notesOpen = false;
+    int windowRate = 1;
+    gpu::Rect mixerFrame{60, 90, 220, 190}, notesFrame{320, 140, 260, 150}; // points
     std::vector<float> stepValues = {0.8f, 0.2f, 0.5f, 0.2f, 1.0f, 0.2f, 0.5f, 0.3f, 0.7f, 0.2f, 0.5f, 0.2f, 0.9f, 0.4f, 0.6f, 0.3f};
     bool sync = false, advancedOpen = true, oversample = false, linearPhase = true;
     float peaks[6] = {};
