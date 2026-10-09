@@ -537,28 +537,28 @@ static void textFieldEdits()
 
 static void pianoNotes()
 {
-    // C4 to B4, seven white keys 40 pixels wide.
+    // C4 to B4: seven white keys 20 pixels wide, as compost's.
     Ui ui;
     Ui::Notes notes;
     auto draw = [&] {
         ui.begin(400, 300, 1);
-        notes = ui.piano(60, 71, gpu::Rect{0, 0, 280, 60});
+        notes = ui.piano(60, 71, gpu::Rect{0, 0, 140, 60});
         ui.end(wgpu::RenderPassEncoder{});
     };
     draw();
-    pointer(ui, View::Pointer::down, 20, 50); // C, below the black keys
+    pointer(ui, View::Pointer::down, 10, 50); // C, below the black keys
     draw();
     CHECK(notes.on == 60 && notes.off == -1);
-    pointer(ui, View::Pointer::move, 60, 50); // slid to D
+    pointer(ui, View::Pointer::move, 30, 50); // slid to D
     draw();
     CHECK(notes.on == 62 && notes.off == 60);
-    pointer(ui, View::Pointer::up, 60, 50);
+    pointer(ui, View::Pointer::up, 30, 50);
     draw();
     CHECK(notes.on == -1 && notes.off == 62);
-    pointer(ui, View::Pointer::down, 40, 10); // C sharp, on top of C and D
+    pointer(ui, View::Pointer::down, 19, 10); // C sharp, on top of C and D
     draw();
     CHECK(notes.on == 61);
-    pointer(ui, View::Pointer::up, 40, 10);
+    pointer(ui, View::Pointer::up, 19, 10);
     draw();
     CHECK(notes.off == 61);
 }

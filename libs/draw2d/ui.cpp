@@ -1721,13 +1721,18 @@ Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(in
     int whites = 0;
     for (int n = lowest; n <= highest; ++n) whites += !isBlack(n);
     if (whites == 0) return notes;
-    const float keyWidth = r.w / whites, blackWidth = keyWidth * 0.6f, blackHeight = r.h * 0.62f;
-    // Each key's rectangle: whites side by side, blacks over the gap after the white before them.
+    // As compost's piano: whites 20 points wide and blacks 12, two thirds
+    // as tall, the keyboard at that width in the middle of r (narrower only
+    // where r is), C# and F# a little left of their gaps, D# and A# right.
+    const float keyWidth = std::min(20 * s, r.w / whites), blackWidth = keyWidth * 0.6f, blackHeight = r.h * 0.66f;
+    const float left = r.x + (r.w - whites * keyWidth) / 2;
     auto keyRect = [&](int note) {
         int whitesBefore = 0;
         for (int n = lowest; n < note; ++n) whitesBefore += !isBlack(n);
-        if (!isBlack(note)) return Rect{r.x + whitesBefore * keyWidth, r.y, keyWidth, r.h};
-        return Rect{r.x + whitesBefore * keyWidth - blackWidth / 2, r.y, blackWidth, blackHeight};
+        if (!isBlack(note)) return Rect{left + whitesBefore * keyWidth, r.y, keyWidth, r.h};
+        static const float shift[12] = {0, -1, 0, 3, 0, 0, -1, 0, 0, 0, 3, 0}; // sixteenths of a black key's width
+        const float x = left + whitesBefore * keyWidth - blackWidth / 2 + shift[((note % 12) + 12) % 12] * blackWidth / 16;
+        return Rect{x, r.y, blackWidth, blackHeight};
     };
     auto inside = [&](Rect k) { return mouse.x >= k.x && mouse.x < k.x + k.w && mouse.y >= k.y && mouse.y < k.y + k.h; };
     // The key under the pointer: a black one, being on top, first.
@@ -1745,11 +1750,21 @@ Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(in
     }
     if (a.released && playing >= 0) notes.off = playing, notes.on = -1, playing = -1;
 
+    // Square keys with a hairline edge; a pressed one in the accent; each C
+    // named at its foot ("C4" is MIDI 60), small and muted.
     auto drawKey = [&](int n) {
         const Rect k = keyRect(n);
         const bool down = n == playing || (lit && lit(n));
         const Color fill = down ? theme.accent : isBlack(n) ? theme.blackKey : theme.whiteKey;
-        draw.rect(k.x, k.y, k.w, k.h, Draw2D::Corners{0, 0, 2 * s, 2 * s}, fill, Draw2D::Sides{1 * s, 0, 0, 1 * s}, theme.edge);
+        const Color line = down ? theme.accent : isBlack(n) ? theme.blackKey : theme.edge;
+        draw.rect(k.x, k.y, k.w, k.h, Draw2D::Corners{}, fill, Draw2D::Sides{1 * s, 1 * s, 1 * s, 1 * s}, line);
+        if (!isBlack(n) && ((n % 12) + 12) % 12 == 0)
+        {
+            const float size = 0.7f * theme.textSize * s;
+            const std::string name = "C" + std::to_string(n / 12 - 1);
+            draw.text(k.x + k.w / 2, k.y + k.h - 0.6f * size, size, name, down ? theme.background : theme.dim, Draw2D::Align::center,
+                      theme.labelFont);
+        }
     };
     for (int n = lowest; n <= highest; ++n)
         if (!isBlack(n)) drawKey(n);
