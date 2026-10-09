@@ -5,6 +5,7 @@
 // Skips (exit code 77) where there's no WebGPU adapter at all.
 // Usage: draw2d_test <font.ttf>
 #include "../libs/draw2d/draw2d.h"
+#include "../libs/draw2d/views.h"
 #include "../libs/gpu/context.h"
 #include <cmath>
 #include <cstdio>
@@ -14,6 +15,8 @@
 
 using gpu::Color;
 using gpu::Draw2D;
+using gpu::Spectrogram;
+using gpu::Ui;
 
 static int failures = 0;
 #define CHECK(condition)                                                              \
@@ -189,6 +192,20 @@ int main(int argc, char **argv)
         int w = 0, h = 0;
         draw.imageSize(picture, w, h);
         CHECK(w == 2 && h == 2);
+        // An update replaces part of it, and the same drawing counts as changed.
+        const uint8_t whitePixel[] = {255, 255, 255, 255};
+        draw.begin(size, size);
+        draw.image(picture, 0, 0, 32, 32);
+        draw.changed();
+        draw.updateImage(picture, whitePixel, 0, 0, 1, 1);
+        draw.begin(size, size);
+        draw.image(picture, 0, 0, 32, 32);
+        CHECK(draw.changed());
+        px = gpu.render(draw, [&] { draw.image(picture, 0, 0, 32, 32); });
+        CHECK(is(px, 2, 2, white) && is(px, 29, 2, green));
+        draw.updateImage(picture, whitePixel, 2, 0, 1, 1); // outside it: nothing
+        px = gpu.render(draw, [&] { draw.image(picture, 0, 0, 32, 32); });
+        CHECK(is(px, 29, 2, green));
         CHECK(draw.addImage("not an image") == -1);
         // SVG: rasterized to fit, keeping its proportions.
         const int svg = draw.addSvg("<svg xmlns='http://www.w3.org/2000/svg' width='20' height='10'>"
@@ -253,6 +270,39 @@ int main(int argc, char **argv)
         CHECK(draw.changed());
         scene(8, 0);
         CHECK(draw.changed()); // version 0: always
+    }
+
+    // A spectrogram: the newest column on the right, low frequencies at the
+    // bottom, coloured from its palette; a later column goes up on its own.
+    {
+        Ui ui;
+        CHECK(ui.draw.prepare(gpu.device, format, font));
+        Spectrogram spectrogram({.minFrequency = 0, .maxFrequency = 1000, .scale = Spectrogram::Scale::linear,
+                                 .palette = Spectrogram::Palette::inferno, .columns = 4, .rows = 2});
+        const Color quiet = black, loud{1, 0.973f, 0.263f}; // inferno's ends
+        const float frequencies[] = {250, 750};
+        const float lowLoud[] = {0, -100}, highLoud[] = {-100, 0};
+        spectrogram.add(lowLoud, frequencies, 2);
+        // Half a pixel in: pixel centres fall on its columns' centres, unblended.
+        auto shot = [&] { return gpu.render(ui.draw, [&] { spectrogram.draw(ui, "Spectrum", {0.5f, 0.5f, float(size), float(size)}); }); };
+        px = shot();
+        const int newest = size * 7 / 8, before = size * 5 / 8, top = size / 4, bottom = size * 3 / 4;
+        CHECK(is(px, newest, bottom, loud) && is(px, newest, top, quiet) && is(px, size / 8, bottom, quiet));
+        spectrogram.add(highLoud, frequencies, 2);
+        px = shot();
+        CHECK(is(px, newest, top, loud) && is(px, newest, bottom, quiet) && is(px, before, bottom, loud));
+        // Another palette recolours what's kept.
+        auto settings = spectrogram.settings();
+        settings.palette = Spectrogram::Palette::bone;
+        spectrogram.configure(settings);
+        px = shot();
+        CHECK(is(px, newest, top, {0.961f, 0.922f, 0.831f})); // bone's loudest, #f5ebd4
+        // Another range redraws what's kept: up to 500 Hz, the 250 Hz bin
+        // fills the top row, loud in the column before (it was 0 dB there).
+        settings.maxFrequency = 500;
+        spectrogram.configure(settings);
+        px = shot();
+        CHECK(is(px, before, top, {0.961f, 0.922f, 0.831f}) && is(px, newest, top, {0.039f, 0.043f, 0.047f}));
     }
 
     // Text: ink where the letters are; widths that follow UTF-8 characters,

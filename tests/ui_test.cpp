@@ -2,6 +2,7 @@
 // and key events in, element rectangles, values and parameter messages out.
 // Draw2D records draws but never flushes them, having no device.
 #include "../libs/draw2d/ui.h"
+#include "../libs/draw2d/views.h"
 #include <set>
 #include <clocale>
 #include <cstring>
@@ -626,6 +627,40 @@ static void windows()
     clickAt(ui, box("WindowClose", Clay_GetElementId(CLAY_STRING("Two")).id), draw);
     CHECK(!openTwo);
     draw(); // the frame after: the page under it is the page's again
+}
+
+// The views: laid out, each an image for screen readers saying what it
+// shows; their boxes draw themselves and never reach onCustom.
+static void signalViews()
+{
+    Ui ui;
+    const std::vector<std::vector<gpu::Peak>> stereo = {{{-0.5f, 0.5f}, {-1, 1}}, {{0, 0.2f}}}, none;
+    const float wave[] = {0, 1, 0, -1, 0};
+    gpu::Spectrogram spectrogram;
+    const float frequencies[] = {100, 1000}, decibels[] = {-20, -60};
+    spectrogram.add(decibels, frequencies, 2);
+    int customs = 0;
+    frame(ui, [&] {
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+        {
+            gpu::waveform(ui, "Input", stereo, {}, 40);
+            gpu::waveform(ui, "Nothing", none, {}, 20);
+            gpu::scope(ui, "Output", wave, 5, {.range = 2}, 40);
+            spectrogram.draw(ui, "Spectrum", 60);
+        }
+    }, [&](int, void *, gpu::Rect) { ++customs; });
+    CHECK(customs == 0);
+    std::vector<std::pair<std::string, std::string>> read;
+    for (const gpu::Accessible &n : ui.accessibility()->nodes)
+        if (n.role == gpu::Accessible::Role::image) read.push_back({n.name, n.description});
+    CHECK(read.size() == 4);
+    if (read.size() == 4)
+    {
+        CHECK(read[0].first == "Input" && read[0].second == "Stereo waveform, left above right");
+        CHECK(read[1].second == "Empty waveform");
+        CHECK(read[2].first == "Output" && read[2].second == "One-channel waveform, from -2 to 2");
+        CHECK(read[3].first == "Spectrum" && read[3].second.find("log scale") != std::string::npos);
+    }
 }
 
 // A docked drawer: its header opens and closes it; its handle resizes it,
@@ -1314,6 +1349,7 @@ int main()
     splitPanes();
     windows();
     dockedDrawers();
+    signalViews();
     splitAtScale();
     parameterToggleAndSegmented();
     textFieldEdits();

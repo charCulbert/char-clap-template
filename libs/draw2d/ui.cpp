@@ -274,6 +274,7 @@ void Ui::begin(float width, float height, float scale)
     draw.begin(width, height);
     order.clear();
     placed.clear();
+    painters.clear();
     described.clear();
     said.clear();
     layout.begin(draw, width, height, scale);
@@ -311,6 +312,7 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
         else if (kind == vsliderBox) vslider(*c->params, c->p, r, c->format, c->log);
         else if (kind == xyBox) xyPad(*c->params, c->p, c->second, r);
         else if (kind == meterBox) meter(c->level, c->peak, r);
+        else if (kind == paintBox) (*static_cast<const std::function<void(Rect)> *>(data))(r);
         else if (kind == imageKnobBox) imageKnob(*c->params, c->p, c->image, c->frames, r, c->log, c->across);
         else if (kind == pianoBox) pianoNotes = piano(c->lowest, c->highest, r, c->lit);
         else if (kind == envelopeBox) { if (envelope(*c->points, r)) changedNow.push_back(c->points); }
@@ -441,13 +443,19 @@ Ui::Described &Ui::describeParam(const void *me, Params &params, Param &p, const
     return d;
 }
 
-void Ui::accessible(Accessible::Role role, const char *name, const char *value, Rect r)
+void *Ui::paint(std::function<void(Rect)> draw)
+{
+    return layout.custom(paintBox, &painters.emplace_back(std::move(draw)));
+}
+
+void Ui::accessible(Accessible::Role role, const char *name, const char *value, Rect r, const char *description)
 {
     // Its id: what it is and where, as stable as its place on the page.
     const size_t hash = std::hash<std::string_view>{}(name ? name : "") ^ (size_t(r.x) * 31 + size_t(r.y)) << 1;
     const void *me = reinterpret_cast<const void *>(uintptr_t(hash | 2)); // never the view's id (1) or null
     Described &d = describe(me, role, name);
     if (value) d.node.value = value;
+    if (description) d.node.description = description;
     d.node.x = r.x, d.node.y = r.y, d.node.width = r.w, d.node.height = r.h;
 }
 

@@ -272,8 +272,13 @@ public:
     const Accessibility *accessibility() const { return &accessTree; }
     void accessAction(uint64_t id, Accessible::Action action, double value);
     // Describes something drawn by hand at r (pixels) for screen readers, as
-    // aria-label does: what it is, its name, and its value if any.
-    void accessible(Accessible::Role role, const char *name, const char *value, Rect r);
+    // aria-label does: what it is, its name, its value if any, and more about
+    // it if needed (aria-description).
+    void accessible(Accessible::Role role, const char *name, const char *value, Rect r, const char *description = nullptr);
+    // A box that draws itself: pass the result as .custom = {.customData = ...};
+    // draw gets the box's rectangle in pixels when it's laid out. For views of
+    // your own (views.h is made this way) without a kind number in onCustom.
+    void *paint(std::function<void(Rect)> draw);
     // For screen readers, about the control declared just before, as the
     // aria- attributes do. Controls name themselves (a button by its label, a
     // knob by its parameter); a dropdown, text field or segmented control has
@@ -287,7 +292,8 @@ public:
 
 private:
     enum Builtin { knobBox = -1, sliderBox = -2, chevronBox = -3, chevronRightBox = -4, vsliderBox = -5, xyBox = -6, meterBox = -7,
-                   imageKnobBox = -8, pianoBox = -9, envelopeBox = -10, stepsBox = -11, gripBox = -12, closeBox = -13 };
+                   imageKnobBox = -8, pianoBox = -9, envelopeBox = -10, stepsBox = -11, gripBox = -12, closeBox = -13,
+                   paintBox = -14 };
     struct Placed
     {
         Params *params;
@@ -304,6 +310,7 @@ private:
         std::vector<float> *values = nullptr; // steps'
     };
     std::deque<Placed> placed; // knobs and sliders the layout places, until end()
+    std::deque<std::function<void(Rect)>> painters; // paint()'s, until end()
 
     // 0..1 position of a value, and back.
     static double toUnit(const Param &p, double v, bool log);
