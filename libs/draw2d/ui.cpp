@@ -1557,43 +1557,38 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
 
 // A header that opens and closes the section under it (compost's drawer,
 // ImGui's collapsing header). Declare the section only while it returns true.
-bool Ui::split(const char *name, float &size, const std::function<void()> &first, const std::function<void()> &second,
-               Split options, int index)
+// The handle between two areas (a split's divider, a drawer's edge), as
+// the WAI-ARIA window splitter: dragged, or focused and moved with the
+// arrows (16 points; Shift 1), Home and End for the limits, Enter to
+// collapse its area and restore it. size is that area's (points), measured
+// from origin, growing in direction sign along the handle's axis (y when
+// vertical). Declare its element with handleBox after.
+void Ui::handle(Clay_ElementId hid, const char *name, float &size, float min, float most, bool vertical, float origin, int sign)
 {
-    const Clay_ElementId sid = id(name, index), did = id("SplitDivider", sid.id);
-    const float before = size, divider = 7; // points: wide enough to grab, a 1-point line in it
-    // The room the first area has, from the last frame's layout.
-    const Clay_ElementData laidOut = Clay_GetElementData(sid);
-    const Clay_BoundingBox box = laidOut.boundingBox;
-    if (!laidOut.found) settle = true; // its room isn't known until it's laid out: one more frame
-    const float whole = options.stacked ? box.height : box.width;
-    const float most = std::max(options.min, std::min(options.max, whole > 0 ? whole - divider - options.secondMin : options.max));
-    auto clamp = [&](float v) { return std::clamp(v, options.min, most); };
-    if (laidOut.found) size = clamp(size); // the room shrank (a smaller window): the second area keeps its minimum
-    const Area a = element(did);
-    const float along = (options.stacked ? mouse.y : mouse.x) / s, start = options.stacked ? box.y : box.x;
-    if (a.pressed) splitGrab = along - (start + size), focusVisible = false;
-    if (a.held) size = clamp(along - start - splitGrab);
-    if (a.doubleClicked) size = clamp(options.min); // as Enter: collapse
-    const void *me = reinterpret_cast<const void *>(uintptr_t(did.id));
-    for (View::Key key : focusable(did, a))
+    auto clamp = [&](float v) { return std::clamp(v, min, most); };
+    const Area a = element(hid);
+    const float along = (vertical ? mouse.y : mouse.x) / s;
+    if (a.pressed) splitGrab = sign * (along - origin) - size, focusVisible = false;
+    if (a.held) size = clamp(sign * (along - origin) - splitGrab);
+    if (a.doubleClicked) size = clamp(min); // as Enter: collapse
+    const void *me = reinterpret_cast<const void *>(uintptr_t(hid.id));
+    for (View::Key key : focusable(hid, a))
     {
-        const bool fine = mouse.modifiers & View::shift;
-        const float step = fine ? 1 : 16;
-        const bool back = options.stacked ? key == View::Key::up : key == View::Key::left;
-        const bool forth = options.stacked ? key == View::Key::down : key == View::Key::right;
-        if (back) size = clamp(size - step);
-        if (forth) size = clamp(size + step);
-        if (key == View::Key::home) size = clamp(options.min);
+        // The arrows move the handle on screen: its area grows or shrinks as it does.
+        const float step = mouse.modifiers & View::shift ? 1 : 16;
+        const bool back = vertical ? key == View::Key::up : key == View::Key::left;
+        const bool forth = vertical ? key == View::Key::down : key == View::Key::right;
+        if (back || forth) size = clamp(size + (forth ? step : -step) * float(sign));
+        if (key == View::Key::home) size = clamp(min);
         if (key == View::Key::end) size = most;
-        if (key == View::Key::enter) // collapse the first area, or restore it
+        if (key == View::Key::enter) // collapse the area, or restore it
         {
-            const auto saved = std::find_if(splitRestore.begin(), splitRestore.end(), [&](auto &r) { return r.first == did.id; });
-            if (size > options.min || saved == splitRestore.end())
+            const auto saved = std::find_if(splitRestore.begin(), splitRestore.end(), [&](auto &r) { return r.first == hid.id; });
+            if (size > min || saved == splitRestore.end())
             {
                 if (saved != splitRestore.end()) saved->second = size;
-                else splitRestore.push_back({did.id, size});
-                size = clamp(options.min);
+                else splitRestore.push_back({hid.id, size});
+                size = clamp(min);
             }
             else size = clamp(saved->second);
         }
@@ -1602,34 +1597,103 @@ bool Ui::split(const char *name, float &size, const std::function<void()> &first
     Described &d = describe(me, Accessible::Role::splitter, name);
     char text[32];
     std::snprintf(text, sizeof(text), "%.0f points", size);
-    d.element = did.id, d.node.value = text, d.node.numeric = true, d.node.number = size, d.node.min = options.min, d.node.max = most;
-    d.node.orientation = options.stacked ? 1 : 2; // a separator's orientation is its line's: across a stack, it's horizontal
+    d.element = hid.id, d.node.value = text, d.node.numeric = true, d.node.number = size, d.node.min = min, d.node.max = most;
+    d.node.orientation = vertical ? 1 : 2; // a separator's orientation is its line's
     d.node.actions |= Accessible::increment | Accessible::decrement | Accessible::setValue;
     d.size = &size;
+    if ((Clay_PointerOver(hid) && !active) || a.held) cursor = vertical ? View::Cursor::resizeUpDown : View::Cursor::resizeLeftRight;
+}
 
-    const bool hot = Clay_PointerOver(did), lit = hot || a.held || focusShown(did);
-    if ((hot && !active) || a.held) cursor = options.stacked ? View::Cursor::resizeUpDown : View::Cursor::resizeLeftRight;
-    const auto fixed = CLAY_SIZING_FIXED(size), grow = CLAY_SIZING_GROW(0);
-    // Clipped along its axis, so its box is the room it's given, not grown
-    // to fit a first area dragged past it (which would push the second out
-    // of view). Its areas clip only across it: Clay doesn't wrap text along
-    // an axis it clips, so along the split they wrap instead.
+// The handle's element: 7 points across, a line in it that thickens and
+// takes the accent while it's hovered, dragged or focused.
+void Ui::handleBox(Clay_ElementId hid, bool vertical)
+{
+    const bool lit = Clay_PointerOver(hid) || (active && active == reinterpret_cast<const void *>(uintptr_t(hid.id))) || focusShown(hid);
+    const auto grow = CLAY_SIZING_GROW(0);
+    CLAY({.id = hid, .layout = {.sizing = {vertical ? grow : CLAY_SIZING_FIXED(7), vertical ? CLAY_SIZING_FIXED(7) : grow},
+                                .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}}})
+    {
+        const float line = lit ? 2 : 1;
+        CLAY({.layout = {.sizing = {vertical ? grow : CLAY_SIZING_FIXED(line), vertical ? CLAY_SIZING_FIXED(line) : grow}},
+              .backgroundColor = clayColor(lit ? theme.accent : theme.edge)}) {}
+    }
+}
+
+bool Ui::split(const char *name, float &size, const std::function<void()> &first, const std::function<void()> &second,
+               Split options, int index)
+{
+    const Clay_ElementId sid = id(name, index), did = id("SplitDivider", sid.id);
+    const float before = size;
+    // The room the first area has, from the last frame's layout.
+    const Clay_ElementData laidOut = Clay_GetElementData(sid);
+    const Clay_BoundingBox box = laidOut.boundingBox;
+    if (!laidOut.found) settle = true; // its room isn't known until it's laid out: one more frame
+    const float whole = options.stacked ? box.height : box.width;
+    const float most = std::max(options.min, std::min(options.max, whole > 0 ? whole - 7 - options.secondMin : options.max));
+    if (laidOut.found) size = std::clamp(size, options.min, most); // the room shrank: the second area keeps its minimum
+    handle(did, name, size, options.min, most, options.stacked, options.stacked ? box.y : box.x, 1);
+
+    // The first area is a share of the room, not a fixed size: Clay counts a
+    // fixed size in its parents' minimum, so dragging it bigger made the
+    // whole section grow (and the room with it), pushing the second area
+    // out of view. Until the room is known, a fixed size for one frame.
+    const auto grow = CLAY_SIZING_GROW(0);
+    const auto fixed = whole > 0 ? CLAY_SIZING_PERCENT(std::min(1.0f, size / whole)) : CLAY_SIZING_FIXED(size);
+    // Its areas clip only across it: Clay doesn't wrap text along an axis it
+    // clips, so along the split they wrap instead.
     CLAY({.id = sid, .layout = {.sizing = {grow, grow}, .layoutDirection = options.stacked ? CLAY_TOP_TO_BOTTOM : CLAY_LEFT_TO_RIGHT},
           .clip = {.horizontal = !options.stacked, .vertical = options.stacked}})
     {
         CLAY({.layout = {.sizing = {options.stacked ? grow : fixed, options.stacked ? fixed : grow}},
               .clip = {.horizontal = options.stacked, .vertical = !options.stacked}}) { first(); }
-        CLAY({.id = did, .layout = {.sizing = {options.stacked ? grow : CLAY_SIZING_FIXED(divider), options.stacked ? CLAY_SIZING_FIXED(divider) : grow},
-                                    .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}}})
-        {
-            const float line = lit ? 2 : 1;
-            CLAY({.layout = {.sizing = {options.stacked ? grow : CLAY_SIZING_FIXED(line), options.stacked ? CLAY_SIZING_FIXED(line) : grow}},
-                  .backgroundColor = clayColor(lit ? theme.accent : theme.edge)}) {}
-        }
+        handleBox(did, options.stacked);
         CLAY({.layout = {.sizing = {grow, grow}}, .clip = {.horizontal = options.stacked, .vertical = !options.stacked}}) { second(); }
     }
     lastElement = did.id;
     return size != before;
+}
+
+bool Ui::drawer(const char *title, bool &open, float &size, const std::function<void()> &contents, DrawerOptions options, int index)
+{
+    using Edge = DrawerOptions::Edge;
+    const bool across = options.edge == Edge::left || options.edge == Edge::right; // it sizes widths
+    const Clay_ElementId xid = id(title, index), hid = id("DrawerHandle", xid.id);
+    // Its header: the disclosure button, as the plain drawer's.
+    const Clay_ElementData laidOut = Clay_GetElementData(xid);
+    const Clay_BoundingBox box = laidOut.boundingBox;
+    if (!laidOut.found) settle = true;
+    // Its handle resizes it, measured from the docked edge: inwards is bigger.
+    if (open && options.resizable)
+    {
+        const bool fromEnd = options.edge == Edge::bottom || options.edge == Edge::right;
+        const float origin = across ? (fromEnd ? box.x + box.width : box.x) : (fromEnd ? box.y + box.height : box.y);
+        const float header = across ? 0 : theme.textSize * 1.25f + 8 + 1; // a column's header sits above what the handle sizes
+        const std::string name = std::string("Resize ") + title;
+        float content = size;
+        handle(hid, name.c_str(), content, options.min, options.max, !across, fromEnd ? origin - (across ? 0 : header) : origin + header,
+               fromEnd ? -1 : 1);
+        size = content;
+    }
+    const auto grow = CLAY_SIZING_GROW(0), fixed = CLAY_SIZING_FIXED(size);
+    auto body = [&] {
+        CLAY({.layout = {.sizing = {grow, across ? grow : fixed}, .padding = CLAY_PADDING_ALL(6), .childGap = 6,
+                         .layoutDirection = CLAY_TOP_TO_BOTTOM},
+              .clip = {.vertical = true}}) { contents(); }
+    };
+    const bool before = open;
+    CLAY({.id = xid, .layout = {.sizing = {across ? (open ? fixed : CLAY_SIZING_FIT(0)) : grow, across ? grow : CLAY_SIZING_FIT(0)},
+                                .layoutDirection = across ? CLAY_LEFT_TO_RIGHT : CLAY_TOP_TO_BOTTOM}})
+    {
+        if (open && options.resizable && (options.edge == Edge::bottom || options.edge == Edge::right)) handleBox(hid, !across);
+        CLAY({.layout = {.sizing = {grow, grow}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+        {
+            if (open && options.edge == Edge::bottom) body();
+            drawer(title, open, index); // the header
+            if (before && open && options.edge != Edge::bottom) body();
+        }
+        if (open && options.resizable && (options.edge == Edge::top || options.edge == Edge::left)) handleBox(hid, !across);
+    }
+    return open;
 }
 
 bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<void()> &contents, WindowLimits limits, int index)
@@ -1655,7 +1719,9 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
     const Area header = element(hid);
     if (header.pressed) windowGrabX = mouse.x / s - frame.x, windowGrabY = mouse.y / s - frame.y;
     if (header.held) frame.x = mouse.x / s - windowGrabX, frame.y = mouse.y / s - windowGrabY;
-    if ((Clay_PointerOver(hid) && !active) || header.held) cursor = View::Cursor::move;
+    // The move pointer over the header, not over its close button (an arrow, as buttons have).
+    const bool overClose = limits.closable && Clay_PointerOver(cid);
+    if ((Clay_PointerOver(hid) && !overClose && !active) || header.held) cursor = View::Cursor::move;
     // Resized from its corner.
     if (limits.resizable)
     {

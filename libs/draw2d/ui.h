@@ -78,11 +78,20 @@ struct WindowLimits
     bool resizable = true, closable = true;
 };
 
+// Where a Ui::drawer docks, and how far it can be resized (points).
+struct DrawerOptions
+{
+    enum class Edge { top, bottom, left, right };
+    Edge edge = Edge::top;
+    bool resizable = true;
+    float min = 40, max = 1e9f;
+};
+
 // How a Ui::split lays out and limits its two areas (points).
 struct Split
 {
     bool stacked = false; // one above the other, not side by side
-    float min = 40, max = 1e9f, secondMin = 40;
+    float min = 40, max = 1e9f, secondMin = 40; // the second area's least, so it never vanishes
 };
 
 class Ui
@@ -174,6 +183,13 @@ public:
     // when size changed.
     bool split(const char *name, float &size, const std::function<void()> &first, const std::function<void()> &second,
                Split options = {}, int index = 0);
+    // A drawer docked to an edge, as compost's: its header opens and closes
+    // it (a disclosure), and a handle on its inner side resizes it, as a
+    // split's divider (named "Resize <title>"). size is its contents' height
+    // (a top or bottom drawer) or its width (left or right), in points.
+    // contents declares what's in it, while it's open.
+    bool drawer(const char *title, bool &open, float &size, const std::function<void()> &contents, DrawerOptions options = {},
+                int index = 0);
     // A window over the view, as compost's (a non-modal dialog): dragged by
     // its header, resized from its corner, kept inside the view, and brought
     // to the front by a press on it. frame is its place and size, in points.
@@ -312,6 +328,8 @@ private:
         float *size = nullptr;  // a split's divider: setValue sets its first area's size (points), from min to max
         uint64_t parent = 0;    // 0: the view's
     };
+    void handle(Clay_ElementId hid, const char *name, float &size, float min, float most, bool vertical, float origin, int sign);
+    void handleBox(Clay_ElementId hid, bool vertical);
     std::vector<Described> described;
     std::vector<std::pair<uint64_t, float>> reading; // each control's place in layout order, for Tab too
     // label, description and hidden, for a control's element: applied once

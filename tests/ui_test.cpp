@@ -477,6 +477,35 @@ static void splitPanes()
     draw();
     CHECK(size == 120);
 
+    // Side by side in a row that grows: dragged far right, the section stays
+    // the row's width, and the second area keeps its minimum.
+    float wide = 100;
+    auto row = [&] {
+        frame(ui, [&] {
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(100)}}})
+            {
+                ui.split("Row", wide, [] {}, [] {}, {.min = 20, .secondMin = 40});
+            }
+            CLAY({.id = CLAY_ID("Neighbour"), .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(100)}}}) {} // shares the row
+        });
+    };
+    row();
+    row();
+    const Clay_BoundingBox rowBox = box("Row");
+    const Clay_BoundingBox rowLine = box("SplitDivider", Clay_GetElementId(CLAY_STRING("Row")).id);
+    pointer(ui, View::Pointer::down, rowLine.x + 3, rowLine.y + 50);
+    row();
+    for (float x = rowLine.x + 20; x < 2000; x += 40)
+    {
+        pointer(ui, View::Pointer::move, x, rowLine.y + 50);
+        row();
+    }
+    pointer(ui, View::Pointer::up, 2000, rowLine.y + 50);
+    row();
+    row();
+    CHECK(box("Row").width == rowBox.width && box("Neighbour").width == rowBox.width); // neither took the other's room
+    CHECK(std::abs(wide - (rowBox.width - 7 - 40)) < 0.5f);
+
     // Stacked, in a box 200 points tall: dragged far down, the second area
     // keeps its 30 points; it can't be pushed out of view.
     float top = 60;
@@ -579,6 +608,49 @@ static void windows()
     // The close button closes it.
     clickAt(ui, box("WindowClose", Clay_GetElementId(CLAY_STRING("Two")).id), draw);
     CHECK(!openTwo);
+}
+
+// A docked drawer: its header opens and closes it; its handle resizes it,
+// growing away from its edge, within its limits; screen readers see the
+// handle as "Resize <title>".
+static void dockedDrawers()
+{
+    Ui ui;
+    bool topOpen = true, bottomOpen = true;
+    float top = 60, bottom = 60;
+    auto draw = [&] {
+        frame(ui, [&] {
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+            {
+                ui.drawer("Top", topOpen, top, [] {}, {.min = 40, .max = 100});
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) {}
+                ui.drawer("Bottom", bottomOpen, bottom, [] {}, {.edge = gpu::DrawerOptions::Edge::bottom, .min = 40, .max = 100}, 1);
+            }
+        });
+    };
+    draw();
+    draw();
+    auto drag = [&](const char *title, int index, float dy) {
+        const Clay_BoundingBox h = box("DrawerHandle", Clay_GetElementIdWithIndex({false, int32_t(std::strlen(title)), title}, uint32_t(index)).id);
+        pointer(ui, View::Pointer::down, h.x + 20, h.y + 3);
+        draw();
+        pointer(ui, View::Pointer::move, h.x + 20, h.y + 3 + dy);
+        draw();
+        pointer(ui, View::Pointer::up, h.x + 20, h.y + 3 + dy);
+        draw();
+    };
+    drag("Top", 0, 20); // down: the top drawer grows
+    CHECK(std::abs(top - 80) < 0.5f);
+    drag("Bottom", 1, -20); // up: the bottom drawer grows
+    CHECK(std::abs(bottom - 80) < 0.5f);
+    drag("Top", 0, 500); // no further than its max
+    CHECK(top == 100);
+    bool named = false;
+    for (const gpu::Accessible &n : ui.accessibility()->nodes)
+        named |= n.role == gpu::Accessible::Role::splitter && n.name == "Resize Top" && n.max == 100;
+    CHECK(named);
+    clickAt(ui, box("Drawer", 0), draw); // its header closes it
+    CHECK(!topOpen);
 }
 
 static void knobDragAndKeys()
@@ -1158,6 +1230,7 @@ int main()
     doubleClickOrFineDrag();
     splitPanes();
     windows();
+    dockedDrawers();
     parameterToggleAndSegmented();
     textFieldEdits();
     textFieldShortcuts();
