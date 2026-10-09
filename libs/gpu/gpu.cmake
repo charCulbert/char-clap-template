@@ -147,6 +147,7 @@ function(gpu_add_page target)
     set(port "--use-port=${emdawnwebgpu_SOURCE_DIR}/emdawnwebgpu.port.py")
     add_executable(${target} "${GPU_DIR}/web/main.cpp" "${GPU_DIR}/context.cpp" "${GPU_DIR}/params.cpp"
                              "${GPU_DIR}/../core/messages.cpp")
+    set_source_files_properties("${GPU_DIR}/web/main.cpp" PROPERTIES COMPILE_OPTIONS -Werror=switch) # a role without an ARIA role is an error
     target_include_directories(${target} PRIVATE "${GPU_DIR}/..")
     target_compile_options(${target} PRIVATE ${port})
     # FORCE_FILESYSTEM: the JS FS API, where dropped files are written.
