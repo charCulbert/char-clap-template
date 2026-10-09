@@ -217,7 +217,7 @@ public:
         CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
         {
             CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
-                  .custom = {.customData = ui.layout.custom(plotBox)}}) {}
+                  .custom = {.customData = ui.paint([&](gpu::Rect r) { drawPlot(width, height, r, ui.theme.accent); })}}) {}
             CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(112), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(12),
                              .childGap = 10, .childAlignment = {.x = CLAY_ALIGN_X_CENTER}, .layoutDirection = CLAY_TOP_TO_BOTTOM},
                   .backgroundColor = gpu::clayColor(ui.theme.panel)})
@@ -229,26 +229,19 @@ public:
                     // 74 points keeps each dial 40 across above its two lines of text.
                     for (gpu::Param *p : {smoothing, colour, tilt})
                         CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(80), CLAY_SIZING_GROW(74, 108)}},
-                              .custom = {.customData = ui.layout.custom(knobBox, p)}}) {}
+                              .custom = {.customData = ui.paint([&, p](gpu::Rect r) {
+                                  ui.knob(params, p, r, p == tilt ? "%.1f dB/oct" : "%.0f");
+                              })}}) {}
                 }
             }
         }
 
-        // Draw what the layout placed: knobs, and the plot.
+        // Draw what the layout placed: knobs, and the plot (each box paints itself).
         ui.resizeGrip(width, height);
-        return ui.record([&](int kind, void *data, gpu::Rect r) {
-            if (kind == knobBox)
-            {
-                auto *p = static_cast<gpu::Param *>(data);
-                ui.knob(params, p, r, p == tilt ? "%.1f dB/oct" : "%.0f");
-            }
-            if (kind == plotBox) drawPlot(width, height, r, ui.theme.accent);
-        });
+        return ui.record();
     }
 
 private:
-    enum { plotBox, knobBox };
-
     // The plot: the spectrum inside, frequencies below, levels on the left.
     void drawPlot(float width, float height, gpu::Rect box, gpu::Color color)
     {

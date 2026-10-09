@@ -126,13 +126,13 @@ public:
 
     // Starts a frame of controls and its layout; the canvas in pixels.
     void begin(float width, float height, float scale);
-    // Lays out and draws the frame. onCustom gets your own custom boxes
-    // (Layout::custom) as they come up in drawing order.
-    void end(const wgpu::RenderPassEncoder &pass, const std::function<void(int kind, void *data, Rect pixels)> &onCustom = {});
+    // Lays out and draws the frame; paint() boxes draw themselves as they
+    // come up in drawing order.
+    void end(const wgpu::RenderPassEncoder &pass);
     // end() in two halves, for View::record and View::draw: record lays out
     // and records the frame, returning false if it looks like the last one
     // drawn; flush draws it.
-    bool record(const std::function<void(int kind, void *data, Rect pixels)> &onCustom = {});
+    bool record();
     void flush(const wgpu::RenderPassEncoder &pass) { draw.flush(pass); }
 
     // A piano's note-on and note-off this frame, -1 for none.
@@ -237,7 +237,7 @@ public:
     // A filmstrip knob at the size of one frame (in points, at scale 1 a pixel each).
     void imageKnob(Params &params, Param *p, int image, int frames, bool log = false, bool across = false);
 
-    // ---- At a rectangle you choose (pixels): for drawing inside a Layout::custom
+    // ---- At a rectangle you choose (pixels): for drawing inside a paint()
     // box, or anywhere else Clay doesn't place things.
     // A rotary control with its value and name below; drag up/down to change.
     // log: logarithmic mapping (min > 0).
@@ -316,7 +316,7 @@ public:
     bool pointerOver(Clay_ElementId element) const;
     // A box that draws itself: pass the result as .custom = {.customData = ...};
     // draw gets the box's rectangle in pixels when it's laid out. For views of
-    // your own (views.h is made this way) without a kind number in onCustom.
+    // your own (views.h is made this way).
     void *paint(std::function<void(Rect)> drawing);
     // For screen readers, about the control declared just before, as the
     // aria- attributes do. Controls name themselves (a button by its label, a

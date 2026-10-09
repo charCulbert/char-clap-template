@@ -25,14 +25,14 @@ static int failures = 0;
     } while (0)
 
 // One frame of a 400 x 300 point view at scale 1, its contents declared by declare.
-template <typename F> static void frame(Ui &ui, F &&declare, const std::function<void(int, void *, gpu::Rect)> &onCustom = {})
+template <typename F> static void frame(Ui &ui, F &&declare)
 {
     ui.begin(400, 300, 1);
     CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(10), .childGap = 10}})
     {
         declare();
     }
-    ui.end(wgpu::RenderPassEncoder{}, onCustom);
+    ui.end(wgpu::RenderPassEncoder{});
 }
 
 static Clay_BoundingBox box(const char *kind, int index = 0)
@@ -60,9 +60,9 @@ static void layoutSizes()
     Ui ui;
     std::vector<gpu::Rect> boxes;
     frame(ui, [&] {
-        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(50), CLAY_SIZING_FIXED(20)}}, .custom = {.customData = ui.layout.custom(0)}}) {}
-        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(20)}}, .custom = {.customData = ui.layout.custom(1)}}) {}
-    }, [&](int, void *, gpu::Rect r) { boxes.push_back(r); });
+        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(50), CLAY_SIZING_FIXED(20)}}, .custom = {.customData = ui.paint([&](gpu::Rect r) { boxes.push_back(r); })}}) {}
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(20)}}, .custom = {.customData = ui.paint([&](gpu::Rect r) { boxes.push_back(r); })}}) {}
+    });
     CHECK(boxes.size() == 2);
     CHECK(boxes[0].x == 10 && boxes[0].y == 10 && boxes[0].w == 50 && boxes[0].h == 20);
     CHECK(boxes[1].x == 70 && boxes[1].w == 320); // 400 - 10 - 50 - 10 - 10
@@ -872,7 +872,7 @@ static void dockSpaceOnly()
 }
 
 // The views: laid out, each an image for screen readers saying what it
-// shows; their boxes draw themselves and never reach onCustom.
+// shows; their boxes paint themselves.
 static void signalViews()
 {
     Ui ui;
@@ -881,7 +881,6 @@ static void signalViews()
     gpu::Spectrogram spectrogram;
     const float frequencies[] = {100, 1000}, decibels[] = {-20, -60};
     spectrogram.add(decibels, frequencies, 2);
-    int customs = 0;
     frame(ui, [&] {
         CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
         {
@@ -890,8 +889,7 @@ static void signalViews()
             gpu::scope(ui, "Output", wave, 5, {.range = 2}, 40);
             spectrogram.draw(ui, "Spectrum", 60);
         }
-    }, [&](int, void *, gpu::Rect) { ++customs; });
-    CHECK(customs == 0);
+    });
     std::vector<std::pair<std::string, std::string>> read;
     for (const gpu::Accessible &n : ui.accessibility()->nodes)
         if (n.role == gpu::Accessible::Role::image) read.push_back({n.name, n.description});

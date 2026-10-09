@@ -142,7 +142,7 @@ public:
         if (!mixerOpen && !notesOpen) windowsOpen = false;
         if (page == 6) dock.windows(ui, dockPanels()); // the dock's windows, over the page
         ui.resizeGrip(width, height);
-        const bool changed = ui.record([&](int kind, void *data, gpu::Rect r) { drawCell(kind, data, r); });
+        const bool changed = ui.record();
         sendEdit();
         return changed;
     }
@@ -221,7 +221,7 @@ private:
     void custom(const char *expect, Cell kind)
     {
         cell(expect, [&] {
-            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = ui.layout.custom(kind)}}) {}
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = ui.paint([this, kind](gpu::Rect r) { drawCell(kind, r); })}}) {}
         });
     }
     void label(const char *text, gpu::Color color, int size = 0, int font = 0) // size 0: the theme's
@@ -600,7 +600,7 @@ private:
         });
     }
 
-    void drawCell(int kind, void *, gpu::Rect r)
+    void drawCell(Cell kind, gpu::Rect r)
     {
         auto &d = ui.draw;
         const float s = ui.s, cx = r.x + r.w / 2, cy = r.y + r.h / 2;

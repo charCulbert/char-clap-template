@@ -296,9 +296,9 @@ void Ui::begin(float width, float height, float scale)
     tooltipWaiting = false;
 }
 
-void Ui::end(const wgpu::RenderPassEncoder &pass, const std::function<void(int, void *, Rect)> &onCustom)
+void Ui::end(const wgpu::RenderPassEncoder &pass)
 {
-    record(onCustom);
+    record();
     draw.flush(pass);
 }
 
@@ -333,7 +333,7 @@ static const char *roleName(Accessible::Role role)
 // A control's id for screen readers: its address, as it is for focus.
 static uint64_t accessId(const void *me) { return uint64_t(reinterpret_cast<uintptr_t>(me)); }
 
-bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
+bool Ui::record()
 {
     layout.end([&](int kind, void *data, Rect r) {
         const auto *c = static_cast<const Placed *>(data);
@@ -367,7 +367,6 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
             draw.line(r.x, r.y, r.x + r.w, r.y + r.h, 1.4f * s, theme.text);
             draw.line(r.x + r.w, r.y, r.x, r.y + r.h, 1.4f * s, theme.text);
         }
-        else if (onCustom) onCustom(kind, data, r);
     });
     finishDescribing();
     // Tab goes in layout order too, not the order controls were declared in
