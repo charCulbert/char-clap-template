@@ -694,11 +694,50 @@ void Ui::imageKnob(Params &params, Param *p, int image, int frames, bool log, bo
     lastElement = kid.id;
 }
 
+int &Ui::within(const void *control)
+{
+    for (auto &[owner, part] : withins)
+        if (owner == control) return part;
+    return withins.emplace_back(control, 0).second;
+}
+
+// A screen reader focused or clicked a part (a bar, a point, a key): the
+// control has the focus, on that part.
+void Ui::takePartFocus(const void *control, int first, int last)
+{
+    for (int part = first; part <= last; ++part)
+        if (focus == partId(control, part))
+        {
+            focus = control, within(control) = part;
+            return;
+        }
+}
+
+// The part an id is the id of, or -1.
+static int partOf(uint64_t id, const void *control)
+{
+    const uint64_t from = accessId(control);
+    return id > from && (id - from) % 2 == 1 ? int((id - from - 1) / 2) : -1;
+}
+
+// What a screen reader reads for a part's level: "50%".
+static std::string percent(float value)
+{
+    return std::to_string(int(std::lround(std::clamp(value, 0.0f, 1.0f) * 100))) + "%";
+}
+
 // Which keys of an octave are black, from C.
 static bool isBlack(int note)
 {
     const int n = ((note % 12) + 12) % 12;
     return n == 1 || n == 3 || n == 6 || n == 8 || n == 10;
+}
+
+// A note as a musician says it: "C4" is MIDI 60.
+static std::string noteName(int note)
+{
+    static const char *const names[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    return names[((note % 12) + 12) % 12] + std::to_string(note / 12 - 1);
 }
 
 Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(int)> &lit)
@@ -728,13 +767,61 @@ Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(in
     for (int n = lowest; n <= highest && under < 0; ++n)
         if (!isBlack(n) && inside(keyRect(n))) under = n;
 
+    const void *me = &playing;
+    order.push_back(me);
+    takePartFocus(me, lowest, highest);
+    // Keys have no release: a note played with Enter is let go in the next frame.
+    if (playingFromKey) notes.off = playing, playing = -1, playingFromKey = false;
     const auto a = area(&playing, r.x, r.y, r.w, r.h);
+    if (a.pressed) focus = me, pressFocused = true, within(me) = under >= 0 ? under : within(me);
     if (a.held && under != playing && (under >= 0 || !a.pressed)) // pressed, or slid onto another key
     {
         if (playing >= 0) notes.off = playing;
         playing = under, notes.on = under;
     }
     if (a.released && playing >= 0) notes.off = playing, notes.on = -1, playing = -1;
+
+    // Keys, as a toolbar's buttons: Left and Right choose a key, Up and Down
+    // an octave, Enter or Space plays it. A screen reader's click plays one.
+    int chosen = std::clamp(within(me), lowest, highest);
+    auto play = [&](int note) {
+        if (playing >= 0) notes.off = playing;
+        playing = note, notes.on = note, playingFromKey = true, settle = true;
+    };
+    if (focus == me)
+    {
+        focusUses = keyBit(View::Key::left) | keyBit(View::Key::right) | keyBit(View::Key::up) | keyBit(View::Key::down)
+                  | keyBit(View::Key::home) | keyBit(View::Key::end) | keyBit(View::Key::enter);
+        focusTakesDigits = false, focusTakesSpace = true;
+        for (auto [key, modifiers] : keys)
+            switch (key)
+            {
+            case View::Key::left: chosen = std::max(chosen - 1, lowest); break;
+            case View::Key::right: chosen = std::min(chosen + 1, highest); break;
+            case View::Key::up: chosen = std::min(chosen + 12, highest); break;
+            case View::Key::down: chosen = std::max(chosen - 12, lowest); break;
+            case View::Key::home: chosen = lowest; break;
+            case View::Key::end: chosen = highest; break;
+            case View::Key::enter: play(chosen); break;
+            default: break; // Tab: in end()
+            }
+    }
+    if (const int note = accessClick ? partOf(accessId(accessClick), me) : -1; note >= lowest && note <= highest)
+        accessClick = nullptr, chosen = note, focus = me, play(note);
+    within(me) = chosen;
+
+    // For screen readers: a group of buttons, one for each key, in pitch order.
+    Described &group = describe(me, Accessible::Role::group, "Piano");
+    group.node.x = r.x, group.node.y = r.y, group.node.width = r.w, group.node.height = r.h;
+    group.node.activeDescendant = accessId(partId(me, chosen));
+    for (int n = lowest; n <= highest; ++n)
+    {
+        const Rect k = keyRect(n);
+        Described &d = describe(partId(me, n), Accessible::Role::button, noteName(n).c_str(), accessId(me));
+        d.node.x = k.x, d.node.y = k.y, d.node.width = k.w, d.node.height = k.h;
+        d.node.actions |= Accessible::click;
+        d.place = float(n - lowest);
+    }
 
     // Square keys with a hairline edge; a pressed one in the accent; each C
     // named at its foot ("C4" is MIDI 60), small and muted.
@@ -747,8 +834,7 @@ Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(in
         if (!isBlack(n) && ((n % 12) + 12) % 12 == 0)
         {
             const float size = 0.7f * theme.textSize * s;
-            const std::string name = "C" + std::to_string(n / 12 - 1);
-            draw.text(k.x + k.w / 2, k.y + k.h - 0.6f * size, size, name, down ? theme.background : theme.dim, Draw2D::Align::center,
+            draw.text(k.x + k.w / 2, k.y + k.h - 0.6f * size, size, noteName(n), down ? theme.background : theme.dim, Draw2D::Align::center,
                       theme.labelFont);
         }
     };
@@ -756,6 +842,12 @@ Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(in
         if (!isBlack(n)) drawKey(n);
     for (int n = lowest; n <= highest; ++n)
         if (isBlack(n)) drawKey(n);
+    if (focusShown(me))
+    {
+        const Rect k = keyRect(chosen);
+        const bool down = chosen == playing || (lit && lit(chosen));
+        draw.rect(k.x + 2 * s, k.y + 2 * s, k.w - 4 * s, k.h - 4 * s, 0, {0, 0, 0, 0}, 2 * s, down ? theme.background : theme.accent);
+    }
     return notes;
 }
 
@@ -763,8 +855,10 @@ Ui::Notes Ui::piano(int lowest, int highest, float heightPoints, const std::func
 {
     Placed board{nullptr, nullptr, nullptr, false};
     board.lowest = lowest, board.highest = highest, board.lit = lit;
-    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(heightPoints)}},
+    const Clay_ElementId pid = id("Piano", lowest * 256 + highest);
+    CLAY({.id = pid, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(heightPoints)}},
           .custom = {.customData = layout.custom(pianoBox, &placed.emplace_back(std::move(board)))}}) {}
+    lastElement = pid.id;
     const Notes notes = pianoNotes;
     pianoNotes = {};
     return notes;
@@ -775,6 +869,9 @@ bool Ui::envelope(std::vector<Point> &points, Rect r)
     if (points.empty()) return false;
     bool changed = false;
     const float handle = 5 * s;
+    const void *me = &points;
+    order.push_back(me);
+    takePartFocus(me, 0, int(points.size()) - 1);
     auto toPixels = [&](Point p) { return Point{r.x + p.x * r.w, r.y + (1 - p.y) * r.h}; };
     auto toUnit = [&](float x, float y) {
         return Point{std::clamp((x - r.x) / r.w, 0.0f, 1.0f), std::clamp(1 - (y - r.y) / r.h, 0.0f, 1.0f)};
@@ -786,6 +883,7 @@ bool Ui::envelope(std::vector<Point> &points, Rect r)
         if (std::abs(mouse.x - p.x) <= handle * 1.6f && std::abs(mouse.y - p.y) <= handle * 1.6f) near = int(i);
     }
     const auto a = area(&grabbedPoint, r.x, r.y, r.w, r.h);
+    if (a.pressed || a.doubleClicked) focus = me, pressFocused = true;
     if (a.doubleClicked)
     {
         if (near > 0 && near + 1 < int(points.size())) points.erase(points.begin() + near), changed = true;
@@ -796,7 +894,11 @@ bool Ui::envelope(std::vector<Point> &points, Rect r)
             points.insert(at, p), changed = true;
         }
     }
-    if (a.pressed) grabbedPoint = near;
+    if (a.pressed)
+    {
+        grabbedPoint = near;
+        if (near >= 0) within(me) = near;
+    }
     if (a.held && grabbedPoint >= 0 && grabbedPoint < int(points.size()))
     {
         Point p = toUnit(a.x, a.y);
@@ -808,6 +910,84 @@ bool Ui::envelope(std::vector<Point> &points, Rect r)
     }
     if (a.released) grabbedPoint = -1;
 
+    // Keys: Left and Right choose a point, Up and Down move it (Shift for
+    // fine, the Page keys coarse), Alt with Left or Right sideways, between
+    // its neighbours; Enter adds a point after it, on the line, and Delete or
+    // Backspace removes it, neither at an end (as the pointer's).
+    int chosen = std::clamp(within(me), 0, int(points.size()) - 1);
+    auto level = [&](int i, float to) {
+        to = std::clamp(to, 0.0f, 1.0f);
+        if (to != points[size_t(i)].y) points[size_t(i)].y = to, changed = true;
+    };
+    auto sideways = [&](int i, float by) {
+        if (i == 0 || i + 1 == int(points.size())) return;
+        const float x = std::clamp(points[size_t(i)].x + by, points[size_t(i) - 1].x, points[size_t(i) + 1].x);
+        if (x != points[size_t(i)].x) points[size_t(i)].x = x, changed = true;
+    };
+    if (focus == me)
+    {
+        focusUses = stepKeys | keyBit(View::Key::enter) | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward);
+        focusTakesDigits = false;
+        for (auto [key, modifiers] : keys)
+        {
+            const float step = modifiers & View::shift ? 0.01f : 0.05f, now = points[size_t(chosen)].y;
+            const bool sideToSide = modifiers & View::alt;
+            const int last = int(points.size()) - 1;
+            switch (key)
+            {
+            case View::Key::left:
+                if (sideToSide) sideways(chosen, modifiers & View::shift ? -0.001f : -0.01f);
+                else chosen = std::max(chosen - 1, 0);
+                break;
+            case View::Key::right:
+                if (sideToSide) sideways(chosen, modifiers & View::shift ? 0.001f : 0.01f);
+                else chosen = std::min(chosen + 1, last);
+                break;
+            case View::Key::up: level(chosen, now + step); break;
+            case View::Key::down: level(chosen, now - step); break;
+            case View::Key::pageUp: level(chosen, now + 0.25f); break;
+            case View::Key::pageDown: level(chosen, now - 0.25f); break;
+            case View::Key::home: chosen = 0; break;
+            case View::Key::end: chosen = last; break;
+            case View::Key::enter:
+                if (chosen < last)
+                {
+                    const Point from = points[size_t(chosen)], to = points[size_t(chosen) + 1];
+                    points.insert(points.begin() + chosen + 1, Point{(from.x + to.x) / 2, (from.y + to.y) / 2});
+                    ++chosen, changed = true;
+                }
+                break;
+            case View::Key::backspace: case View::Key::deleteForward:
+                if (chosen > 0 && chosen < last) points.erase(points.begin() + chosen), --chosen, changed = true;
+                break;
+            default: break; // Tab: in end()
+            }
+        }
+    }
+    // A screen reader steps or sets a point's level.
+    for (const Asked &ask : asked)
+        if (const int i = partOf(ask.id, me); i >= 0 && i < int(points.size()))
+            level(i, ask.action == Accessible::setValue ? float(ask.value) : points[size_t(i)].y + (ask.action == Accessible::increment ? 0.05f : -0.05f));
+    chosen = std::clamp(chosen, 0, int(points.size()) - 1);
+    within(me) = chosen;
+
+    // For screen readers: a group of sliders, one for each point's level, its
+    // time said in its value.
+    Described &group = describe(me, Accessible::Role::group, "Envelope");
+    group.node.x = r.x, group.node.y = r.y, group.node.width = r.w, group.node.height = r.h;
+    group.node.activeDescendant = accessId(partId(me, chosen));
+    for (size_t i = 0; i < points.size(); ++i)
+    {
+        const Point p = toPixels(points[i]);
+        const std::string name = "Point " + std::to_string(i + 1);
+        Described &d = describe(partId(me, int(i)), Accessible::Role::slider, name.c_str(), accessId(me));
+        d.node.value = "time " + percent(points[i].x) + ", level " + percent(points[i].y);
+        d.node.numeric = true, d.node.number = points[i].y, d.node.min = 0, d.node.max = 1, d.node.step = 0.05, d.node.orientation = 2;
+        d.node.x = p.x - handle, d.node.y = p.y - handle, d.node.width = 2 * handle, d.node.height = 2 * handle;
+        d.node.actions |= Accessible::increment | Accessible::decrement | Accessible::setValue;
+        d.place = float(i);
+    }
+
     // Drawn: a fill under the line, the line, and a handle at each point.
     std::vector<float> xy;
     for (const Point &q : points)
@@ -817,7 +997,7 @@ bool Ui::envelope(std::vector<Point> &points, Rect r)
     }
     std::vector<float> area = xy;
     area.insert(area.end(), {xy[xy.size() - 2], r.y + r.h, xy[0], r.y + r.h});
-    draw.rect(r.x, r.y, r.w, r.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.edge);
+    draw.rect(r.x, r.y, r.w, r.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, focusShown(me) ? theme.accent : theme.edge);
     draw.fill(area.data(), area.size() / 2, {theme.accent.r, theme.accent.g, theme.accent.b, 0.18f});
     draw.polyline(xy.data(), points.size(), 1.5f * s, theme.accent);
     for (size_t i = 0; i < points.size(); ++i)
@@ -825,6 +1005,7 @@ bool Ui::envelope(std::vector<Point> &points, Rect r)
         const bool hot = int(i) == grabbedPoint || (grabbedPoint < 0 && int(i) == near);
         draw.circle(xy[2 * i], xy[2 * i + 1], hot ? handle * 1.25f : handle, hot ? theme.accent : theme.background, 1.5f * s, theme.accent);
     }
+    if (focusShown(me)) draw.circle(xy[2 * size_t(chosen)], xy[2 * size_t(chosen) + 1], handle * 1.9f, {0, 0, 0, 0}, 1.5f * s, theme.accent);
     return changed;
 }
 
@@ -832,25 +1013,81 @@ bool Ui::steps(std::vector<float> &values, Rect r)
 {
     if (values.empty()) return false;
     bool changed = false;
-    const float width = r.w / float(values.size());
+    const int count = int(values.size());
+    const float width = r.w / float(count);
+    const void *me = &values;
+    order.push_back(me);
+    takePartFocus(me, 0, count - 1);
     const auto a = area(&lastStep, r.x, r.y, r.w, r.h);
+    if (a.pressed || a.doubleClicked) focus = me, pressFocused = true;
     if (a.held)
     {
         // Paint every bar between the last one and this, so a fast drag leaves no gaps.
-        const int step = std::clamp(int((a.x - r.x) / width), 0, int(values.size()) - 1);
+        const int step = std::clamp(int((a.x - r.x) / width), 0, count - 1);
         const float value = std::clamp(1 - (a.y - r.y) / r.h, 0.0f, 1.0f);
         const int from = a.pressed || lastStep < 0 ? step : lastStep;
         for (int i = std::min(from, step); i <= std::max(from, step); ++i)
             if (values[size_t(i)] != value) values[size_t(i)] = value, changed = true;
-        lastStep = step;
+        lastStep = step, within(me) = step;
     }
     if (a.released) lastStep = -1;
+
+    // Keys: Left and Right choose a bar, Up and Down change it (Shift for
+    // fine, the Page keys coarse), Delete or Backspace clear it.
+    int chosen = std::clamp(within(me), 0, count - 1);
+    auto change = [&](int i, float to) {
+        to = std::clamp(to, 0.0f, 1.0f);
+        if (to != values[size_t(i)]) values[size_t(i)] = to, changed = true;
+    };
+    if (focus == me)
+    {
+        focusUses = stepKeys | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward);
+        focusTakesDigits = false;
+        for (auto [key, modifiers] : keys)
+        {
+            const float step = modifiers & View::shift ? 0.01f : 0.05f, now = values[size_t(chosen)];
+            switch (key)
+            {
+            case View::Key::left: chosen = std::max(chosen - 1, 0); break;
+            case View::Key::right: chosen = std::min(chosen + 1, count - 1); break;
+            case View::Key::up: change(chosen, now + step); break;
+            case View::Key::down: change(chosen, now - step); break;
+            case View::Key::pageUp: change(chosen, now + 0.25f); break;
+            case View::Key::pageDown: change(chosen, now - 0.25f); break;
+            case View::Key::home: chosen = 0; break;
+            case View::Key::end: chosen = count - 1; break;
+            case View::Key::backspace: case View::Key::deleteForward: change(chosen, 0); break;
+            default: break; // Tab: in end()
+            }
+        }
+    }
+    // A screen reader steps or sets a bar.
+    for (const Asked &ask : asked)
+        if (const int i = partOf(ask.id, me); i >= 0 && i < count)
+            change(i, ask.action == Accessible::setValue ? float(ask.value) : values[size_t(i)] + (ask.action == Accessible::increment ? 0.05f : -0.05f));
+    within(me) = chosen;
+
+    // For screen readers: a group of sliders, one for each bar.
+    Described &group = describe(me, Accessible::Role::group, "Steps");
+    group.node.x = r.x, group.node.y = r.y, group.node.width = r.w, group.node.height = r.h;
+    group.node.activeDescendant = accessId(partId(me, chosen));
+    for (int i = 0; i < count; ++i)
+    {
+        const std::string name = "Step " + std::to_string(i + 1);
+        Described &d = describe(partId(me, i), Accessible::Role::slider, name.c_str(), accessId(me));
+        d.node.value = percent(values[size_t(i)]);
+        d.node.numeric = true, d.node.number = values[size_t(i)], d.node.min = 0, d.node.max = 1, d.node.step = 0.05, d.node.orientation = 2;
+        d.node.x = r.x + i * width, d.node.y = r.y, d.node.width = width, d.node.height = r.h;
+        d.node.actions |= Accessible::increment | Accessible::decrement | Accessible::setValue;
+        d.place = float(i);
+    }
     for (size_t i = 0; i < values.size(); ++i)
     {
         const float x = r.x + i * width, h = r.h * std::clamp(values[i], 0.0f, 1.0f);
         draw.rect(x + 1 * s, r.y, width - 2 * s, r.h, 0, theme.track);
         draw.rect(x + 1 * s, r.y + r.h - h, width - 2 * s, h, 0, theme.accent);
     }
+    if (focusShown(me)) draw.rect(r.x + chosen * width, r.y, width, r.h, 0, {0, 0, 0, 0}, 1.5f * s, theme.accent);
     return changed;
 }
 
@@ -858,8 +1095,10 @@ bool Ui::envelope(std::vector<Point> &points)
 {
     Placed editor{nullptr, nullptr, nullptr, false};
     editor.points = &points;
-    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
+    const Clay_ElementId eid = id("Envelope", int(reinterpret_cast<uintptr_t>(&points) >> 4));
+    CLAY({.id = eid, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
           .custom = {.customData = layout.custom(envelopeBox, &placed.emplace_back(std::move(editor)))}}) {}
+    lastElement = eid.id;
     return std::find(changedLast.begin(), changedLast.end(), &points) != changedLast.end();
 }
 
@@ -867,8 +1106,10 @@ bool Ui::steps(std::vector<float> &values)
 {
     Placed editor{nullptr, nullptr, nullptr, false};
     editor.values = &values;
-    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
+    const Clay_ElementId sid = id("Steps", int(reinterpret_cast<uintptr_t>(&values) >> 4));
+    CLAY({.id = sid, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
           .custom = {.customData = layout.custom(stepsBox, &placed.emplace_back(std::move(editor)))}}) {}
+    lastElement = sid.id;
     return std::find(changedLast.begin(), changedLast.end(), &values) != changedLast.end();
 }
 

@@ -255,13 +255,24 @@ public:
     // Breakpoints, 0..1 across and up, sorted by x: drag a point (between its
     // neighbours; the ends keep their x), double-click empty space to add
     // one, double-click a point to remove it. Returns true on any change.
+    // Keys, with it focused: Left and Right choose a point, Home and End the
+    // first and last; Up and Down move it (Shift finer, Page keys coarser),
+    // Alt with Left or Right sideways; Enter adds one after it, Delete or
+    // Backspace removes it. For screen readers a group of one slider per
+    // point (its level; its time is in its value).
     bool envelope(std::vector<Point> &points, Rect r);
     // Bars, each 0..1: drag across them to paint values, as a step
-    // sequencer's. Returns true on any change.
+    // sequencer's. Returns true on any change. Keys, with it focused: Left
+    // and Right choose a bar, Home and End the first and last; Up and Down
+    // change it (Shift finer, Page keys coarser), Delete or Backspace clears
+    // it. For screen readers a group of one slider per bar.
     bool steps(std::vector<float> &values, Rect r);
     // A piano keyboard from note lowest to highest (MIDI numbers; best from
     // and to a white key). Press a key, slide across keys; lit says which
-    // notes to show held (e.g. from incoming MIDI).
+    // notes to show held (e.g. from incoming MIDI). Keys, with it focused:
+    // Left and Right choose a key, Up and Down an octave, Home and End the
+    // first and last; Enter or Space plays it (down in this frame, up in the
+    // next). For screen readers a group of one button per key.
     Notes piano(int lowest, int highest, Rect r, const std::function<bool(int)> &lit = {});
 
     // What a quick second press is: a double-click (the default: knobs reset,
@@ -376,6 +387,7 @@ private:
         Params *params = nullptr;
         Param *param = nullptr; // a parameter's control: set by setValue
         uint64_t parent = 0;    // 0: the view's
+        float place = -1;       // its place among its siblings when said by hand, not by where it is drawn
     };
     bool handle(Clay_ElementId hid, const char *name, float &size, float min, float most, bool vertical, float origin, int sign);
     void handleBox(Clay_ElementId hid, bool vertical);
@@ -399,6 +411,16 @@ private:
     bool focusShown(const void *id) const { return focus == id && focusVisible; }
     bool focusShown(Clay_ElementId element) const;
     std::vector<View::Key> focusable(Clay_ElementId element, const Area &a);
+    // A control made of parts (bars, points, keys): the part its keys are on,
+    // and the id each is described by. A part a screen reader focused or
+    // clicked is the control's, with the part chosen.
+    int &within(const void *control);
+    static const void *partId(const void *control, int part) { return reinterpret_cast<const char *>(control) + 2 * part + 1; }
+    void takePartFocus(const void *control, int first, int last);
+    // A screen reader's step or value for a part, kept for the control to apply.
+    struct Asked { uint64_t id; Accessible::Action action; double value; };
+    std::vector<Asked> asked;
+    std::vector<std::pair<const void *, int>> withins;
     void drawGrip();
     Rect grip{}; // resizeGrip's view size this frame
     Clay_TextElementConfig *textConfig(Color color, int font = -1);
@@ -477,6 +499,7 @@ private:
     bool leftAfterRelease = false; // the pointer left the view after a release this frame hasn't seen
 
     int playing = -1;           // the piano note held down, or -1
+    bool playingFromKey = false; // by Enter, so let go in the next frame (keys have no release)
     Notes pianoNotes;           // what the piano drawn last frame reported
     int grabbedPoint = -1;      // the envelope point being dragged
     uint32_t numberDrag = 0;    // the number box being dragged

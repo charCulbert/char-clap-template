@@ -1291,6 +1291,165 @@ static void editors()
     for (float v : values) CHECK(std::abs(v - 0.5f) < 1e-4);
 }
 
+// Steps, envelope and piano take the keyboard and tell screen readers what
+// they are: a group of sliders or buttons, one for each part.
+static void editorKeysAndScreenReader()
+{
+    Ui ui;
+    std::vector<Ui::Point> points = {{0, 0}, {0.5f, 1}, {1, 0}};
+    std::vector<float> values(8, 0.5f);
+    bool envelopeChanged = false, stepsChanged = false;
+    Ui::Notes notes;
+    auto draw = [&] {
+        ui.begin(400, 300, 1);
+        envelopeChanged |= ui.envelope(points, gpu::Rect{0, 0, 200, 100});
+        stepsChanged |= ui.steps(values, gpu::Rect{0, 200, 160, 100});
+        notes = ui.piano(60, 71, gpu::Rect{200, 0, 140, 60});
+        ui.end(wgpu::RenderPassEncoder{});
+    };
+    auto find = [&](const char *name) -> const gpu::Accessible * {
+        for (const gpu::Accessible &n : ui.accessibility()->nodes)
+            if (n.name == name) return &n;
+        return nullptr;
+    };
+    auto childrenOf = [&](const char *name) {
+        std::vector<const gpu::Accessible *> parts;
+        if (const gpu::Accessible *group = find(name))
+            for (uint64_t id : group->children)
+                for (const gpu::Accessible &n : ui.accessibility()->nodes)
+                    if (n.id == id) parts.push_back(&n);
+        return parts;
+    };
+    using Role = gpu::Accessible::Role;
+    draw();
+
+    // Steps: a group of eight sliders, 0 to 100 %.
+    const gpu::Accessible *group = find("Steps");
+    CHECK(group && group->role == Role::group);
+    std::vector<const gpu::Accessible *> bars = childrenOf("Steps");
+    CHECK(bars.size() == 8 && bars[0]->name == "Step 1" && bars[7]->name == "Step 8");
+    CHECK(bars[0]->role == Role::slider && bars[0]->value == "50%" && bars[0]->numeric && bars[0]->min == 0 && bars[0]->max == 1);
+    CHECK(bars[0]->actions & gpu::Accessible::increment && bars[0]->actions & gpu::Accessible::setValue);
+    // A click chooses a bar; Right moves to the next, Up and Down change it.
+    pointer(ui, View::Pointer::down, 10, 250);
+    draw();
+    pointer(ui, View::Pointer::up, 10, 250);
+    draw();
+    ui.key(View::Key::right, 0);
+    ui.key(View::Key::up, 0);
+    draw();
+    CHECK(stepsChanged && std::abs(values[1] - 0.55f) < 1e-4 && values[0] == 0.5f && values[2] == 0.5f);
+    CHECK(find("Step 2")->value == "55%" && ui.accessibility()->focus == find("Step 2")->id); // the chosen bar has the focus
+    ui.key(View::Key::down, View::shift);
+    ui.key(View::Key::pageDown, 0);
+    draw();
+    CHECK(std::abs(values[1] - 0.29f) < 1e-4);
+    ui.key(View::Key::end, 0);
+    ui.key(View::Key::deleteForward, 0);
+    draw();
+    CHECK(values[7] == 0 && std::abs(values[1] - 0.29f) < 1e-4 && ui.accessibility()->focus == find("Step 8")->id);
+    ui.key(View::Key::home, 0);
+    ui.key(View::Key::down, 0);
+    for (int i = 0; i < 20; ++i) ui.key(View::Key::up, 0);
+    draw();
+    CHECK(values[0] == 1); // stops at the top
+    // A screen reader steps and sets any bar, and the control has the focus.
+    ui.accessAction(find("Step 4")->id, gpu::Accessible::increment, 0);
+    ui.accessAction(find("Step 5")->id, gpu::Accessible::setValue, 0.2);
+    ui.accessAction(find("Step 6")->id, gpu::Accessible::decrement, 0);
+    draw();
+    CHECK(std::abs(values[3] - 0.55f) < 1e-4 && std::abs(values[4] - 0.2f) < 1e-4 && std::abs(values[5] - 0.45f) < 1e-4);
+    ui.accessAction(find("Step 3")->id, gpu::Accessible::focus, 0);
+    draw();
+    CHECK(ui.accessibility()->focus == find("Step 3")->id);
+    ui.key(View::Key::up, 0);
+    draw();
+    CHECK(std::abs(values[2] - 0.55f) < 1e-4);
+
+    // Envelope: a slider for each point's level, with its time in the value.
+    group = find("Envelope");
+    CHECK(group && group->role == Role::group);
+    std::vector<const gpu::Accessible *> dots = childrenOf("Envelope");
+    CHECK(dots.size() == 3 && dots[1]->name == "Point 2" && dots[1]->role == Role::slider);
+    CHECK(dots[1]->value == "time 50%, level 100%" && dots[1]->number == 1);
+    pointer(ui, View::Pointer::down, 100, 0); // the middle point
+    draw();
+    pointer(ui, View::Pointer::up, 100, 0);
+    draw();
+    ui.key(View::Key::down, 0);
+    ui.key(View::Key::left, View::alt);
+    draw();
+    CHECK(envelopeChanged && std::abs(points[1].y - 0.95f) < 1e-4 && std::abs(points[1].x - 0.49f) < 1e-4);
+    CHECK(find("Point 2")->value == "time 49%, level 95%" && ui.accessibility()->focus == find("Point 2")->id);
+    ui.key(View::Key::enter, 0); // a point after it, on the line
+    draw();
+    CHECK(points.size() == 4 && std::abs(points[2].x - 0.745f) < 1e-4 && std::abs(points[2].y - 0.475f) < 1e-4);
+    CHECK(ui.accessibility()->focus == find("Point 3")->id);
+    for (int i = 0; i < 100; ++i) ui.key(View::Key::right, View::alt); // can't pass its neighbour
+    draw();
+    CHECK(points[2].x == 1 && points[3].x == 1); // stops at its neighbour
+    ui.key(View::Key::deleteForward, 0);
+    draw();
+    CHECK(points.size() == 3 && ui.accessibility()->focus == find("Point 2")->id);
+    ui.key(View::Key::home, 0);
+    ui.key(View::Key::deleteForward, 0); // not an end
+    draw();
+    CHECK(points.size() == 3);
+    ui.accessAction(find("Point 3")->id, gpu::Accessible::setValue, 0.4);
+    ui.accessAction(find("Point 1")->id, gpu::Accessible::increment, 0);
+    draw();
+    CHECK(std::abs(points[2].y - 0.4f) < 1e-4 && std::abs(points[0].y - 0.05f) < 1e-4 && points[0].x == 0 && points[2].x == 1);
+
+    // Piano: a button for each key, in pitch order.
+    group = find("Piano");
+    CHECK(group && group->role == Role::group);
+    std::vector<const gpu::Accessible *> keys = childrenOf("Piano");
+    CHECK(keys.size() == 12 && keys[0]->name == "C4" && keys[1]->name == "C#4" && keys[11]->name == "B4");
+    CHECK(keys[0]->role == Role::button && keys[0]->actions & gpu::Accessible::click && keys[1]->height < keys[0]->height);
+    pointer(ui, View::Pointer::down, 210, 50); // C, to focus the keyboard
+    draw();
+    pointer(ui, View::Pointer::up, 210, 50);
+    draw();
+    CHECK(notes.off == 60);
+    ui.key(View::Key::right, 0); // C sharp
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(notes.on == 61 && notes.off == -1 && ui.accessibility()->focus == find("C#4")->id);
+    draw(); // no key release: it ends in the next frame
+    CHECK(notes.on == -1 && notes.off == 61);
+    draw();
+    CHECK(notes.on == -1 && notes.off == -1);
+    ui.key(View::Key::end, 0);
+    ui.text(" "); // Space plays too
+    draw();
+    CHECK(notes.on == 71);
+    draw();
+    CHECK(notes.off == 71);
+    ui.key(View::Key::down, 0); // an octave down is below the lowest: stays at the lowest
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(notes.on == 60);
+    ui.accessAction(find("E4")->id, gpu::Accessible::click, 0); // a screen reader's click plays it
+    draw();
+    CHECK(notes.on == 64 && notes.off == 60);
+    draw();
+    CHECK(notes.off == 64);
+    ui.key(View::Key::left, 0);
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(notes.on == 63);
+
+    // In a layout, the caller's label names the group.
+    Ui laid;
+    std::vector<float> bars4(4, 0.25f);
+    auto drawLaid = [&] { frame(laid, [&] { laid.steps(bars4); laid.label("Cutoff steps"); }); };
+    drawLaid();
+    drawLaid();
+    bool named = false;
+    for (const gpu::Accessible &n : laid.accessibility()->nodes) named |= n.role == Role::group && n.name == "Cutoff steps" && n.children.size() == 4;
+    CHECK(named);
+}
+
 // Seeded random pointer, wheel, key and text input over every control at once.
 // Whatever arrives, values stay in range, editors stay well formed, and every
 // gesture that begins ends.
@@ -1714,6 +1873,7 @@ int main()
     numberBoxLikeCompost();
     pianoNotes();
     editors();
+    editorKeysAndScreenReader();
     for (uint32_t seed = 1; seed <= 4 && !failures; ++seed) randomInput(seed);
     if (failures) std::fprintf(stderr, "%d failed\n", failures);
     return failures ? 1 : 0;

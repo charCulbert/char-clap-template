@@ -101,6 +101,7 @@ static bool same(const Accessible &a, const Accessible &b)
 
 void Ui::finishDescribing()
 {
+    asked.clear(); // what a screen reader asked of parts was applied by their controls, in this frame
     // Where each element was laid out, and in what order: reading order is
     // layout order, as a page's is document order.
     const std::vector<Layout::Drawn> &drawn = layout.drawn;
@@ -147,6 +148,7 @@ void Ui::finishDescribing()
                     smallest = area, at = float(i) + 0.5f;
             }
         }
+        if (d.place >= 0) at = d.place;
         entries.push_back({d.node, at, d.parent, false});
     }
     // What the page says around them: its text runs, those a control doesn't
@@ -258,6 +260,14 @@ void Ui::finishDescribing()
             for (uint64_t child : n.children)
                 for (const Accessible &c : tree.nodes)
                     if (c.id == child && c.checked == 1) tree.focus = c.id;
+    // A focused group with a chosen part (a step sequencer's bar, a piano's
+    // key): that part has the focus, as aria-activedescendant has it.
+    for (const Accessible &n : tree.nodes)
+        if (n.id == tree.focus && n.role == Accessible::Role::group && n.activeDescendant)
+        {
+            tree.focus = n.activeDescendant;
+            break;
+        }
 #ifndef NDEBUG
     // Every control needs a name a screen reader can say (WCAG 4.1.2).
     for (const Accessible &n : tree.nodes)
@@ -299,11 +309,17 @@ void Ui::accessAction(uint64_t id, Accessible::Action action, double value)
             set(*d->params, *d->param, fromUnit(*d->param, toUnit(*d->param, d->param->value, false) + by, false));
             break;
         }
+        if (d->parent && d->node.role == Accessible::Role::slider) // a bar or a point: its control steps it
+        {
+            asked.push_back({id, action, value});
+            break;
+        }
         focus = me, focusVisible = true;
         keys.push_back({action == Accessible::increment ? View::Key::up : View::Key::down, 0});
         break;
     case Accessible::setValue:
         if (d->param) set(*d->params, *d->param, value);
+        else if (d->parent && d->node.role == Accessible::Role::slider) asked.push_back({id, action, value});
         // A splitter takes it when it's next drawn, from its caller's size as it is then.
         if (d->node.role == Accessible::Role::splitter) splitterAsked = me, splitterTo = std::clamp(value, d->node.min, d->node.max);
         break;
