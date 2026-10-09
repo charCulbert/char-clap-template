@@ -321,7 +321,16 @@ bool Ui::record(const std::function<void(int, void *, Rect)> &onCustom)
     for (auto [key, modifiers] : keys)
     {
         if (key != View::Key::tab || order.empty()) continue;
-        const auto at = std::find(order.begin(), order.end(), focus);
+        // From a text field being edited: keep its edit (as a click
+        // elsewhere does) and go on from the field.
+        const void *from = focus;
+        if (editing)
+        {
+            const void *field = reinterpret_cast<const void *>(uintptr_t(editing));
+            if (std::find(order.begin(), order.end(), field) != order.end()) from = field;
+            pendingField = editing, pendingDraft = draft, editing = 0;
+        }
+        const auto at = std::find(order.begin(), order.end(), from);
         const bool back = modifiers & View::shift;
         if (at == order.end()) focus = back ? order.back() : order.front();
         else if (back) focus = at == order.begin() ? order.back() : *(at - 1);
@@ -556,7 +565,7 @@ void Ui::finishDescribing()
     }
     tree.focus = viewNode;
     for (const Accessible &n : tree.nodes)
-        if (n.id == accessId(focus)) tree.focus = n.id;
+        if (n.id == accessId(focus) || (editing && n.id == uint64_t(editing))) tree.focus = n.id; // or the field being edited
     // A focused radio group: its checked radio has the focus, as the
     // WAI-ARIA radio group pattern has it.
     for (const Accessible &n : tree.nodes)
@@ -595,6 +604,12 @@ void Ui::accessAction(uint64_t id, Accessible::Action action, double value)
     case Accessible::click: focus = me, accessClick = me; break;
     case Accessible::increment: // as the arrow keys would, on the focused control
     case Accessible::decrement:
+        if (d->parent && d->param) // a part of one control (an XY pad's axis): step it directly
+        {
+            const double by = action == Accessible::increment ? 0.01 : -0.01;
+            set(*d->params, *d->param, fromUnit(*d->param, toUnit(*d->param, d->param->value, false) + by, false));
+            break;
+        }
         focus = me, focusVisible = true;
         keys.push_back({action == Accessible::increment ? View::Key::up : View::Key::down, 0});
         break;
@@ -648,12 +663,11 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
     if (!active && over(x, y, w, h))
     {
         if (mouse.pressed) focus = me, pressFocused = true;
-        if (mouse.pressed && mouse.doubleClicked)
-            set(params, p, p.defaultValue);
-        else if (mouse.pressed)
+        if (mouse.pressed)
         {
             active = me;
-            grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = fine;
+            grabSecond = mouse.doubleClicked, grabMoved = false, pressX = mouse.x, pressY = mouse.y;
+            grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = fine || grabSecond; // measured from the press
             params.begin(p);
             if (lockPointer) lockPointer(true);
             held = {&params, &p, nullptr, true};
@@ -682,13 +696,20 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
 
     if (active != me) return false;
     activeSeen = true;
-    // Switching to or from fine mid-drag continues from where the value is.
-    if (fine != grabFine) grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = fine;
-    const double moved = (vertical ? grabY - mouse.y : mouse.x - grabX) / (travel * (fine ? 10 : 1));
-    const double value = fromUnit(p, grabUnit + moved, log);
-    if (value != p.value) params.change(p, value);
+    if (!grabMoved && std::hypot(mouse.x - pressX, mouse.y - pressY) > 4 * s) grabMoved = true;
+    // A second press drags fine once it moves; until then it changes nothing.
+    const bool slow = fine || grabSecond;
+    if (!grabSecond || grabMoved)
+    {
+        // Switching to or from fine mid-drag continues from where the value is.
+        if (slow != grabFine) grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = slow;
+        const double moved = (vertical ? grabY - mouse.y : mouse.x - grabX) / (travel * (slow ? 10 : 1));
+        const double value = fromUnit(p, grabUnit + moved, log);
+        if (value != p.value) params.change(p, value);
+    }
     if (!mouse.down)
     {
+        if (grabSecond && !grabMoved) params.change(p, p.defaultValue); // a double-click: reset, in this gesture
         params.end(p);
         active = nullptr, held = {};
         if (lockPointer) lockPointer(false);
@@ -1276,7 +1297,10 @@ bool Ui::textField(std::string &value, float widthPoints, int index)
         value = std::move(pendingDraft);
         pendingField = 0;
     }
+    const void *me = reinterpret_cast<const void *>(uintptr_t(fid.id));
+    order.push_back(me); // Tab reaches it, and starts editing it
     if ((a.pressed || a.doubleClicked) && editing != fid.id) startEditing(fid.id, value);
+    else if (focus == me && editing != fid.id) startEditing(fid.id, value, true);
     const Clay_BoundingBox box = Clay_GetElementData(fid).boundingBox; // last frame's
     committed |= editKeys(fid.id, value, Clay_PointerOver(fid), box.x + 5 - fieldScroll);
     const bool edit = editing == fid.id, hot = Clay_PointerOver(fid);
@@ -1318,7 +1342,7 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
     const std::string before = typed;
     if (pendingField == nid.id) typed = std::move(pendingDraft), pendingField = 0;
     order.push_back(me);
-    const Area a = element(nid);
+    const Area a = element(nid, eachPress); // a second press too: a double-click is told by mouse.doubleClicked
     const bool fine = mouse.modifiers & View::shift, edit = editing == nid.id;
     if (a.pressed || a.doubleClicked) focus = me, pressFocused = true;
     if (focus == me)
@@ -1330,12 +1354,13 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
         params.end(*p);
         if (lockPointer) lockPointer(false);
     };
-    // Double-click resets; a drag (right or up, past a few points' dead zone)
-    // changes it, Shift for fine and Escape to cancel; clicks do nothing else.
-    if (a.doubleClicked && !edit) set(params, *p, p->defaultValue);
-    else if (a.pressed && !edit)
+    // A drag (right or up, past a few points' dead zone) changes it, Shift
+    // for fine and Escape to cancel; a double-click resets it, and a
+    // double-click that drags is fine (as compost's); clicks do nothing else.
+    if (a.pressed && !edit)
     {
-        grabX = mouse.x, grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = fine;
+        grabSecond = mouse.doubleClicked;
+        grabX = mouse.x, grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = fine || grabSecond;
         numberDrag = nid.id, numberMoved = false, numberStart = p->value;
         params.begin(*p);
         if (lockPointer) lockPointer(true);
@@ -1343,16 +1368,21 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
     }
     else if (a.held && numberDrag == nid.id)
     {
-        if (fine != grabFine) grabX = mouse.x, grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = fine;
+        const bool slow = fine || grabSecond;
+        if (slow != grabFine) grabX = mouse.x, grabY = mouse.y, grabUnit = toUnit(*p, p->value, log), grabFine = slow;
         const float moved = (mouse.x - grabX) + (grabY - mouse.y);
         numberMoved |= std::abs(moved) > 4 * s;
         if (numberMoved)
         {
-            const double value = fromUnit(*p, grabUnit + moved / (180 * s) * (fine ? 0.1 : 1), log);
+            const double value = fromUnit(*p, grabUnit + moved / (180 * s) * (slow ? 0.1 : 1), log);
             if (value != p->value) params.change(*p, value);
         }
     }
-    if (a.released && numberDrag == nid.id) endDrag();
+    if (a.released && numberDrag == nid.id)
+    {
+        if (grabSecond && !numberMoved) params.change(*p, p->defaultValue); // a double-click: reset
+        endDrag();
+    }
     // Keys while it has focus: arrows step (Alt a large step), Page Up and
     // Down step large, Home and End go to the ends, Escape, Delete or
     // Backspace reset it, Enter or a typed number edits it.
@@ -1394,7 +1424,7 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
     CLAY({.id = nid, .layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_FIXED(lineHeight + 4)}},
           .backgroundColor = clayColor(theme.background), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
           .clip = {.horizontal = true},
-          .border = {.color = clayColor(editNow || a.held ? theme.accent : hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+          .border = {.color = clayColor(editNow || a.held || focusShown(nid) ? theme.accent : hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
     {
         if (!editNow)
             CLAY({.layout = {.sizing = {CLAY_SIZING_PERCENT(float(std::clamp(toUnit(*p, p->value, log), 0.0, 1.0))), CLAY_SIZING_GROW(0)}},
@@ -1415,14 +1445,18 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
 bool Ui::drawer(const char *title, bool &open, int index)
 {
     const Clay_ElementId did = id("Drawer", index);
-    if (element(did, eachPress).clicked) open = !open;
+    const Area a = element(did, eachPress);
+    bool toggled = a.clicked;
+    for (View::Key key : focusable(did, a)) toggled |= key == View::Key::enter;
+    if (toggled) open = !open;
     Described &d = describe(reinterpret_cast<const void *>(uintptr_t(did.id)), Accessible::Role::button, title);
     d.element = did.id, d.node.expanded = open, d.node.actions |= Accessible::click | Accessible::expand | Accessible::collapse;
     const bool hot = Clay_PointerOver(did);
     CLAY({.id = did, .layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {6, 6, 4, 4}, .childGap = 6,
                                 .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
           .backgroundColor = clayColor(hot ? theme.panel : Color{0, 0, 0, 0}),
-          .border = {.color = clayColor(theme.edge), .width = {.bottom = 1}}})
+          .border = focusShown(did) ? Clay_BorderElementConfig{.color = clayColor(theme.accent), .width = CLAY_BORDER_OUTSIDE(1)}
+                                    : Clay_BorderElementConfig{.color = clayColor(theme.edge), .width = {.bottom = 1}}})
     {
         CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(7), CLAY_SIZING_FIXED(7)}},
               .custom = {.customData = layout.custom(open ? chevronBox : chevronRightBox)}}) {}
@@ -1486,12 +1520,46 @@ void Ui::xyPad(Params &params, Param *px, Param *py, Rect r)
         params.change(*px, fromUnit(*px, (x - r.x) / r.w, false));
         params.change(*py, fromUnit(*py, 1 - (y - r.y) / r.h, false));
     };
+    const void *me = &px->dragging;
+    order.push_back(me);
+    if (a.pressed || a.doubleClicked) focus = me, pressFocused = true;
     if (a.doubleClicked) set(params, *px, px->defaultValue), set(params, *py, py->defaultValue);
     if (a.pressed) params.begin(*px), params.begin(*py), held = {&params, px, py, false};
+    // Keys, as two sliders': left and right move x, up and down y; Shift
+    // fine, Alt a page's step; Escape, Delete or Backspace reset both.
+    if (focus == me)
+    {
+        focusUses = stepKeys | keyBit(View::Key::escape) | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward);
+        focusTakesDigits = false;
+        for (auto [key, modifiers] : keys)
+        {
+            const double step = modifiers & View::shift ? 0.001 : modifiers & View::alt ? 0.1 : 0.01;
+            auto nudge = [&](Param &q, double by) { set(params, q, fromUnit(q, toUnit(q, q.value, false) + by, false)); };
+            switch (key)
+            {
+            case View::Key::left: nudge(*px, -step); break;
+            case View::Key::right: nudge(*px, step); break;
+            case View::Key::up: nudge(*py, step); break;
+            case View::Key::down: nudge(*py, -step); break;
+            case View::Key::escape: case View::Key::backspace: case View::Key::deleteForward:
+                set(params, *px, px->defaultValue), set(params, *py, py->defaultValue);
+                break;
+            default: break;
+            }
+        }
+    }
+    // For screen readers: a group of its two sliders.
+    Described &group = describe(me, Accessible::Role::group, (px->name + " and " + py->name).c_str());
+    group.node.x = r.x, group.node.y = r.y, group.node.width = r.w, group.node.height = r.h;
+    char text[32];
+    std::snprintf(text, sizeof(text), "%g", px->value);
+    describeParam(reinterpret_cast<const char *>(me) + 1, params, *px, text, r).parent = accessId(me);
+    std::snprintf(text, sizeof(text), "%g", py->value);
+    describeParam(reinterpret_cast<const char *>(me) + 2, params, *py, text, r).parent = accessId(me);
     if (a.held) setFrom(a.x, a.y);
     if (a.released) params.end(*px), params.end(*py), held = {};
     const float x = r.x + r.w * float(toUnit(*px, px->value, false)), y = r.y + r.h * (1 - float(toUnit(*py, py->value, false)));
-    draw.rect(r.x, r.y, r.w, r.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.edge);
+    draw.rect(r.x, r.y, r.w, r.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, focusShown(me) ? theme.accent : theme.edge);
     draw.line(x, r.y, x, r.y + r.h, 1 * s, theme.edge);
     draw.line(r.x, y, r.x + r.w, y, 1 * s, theme.edge);
     draw.circle(x, y, (a.held ? 7.0f : 6.0f) * s, theme.accent, 1.5f * s, theme.text);

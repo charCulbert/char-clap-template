@@ -324,6 +324,10 @@ private:
     float gripOffsetX = 0, gripOffsetY = 0; // from the pointer to the view's corner
     double grabUnit = 0;
     bool grabFine = false;
+    // A second press soon after the first (as compost's): released where it
+    // was, a double-click (reset); moved, a fine drag.
+    bool grabSecond = false, grabMoved = false;
+    float pressX = 0, pressY = 0;
 
     const void *focus = nullptr; // the control keys go to
     bool focusVisible = false;   // after a key, until the next click

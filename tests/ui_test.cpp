@@ -320,6 +320,83 @@ static void numberBoxTabs()
     CHECK(b->value > before && a->value == a->defaultValue);
 }
 
+// Everything is reachable with Tab (WCAG 2.1.1): a text field starts
+// editing, and Tab out of it keeps the edit; a drawer opens with Enter; an
+// XY pad moves with the arrows.
+static void keyboardReachesEverything()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A"), *b = params.find("B");
+    std::string name = "One";
+    bool open = false;
+    auto draw = [&] {
+        frame(ui, [&] {
+            ui.textField(name);
+            ui.drawer("More", open);
+            ui.xyPad(params, a, b, gpu::Rect{200, 150, 100, 100});
+        });
+    };
+    draw();
+    ui.key(View::Key::tab, 0); // into the field: it edits from the next frame
+    draw();
+    draw();
+    CHECK(ui.editingText());
+    ui.text("Two"); // replaces the selection
+    draw();
+    ui.key(View::Key::tab, 0); // to the drawer, keeping the edit
+    draw();
+    draw();
+    CHECK(!ui.editingText() && name == "Two");
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(open);
+    ui.key(View::Key::tab, 0); // to the pad
+    draw();
+    const double x = a->value;
+    ui.key(View::Key::right, 0);
+    draw();
+    CHECK(a->value > x);
+}
+
+// As compost's: a double-click resets, on its release; a double-click
+// that drags is a fine drag, and resets nothing.
+static void doubleClickOrFineDrag()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A"), *b = params.find("B");
+    auto draw = [&] {
+        frame(ui, [&] { ui.knob(params, a, "%.2f"); ui.numberBox(params, b, "%.2f"); });
+    };
+    draw();
+    auto twice = [&](const Clay_BoundingBox &box, float dx, float dy) {
+        const float x = box.x + box.width / 2, y = box.y + box.height / 3;
+        pointer(ui, View::Pointer::down, x, y);
+        draw();
+        pointer(ui, View::Pointer::up, x, y);
+        draw();
+        pointer(ui, View::Pointer::down, x, y);
+        draw();
+        pointer(ui, View::Pointer::move, x + dx, y + dy);
+        draw();
+        pointer(ui, View::Pointer::up, x + dx, y + dy);
+        draw();
+    };
+    a->value = 0.8, b->value = 0.8;
+    twice(box("Knob", a->id), 0, 0);
+    CHECK(a->value == a->defaultValue);
+    twice(box("Knob", a->id), 0, -40); // up 40 points: a tenth of a normal drag's change
+    const double knobFine = a->value - a->defaultValue;
+    CHECK(knobFine > 0 && knobFine < 0.03);
+    twice(box("Number", b->id), 0, 0);
+    CHECK(b->value == b->defaultValue);
+    twice(box("Number", b->id), 36, 0); // a fifth of 180 points, at a tenth
+    CHECK(std::abs(b->value - (b->defaultValue + 0.02)) < 0.005);
+}
+
 static void knobDragAndKeys()
 {
     Ui ui;
@@ -893,6 +970,8 @@ int main()
     screenReader();
     screenReaderReading();
     numberBoxTabs();
+    keyboardReachesEverything();
+    doubleClickOrFineDrag();
     parameterToggleAndSegmented();
     textFieldEdits();
     textFieldShortcuts();
