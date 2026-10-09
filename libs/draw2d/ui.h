@@ -112,6 +112,14 @@ public:
     // An envelope's breakpoint, 0..1 across and up.
     struct Point { float x, y; };
 
+    // How a slider drags, as compost's: absolute (the default, as HTML's range
+    // input): a press puts the value where the pointer is and the drag
+    // follows it; relative: the drag moves the value by how far it goes,
+    // with the pointer held still. Knobs are always relative. Either way,
+    // Shift or a second press drags fine, relative, for the rest of the drag.
+    enum class Drag { absolute, relative };
+    Drag sliderDrag = Drag::absolute;
+
     // ---- In the layout: Clay sizes and places these, so declare them inside
     // CLAY({...}) blocks. Each returns true when the user changed something.
     bool button(const char *label, int index = 0);
@@ -255,7 +263,7 @@ private:
     // while that control is being dragged.
     static const void *controlId(const Param &p, float x, float y);
     bool control(Params &params, Param &p, const void *me, float x, float y, float w, float h, bool vertical, float travel, bool log,
-                 bool typable = false);
+                 bool typable = false, bool absolute = false);
     void typeInto(const void *me, const void *entry, const Param &p);
     // A whole edit: begin, change and end at once (wheel, keys, double-click).
     void set(Params &params, Param &p, double value);
@@ -327,6 +335,7 @@ private:
     // A second press soon after the first (as compost's): released where it
     // was, a double-click (reset); moved, a fine drag.
     bool grabSecond = false, grabMoved = false;
+    bool grabRelative = true; // the drag moves the value by how far it goes (not to where the pointer is)
     float pressX = 0, pressY = 0;
 
     const void *focus = nullptr; // the control keys go to

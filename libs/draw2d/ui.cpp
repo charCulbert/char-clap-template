@@ -650,7 +650,7 @@ const void *Ui::controlId(const Param &p, float x, float y)
 }
 
 bool Ui::control(Params &params, Param &p, const void *me, float x, float y, float w, float h, bool vertical, float travel, bool log,
-                 bool typable)
+                 bool typable, bool absolute)
 {
     order.push_back(me);
     const bool fine = mouse.modifiers & View::shift;
@@ -671,9 +671,12 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
             active = me;
             grabSecond = mouse.doubleClicked, grabMoved = false, pressX = mouse.x, pressY = mouse.y;
             grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = fine || grabSecond; // measured from the press
+            grabRelative = !absolute || fine || grabSecond;
             params.begin(p);
-            if (lockPointer) lockPointer(true);
-            held = {&params, &p, nullptr, true};
+            // Relative: the pointer stays put while the value moves; absolute:
+            // the value jumps to the pointer, which it then follows.
+            if (grabRelative && lockPointer) lockPointer(true);
+            held = {&params, &p, nullptr, grabRelative};
         }
         else if (mouse.wheel != 0)
             set(params, p, fromUnit(p, unit + mouse.wheel * (fine ? 0.002 : 0.02), log)), wheelUsed = true;
@@ -702,20 +705,33 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
     if (!grabMoved && std::hypot(mouse.x - pressX, mouse.y - pressY) > 4 * s) grabMoved = true;
     // A second press drags fine once it moves; until then it changes nothing.
     const bool slow = fine || grabSecond;
-    if (!grabSecond || grabMoved)
+    if (slow && !grabRelative) grabRelative = true, grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = slow;
+    if (!grabRelative) // absolute: the value under the pointer
+    {
+        const double u = std::clamp(vertical ? (y + h - mouse.y) / h : (mouse.x - x) / w, 0.0f, 1.0f);
+        const double value = fromUnit(p, u, log);
+        if (value != p.value) params.change(p, value);
+    }
+    else if (!grabSecond || grabMoved)
     {
         // Switching to or from fine mid-drag continues from where the value is.
         if (slow != grabFine) grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = slow;
         const double moved = (vertical ? grabY - mouse.y : mouse.x - grabX) / (travel * (slow ? 10 : 1));
-        const double value = fromUnit(p, grabUnit + moved, log);
+        // Past an end the value stops, and so does the count: turning back
+        // moves it at once (as compost's), not after undoing the overshoot.
+        const double u = grabUnit + moved;
+        if (u > 1) grabUnit -= u - 1;
+        if (u < 0) grabUnit -= u;
+        const double value = fromUnit(p, std::clamp(u, 0.0, 1.0), log);
         if (value != p.value) params.change(p, value);
     }
     if (!mouse.down)
     {
         if (grabSecond && !grabMoved) params.change(p, p.defaultValue); // a double-click: reset, in this gesture
         params.end(p);
-        active = nullptr, held = {};
-        if (lockPointer) lockPointer(false);
+        active = nullptr;
+        if (held.locked && lockPointer) lockPointer(false);
+        held = {};
     }
     return true;
 }
@@ -763,7 +779,7 @@ void Ui::slider(Params &params, Param *p, Rect box, const char *format, bool log
     typeInto(me, &p->max, *p);
     const bool typing = valueEntry(params, *p, &p->max, {px + w - valueWidth, py, valueWidth, 1.4f * size}, Draw2D::Align::right);
     describeParam(me, params, *p, value, box).node.orientation = 1;
-    const bool dragging = control(params, *p, me, px, py, w, h, false, w, log, true);
+    const bool dragging = control(params, *p, me, px, py, w, h, false, w, log, true, sliderDrag == Drag::absolute);
     const bool hot = dragging || (!active && over(px, py, w, h));
     const float u = float(toUnit(*p, p->value, log)), thumb = 1.125f * size, track = py + h - thumb / 2;
     if (focusShown(me)) draw.rect(px - 3 * s, py - 2 * s, w + 6 * s, h + 4 * s, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
@@ -1428,7 +1444,10 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
         numberMoved |= std::abs(moved) > 4 * s;
         if (numberMoved)
         {
-            const double value = fromUnit(*p, grabUnit + moved / (180 * s) * (slow ? 0.1 : 1), log);
+            const double u = grabUnit + moved / (180 * s) * (slow ? 0.1 : 1);
+            if (u > 1) grabUnit -= u - 1; // past an end: turning back moves it at once
+            if (u < 0) grabUnit -= u;
+            const double value = fromUnit(*p, std::clamp(u, 0.0, 1.0), log);
             if (value != p->value) params.change(*p, value);
         }
     }
@@ -1549,7 +1568,8 @@ void Ui::vslider(Params &params, Param *p, Rect box, const char *format, bool lo
     const float size = theme.textSize * s, cx = box.x + box.w / 2;
     const float top = box.y + 1.6f * size, bottom = box.y + box.h - 1.6f * size, thumb = 1.125f * size;
     const void *me = controlId(*p, box.x, box.y);
-    const bool dragging = control(params, *p, me, box.x, top - thumb / 2, box.w, bottom - top + thumb, true, bottom - top, log);
+    const bool dragging = control(params, *p, me, box.x, top - thumb / 2, box.w, bottom - top + thumb, true, bottom - top, log, false,
+                                  sliderDrag == Drag::absolute);
     const bool hot = dragging || (!active && over(box.x, top, box.w, bottom - top));
     const float u = float(toUnit(*p, p->value, log)), y = bottom - (bottom - top) * u;
     if (focusShown(me)) draw.rect(box.x, box.y, box.w, box.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
