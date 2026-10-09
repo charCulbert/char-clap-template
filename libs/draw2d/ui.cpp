@@ -270,6 +270,7 @@ bool Ui::animating() const
 void Ui::begin(float width, float height, float scale)
 {
     animateAsked = false;
+    scopes.clear(); // (each push is popped within a frame)
     s = scale;
     viewWidth = width / scale, viewHeight = height / scale;
     draw.begin(width, height);
@@ -904,10 +905,35 @@ Ui::Area Ui::press(const void *id, bool isOver, Presses presses)
 
 namespace gpu {
 
-Clay_ElementId Ui::id(const char *kind, int index)
+Clay_ElementId Ui::idIn(const void *scope, const char *name, int index)
 {
-    return Clay_GetElementIdWithIndex({false, int32_t(std::strlen(kind)), kind}, uint32_t(index));
+    // In a scope, the index is mixed with the scope's address: the same name and
+    // number in two scopes are two ids. Outside any, it's Clay's own.
+    uint32_t mixed = uint32_t(index);
+    if (scope)
+    {
+        const uint64_t at = uint64_t(reinterpret_cast<uintptr_t>(scope));
+        mixed = mixed * 2654435761u ^ uint32_t(at ^ (at >> 32)) * 40503u;
+    }
+    return Clay_GetElementIdWithIndex({false, int32_t(std::strlen(name)), name}, mixed);
 }
+
+Clay_ElementId Ui::id(const char *name, int index) const { return idIn(scopes.empty() ? nullptr : scopes.back(), name, index); }
+
+void Ui::pushId(const void *scope) { scopes.push_back(scope); }
+
+void Ui::popId()
+{
+    if (!scopes.empty()) scopes.pop_back();
+}
+
+Rect Ui::bounds(Clay_ElementId element) const
+{
+    const Clay_ElementData d = Clay_GetElementData(element);
+    return d.found ? Rect{d.boundingBox.x, d.boundingBox.y, d.boundingBox.width, d.boundingBox.height} : Rect{};
+}
+
+bool Ui::pointerOver(Clay_ElementId element) const { return Clay_PointerOver(element); }
 
 Clay_TextElementConfig *Ui::textConfig(Color color, int font)
 {

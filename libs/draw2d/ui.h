@@ -301,6 +301,19 @@ public:
     // outlives the control it began on (a dock's tab pulled into a window).
     struct PointerAt { float x, y; bool down; };
     PointerAt pointerAt() const { return {mouse.x, mouse.y, mouse.down}; }
+    // An id for a box you declare (CLAY({.id = ui.id("Name", n)})), mixed with
+    // the scope pushId set, as ImGui's PushID: a widget of your own (a dock)
+    // scopes its ids by itself, so its names and numbers can't clash with the
+    // page's. Ui's controls take their ids from here too.
+    Clay_ElementId id(const char *name, int index = 0) const;
+    void pushId(const void *scope);
+    void popId();
+    // An id as declared inside pushId(scope): for finding it from outside (tests).
+    static Clay_ElementId idIn(const void *scope, const char *name, int index = 0);
+    // The last frame's box of an element (points; all 0 if it wasn't laid out),
+    // and whether the pointer is over it.
+    Rect bounds(Clay_ElementId element) const;
+    bool pointerOver(Clay_ElementId element) const;
     // A box that draws itself: pass the result as .custom = {.customData = ...};
     // draw gets the box's rectangle in pixels when it's laid out. For views of
     // your own (views.h is made this way) without a kind number in onCustom.
@@ -393,7 +406,6 @@ private:
     bool valueEntry(Params &params, Param &p, const void *id, Rect r, Draw2D::Align align);
     void startEditing(uint32_t field, std::string text, bool selectAll = false);
     void fieldText(const std::string &shown, bool edit);
-    Clay_ElementId id(const char *kind, int index);
 
     struct
     {
@@ -456,6 +468,7 @@ private:
     bool tooltipWaiting = false;
     bool settle = false;        // input arrived this frame: draw one more
     bool animateAsked = false;   // animate() this frame
+    std::vector<const void *> scopes; // pushId's, innermost last
     bool leftAfterRelease = false; // the pointer left the view after a release this frame hasn't seen
 
     int playing = -1;           // the piano note held down, or -1

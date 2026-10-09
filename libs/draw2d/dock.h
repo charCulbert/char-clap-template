@@ -77,9 +77,11 @@ public:
     void space(Ui &ui, const char *name, const std::vector<Panel> &panels)
     {
         begin();
-        spaceId = Clay_GetElementIdWithIndex(text(std::string(name) + " space"), 0);
+        ui.pushId(this); // its ids are its own: they can't clash with the page's
+        spaceId = ui.id(name);
         hasSpace = true;
-        CLAY({.id = spaceId, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) { tree(ui, layout.space, panels, -1, 0); }
+        CLAY({.id = spaceId, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) { tree(ui, layout.space, panels, -1); }
+        ui.popId();
     }
 
     // The windows, over everything: call it once a frame, at the top level
@@ -87,6 +89,7 @@ public:
     void windows(Ui &ui, const std::vector<Panel> &panels)
     {
         begin();
+        ui.pushId(this);
         adopt(panels);
         for (size_t i = 0; i < layout.windows.size(); ++i) window(ui, i, panels);
         if (!std::exchange(held, false) && (drag.mode == Mode::tab || drag.mode == Mode::bar)) drag = {}; // let go elsewhere
@@ -96,6 +99,7 @@ public:
         if (later) later(ui);
         later = nullptr;
         drawn = false, hasSpace = false;
+        ui.popId();
     }
 
 private:
@@ -128,9 +132,8 @@ private:
     {
         if (drawn) return;
         drawn = true;
-        strings.clear(), groups.clear();
+        strings.clear(), groups.clear(), splits = 0;
     }
-    Clay_String text(std::string s) { return {false, int32_t(strings.emplace_back(std::move(s)).size()), strings.back().c_str()}; }
 
     void adopt(const std::vector<Panel> &panels)
     {
@@ -171,28 +174,23 @@ private:
         for (const std::string &p : all) joined += (joined.empty() ? "" : ", ") + p;
         return joined;
     }
-    static Rect box(Clay_ElementId id)
-    {
-        const Clay_ElementData d = Clay_GetElementData(id);
-        return d.found ? Rect{d.boundingBox.x, d.boundingBox.y, d.boundingBox.width, d.boundingBox.height} : Rect{};
-    }
 
-    void tree(Ui &ui, Node &n, const std::vector<Panel> &panels, int window, int depth)
+    void tree(Ui &ui, Node &n, const std::vector<Panel> &panels, int window)
     {
         if (n.children.size() == 2)
         {
             if (n.size <= 0) n.size = 160;
             const char *label = strings.emplace_back(names(n.children[0]) + " and " + names(n.children[1])).c_str();
-            ui.split(label, n.size, [&] { tree(ui, n.children[0], panels, window, depth + 1); },
-                     [&] { tree(ui, n.children[1], panels, window, depth + 1); }, {.stacked = n.stacked}, int(groups.size()) * 16 + depth);
+            ui.split(label, n.size, [&] { tree(ui, n.children[0], panels, window); }, [&] { tree(ui, n.children[1], panels, window); },
+                     {.stacked = n.stacked}, splits++);
             return;
         }
         const int index = int(groups.size());
-        const Clay_ElementId gid = Clay_GetElementIdWithIndex(text("DockGroup"), uint32_t(index));
-        groups.push_back({&n, box(gid), window});
+        const Clay_ElementId gid = ui.id("DockGroup", index);
+        groups.push_back({&n, ui.bounds(gid), window});
         CLAY({.id = gid, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
         {
-            group(ui, n, panels, window, 900 + index);
+            group(ui, n, panels, window, index);
         }
     }
 
@@ -232,9 +230,9 @@ private:
     // of its own (as Alt and Enter do).
     void popOut(Ui &ui, Node &n, int window, int index)
     {
-        const Clay_ElementId id = Clay_GetElementIdWithIndex(text("DockPopOut"), uint32_t(index));
+        const Clay_ElementId id = ui.id("DockPopOut", index);
         const Ui::Area a = ui.element(id, Ui::eachPress);
-        const bool hot = Clay_PointerOver(id);
+        const bool hot = ui.pointerOver(id);
         const std::string name = "Pop out " + n.tabs[size_t(n.shown)];
         const Theme theme = ui.theme;
         CLAY({.id = id, .layout = {.sizing = {CLAY_SIZING_FIXED(28), CLAY_SIZING_FIXED(theme.textSize + 10)}},
@@ -325,7 +323,7 @@ private:
             groups.push_back({&w.root, w.frame, int(i)});
         }
         else
-            ui.window(strings.emplace_back(names(w.root)).c_str(), w.frame, open, [&] { tree(ui, w.root, panels, int(i), 0); },
+            ui.window(strings.emplace_back(names(w.root)).c_str(), w.frame, open, [&] { tree(ui, w.root, panels, int(i)); },
                       {.minWidth = 200, .minHeight = 140, .header = false}, 0);
         if (!open) // closed: into the dock space
         {
@@ -408,7 +406,7 @@ private:
         for (const Group &g : groups)
             if (!overWindow && !under && g.window < 0 && inside(g.box, px, py)) under = &g;
         bool found = false;
-        const Rect whole = hasSpace ? box(spaceId) : Rect{};
+        const Rect whole = hasSpace ? ui.bounds(spaceId) : Rect{};
         float distance = 0;
         if (!overWindow && whole.w > 0 && inside(whole, px, py))
             if (const Side side = nearest(whole, px, py, distance); distance < options.spaceEdge) // the space's own edge
@@ -556,6 +554,7 @@ private:
     std::deque<std::string> strings; // this frame's names, alive until it ends
     std::vector<Group> groups;       // this frame's groups, in drawing order
     Clay_ElementId spaceId{};
+    int splits = 0; // this frame's, for their ids
     bool hasSpace = false, drawn = false, held = false;
     Drag drag;
     Rect outline{};          // where the outline is now, points: gliding to where it would go
