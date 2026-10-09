@@ -31,7 +31,7 @@ EM_JS(void, postToPlugin, (const unsigned char *data, int size), {
 
 float pixelRatio() { return float(emscripten_get_device_pixel_ratio()); }
 
-EM_JS(bool, prefersDark, (), { return (Module.darkQuery ??= matchMedia('(prefers-color-scheme: dark)')).matches; });
+EM_JS(bool, prefersDark, (), { return (Module.darkQuery = Module.darkQuery || matchMedia('(prefers-color-scheme: dark)')).matches; });
 
 // Pointer lock needs a recent click (it comes from a knob press) and, inside
 // an iframe, the host's sandbox must allow it; if refused, drags stay plain.
@@ -101,7 +101,7 @@ void jsonString(std::ostringstream &out, const std::string &text)
 // The mirror: one element per node, keyed by id, changed only where the
 // tree differs; positions in CSS pixels, relative to the parent's.
 EM_JS(void, accessUpdate, (const char *json, float ratio), {
-    const access = Module.access ??= {elements: new Map(), focus: "", layer: null, syncing: false};
+    const access = Module.access = Module.access || {elements: new Map(), focus: "", layer: null, syncing: false}; // (no ??=: a C++ trigraph)
     const canvas = document.getElementById('canvas');
     if (!access.layer)
     {
