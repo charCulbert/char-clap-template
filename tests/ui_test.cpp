@@ -3,6 +3,7 @@
 // Draw2D records draws but never flushes them, having no device.
 #include "../libs/draw2d/ui.h"
 #include "../libs/draw2d/views.h"
+#include "../libs/draw2d/dock.h"
 #include <set>
 #include <clocale>
 #include <cstring>
@@ -631,6 +632,119 @@ static void windows()
     clickAt(ui, box("WindowClose", Clay_GetElementId(CLAY_STRING("Two")).id), draw);
     CHECK(!openTwo);
     draw(); // the frame after: the page under it is the page's again
+}
+
+// Tabs: a press shows one; focused, the arrows wrap, Home and End go to the
+// ends, and a key with Alt is the caller's; screen readers get a tab list.
+static void tabStrip()
+{
+    Ui ui;
+    static const char *const names[] = {"Mix", "Edit", "Notes"};
+    int shown = 0;
+    Ui::Tabs last;
+    auto draw = [&] { frame(ui, [&] { last = ui.tabs(names, 3, shown); }); };
+    draw();
+    draw();
+    clickAt(ui, box("Tab", 1), draw);
+    CHECK(shown == 1);
+    auto press = [&](View::Key key, unsigned modifiers = 0) { ui.key(key, modifiers); draw(); };
+    press(View::Key::right);
+    CHECK(shown == 2);
+    press(View::Key::right);
+    CHECK(shown == 0); // wrapped
+    press(View::Key::end);
+    CHECK(shown == 2);
+    press(View::Key::home);
+    CHECK(shown == 0);
+    ui.key(View::Key::left, View::alt);
+    frame(ui, [&] { last = ui.tabs(names, 3, shown); });
+    CHECK(last.altKey && last.key == View::Key::left && shown == 0);
+    const gpu::Accessible *list = nullptr;
+    int tabs = 0, selected = 0;
+    for (const gpu::Accessible &n : ui.accessibility()->nodes)
+    {
+        if (n.role == gpu::Accessible::Role::tabList) list = &n;
+        if (n.role == gpu::Accessible::Role::tab) ++tabs, selected += n.selected && n.name == "Mix";
+    }
+    CHECK(list && list->children.size() == 3 && tabs == 3 && selected == 1);
+}
+
+// A dock: panels start in one group; Alt and the arrows split one off, Alt
+// and Enter float it, closing its window docks it back; a tab dragged onto a
+// group's edge splits it, off the dock floats it, onto a group's middle
+// joins it.
+static void dockedPanels()
+{
+    Ui ui;
+    gpu::Dock dock;
+    auto draw = [&] {
+        ui.begin(800, 600, 1);
+        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(600), CLAY_SIZING_FIXED(400)}}})
+        {
+            dock.draw(ui, "Main", {{"Mix", [&] { ui.button("Solo"); }}, {"Edit", [] {}}, {"Notes", [] {}}});
+        }
+        ui.end(wgpu::RenderPassEncoder{});
+        CHECK(everyNodeHasParent(ui));
+    };
+    draw();
+    draw();
+    CHECK(dock.layout.root.tabs.size() == 3 && dock.layout.root.children.empty());
+    // Keys: Edit to the right of the others.
+    clickAt(ui, box("Tab", 900 * 64 + 1), draw);
+    CHECK(dock.layout.root.shown == 1);
+    ui.key(View::Key::right, View::alt);
+    draw();
+    draw();
+    const gpu::Dock::Node &root = dock.layout.root;
+    CHECK(root.children.size() == 2 && !root.stacked && root.children[1].tabs == std::vector<std::string>{"Edit"});
+    CHECK(root.children[0].tabs == (std::vector<std::string>{"Mix", "Notes"}));
+    CHECK(root.children[0].shown == 0); // Edit was shown: the tab before it is now
+    // Alt and Enter float Mix; closing its window docks it again.
+    clickAt(ui, box("Tab", 900 * 64), draw);
+    ui.key(View::Key::enter, View::alt);
+    draw();
+    draw();
+    CHECK(dock.layout.floating.size() == 1 && dock.layout.floating[0].panel == "Mix");
+    clickAt(ui, box("WindowClose", Clay_GetElementId(CLAY_STRING("Mix")).id), draw);
+    draw();
+    CHECK(dock.layout.floating.empty() && gpu::Dock::Node(dock.layout.root).children.size() == 2);
+    // Drag Edit's tab onto the bottom edge of the left group: a stacked split there.
+    auto dragTab = [&](Clay_BoundingBox from, float x, float y) {
+        const float fx = from.x + from.width / 2, fy = from.y + from.height / 2;
+        pointer(ui, View::Pointer::move, fx, fy);
+        draw();
+        pointer(ui, View::Pointer::down, fx, fy);
+        draw();
+        for (int i = 1; i <= 4; ++i)
+        {
+            pointer(ui, View::Pointer::move, fx + (x - fx) * float(i) / 4, fy + (y - fy) * float(i) / 4);
+            draw();
+        }
+        pointer(ui, View::Pointer::up, x, y);
+        draw();
+        draw();
+    };
+    const Clay_BoundingBox left = box("DockGroup", 0);
+    int editTab = -1;
+    for (int g = 0; g < 2 && editTab < 0; ++g)
+        for (int i = 0; i < 3; ++i)
+            if (Clay_GetElementData(Clay_GetElementIdWithIndex(CLAY_STRING("Tab"), uint32_t((900 + g) * 64 + i))).found && g == 1 && i == 0)
+                editTab = (900 + g) * 64 + i;
+    CHECK(editTab >= 0);
+    dragTab(box("Tab", editTab), left.x + left.width / 2, left.y + left.height - 5);
+    {
+        const gpu::Dock::Node &r = dock.layout.root;
+        CHECK(r.children.empty() == false && r.stacked && r.children[1].tabs == std::vector<std::string>{"Edit"});
+    }
+    // Off the dock: it floats.
+    const Clay_BoundingBox edit = box("Tab", 901 * 64);
+    dragTab(edit, 700, 500);
+    CHECK(dock.layout.floating.size() == 1 && dock.layout.floating[0].panel == "Edit");
+    // Its window's header onto the middle of the group: a tab there again.
+    const Clay_BoundingBox header = box("WindowHeader", Clay_GetElementId(CLAY_STRING("Edit")).id);
+    const Clay_BoundingBox group = box("DockGroup", 0);
+    dragTab({header.x + 10, header.y, 20, header.height}, group.x + group.width / 2, group.y + group.height / 2);
+    CHECK(dock.layout.floating.empty() && dock.layout.root.tabs.size() == 3);
 }
 
 // The views: laid out, each an image for screen readers saying what it
@@ -1354,6 +1468,8 @@ int main()
     windows();
     dockedDrawers();
     signalViews();
+    tabStrip();
+    dockedPanels();
     splitAtScale();
     parameterToggleAndSegmented();
     textFieldEdits();
