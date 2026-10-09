@@ -318,7 +318,7 @@ static void screenReaderReading()
             ui.dropdown(shapes, 2, shape);
             ui.label("Shape");
             CLAY_TEXT(CLAY_STRING("Hello caption"), CLAY_TEXT_CONFIG({.fontSize = 13}));
-            const Clay_ElementId deco = CLAY_ID("Decoration");
+            const Clay_ElementId deco = CLAY_IDI("Decoration", 0);
             CLAY({.id = deco}) { CLAY_TEXT(CLAY_STRING("ornament"), CLAY_TEXT_CONFIG({.fontSize = 13})); }
             ui.hidden(deco);
         });
@@ -450,7 +450,7 @@ static void splitPanes()
     };
     draw();
     draw(); // the second frame knows the split's box
-    const Clay_BoundingBox divider = box("SplitDivider", Clay_GetElementId(CLAY_STRING("Panes")).id);
+    const Clay_BoundingBox divider = box("SplitDivider", Clay_GetElementIdWithIndex(CLAY_STRING("Panes"), 0).id);
     CHECK(divider.width == 7 && std::abs(divider.x - (10 + 150)) < 1);
     const float x = divider.x + 3, y = divider.y + 20;
     pointer(ui, View::Pointer::down, x, y);
@@ -493,13 +493,13 @@ static void splitPanes()
             {
                 ui.split("Row", wide, [] {}, [] {}, {.min = 20, .secondMin = 40});
             }
-            CLAY({.id = CLAY_ID("Neighbour"), .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(100)}}}) {} // shares the row
+            CLAY({.id = CLAY_IDI("Neighbour", 0), .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(100)}}}) {} // shares the row
         });
     };
     row();
     row();
     const Clay_BoundingBox rowBox = box("Row");
-    const Clay_BoundingBox rowLine = box("SplitDivider", Clay_GetElementId(CLAY_STRING("Row")).id);
+    const Clay_BoundingBox rowLine = box("SplitDivider", Clay_GetElementIdWithIndex(CLAY_STRING("Row"), 0).id);
     pointer(ui, View::Pointer::down, rowLine.x + 3, rowLine.y + 50);
     row();
     for (float x = rowLine.x + 20; x < 2000; x += 40)
@@ -526,7 +526,7 @@ static void splitPanes()
     };
     stacked();
     stacked();
-    const Clay_BoundingBox line = box("SplitDivider", Clay_GetElementId(CLAY_STRING("Stack")).id);
+    const Clay_BoundingBox line = box("SplitDivider", Clay_GetElementIdWithIndex(CLAY_STRING("Stack"), 0).id);
     pointer(ui, View::Pointer::down, line.x + 50, line.y + 3);
     stacked();
     for (float y = line.y + 20; y < 900; y += 40) // a slow drag, frame by frame
@@ -576,7 +576,7 @@ static void windows()
     };
     draw();
     draw();
-    const Clay_BoundingBox header = box("WindowHeader", Clay_GetElementId(CLAY_STRING("Two")).id);
+    const Clay_BoundingBox header = box("WindowHeader", Clay_GetElementIdWithIndex(CLAY_STRING("Two"), 0).id);
     // Dragged by the header, and not past the view's edge.
     pointer(ui, View::Pointer::down, header.x + 20, header.y + 5);
     draw();
@@ -589,7 +589,7 @@ static void windows()
     pointer(ui, View::Pointer::up, header.x + 2000, header.y + 25);
     draw();
     // Resized from its corner, no smaller than its minimum.
-    const Clay_BoundingBox grip = box("WindowGrip", Clay_GetElementId(CLAY_STRING("Two")).id);
+    const Clay_BoundingBox grip = box("WindowGrip", Clay_GetElementIdWithIndex(CLAY_STRING("Two"), 0).id);
     pointer(ui, View::Pointer::down, grip.x + 6, grip.y + 6);
     draw();
     pointer(ui, View::Pointer::move, grip.x - 500, grip.y - 500);
@@ -629,7 +629,7 @@ static void windows()
     draw();
     CHECK(!openOne);
     // The close button closes it.
-    clickAt(ui, box("WindowClose", Clay_GetElementId(CLAY_STRING("Two")).id), draw);
+    clickAt(ui, box("WindowClose", Clay_GetElementIdWithIndex(CLAY_STRING("Two"), 0).id), draw);
     CHECK(!openTwo);
     draw(); // the frame after: the page under it is the page's again
 }
@@ -669,98 +669,95 @@ static void tabStrip()
     CHECK(list && list->children.size() == 3 && tabs == 3 && selected == 1);
 }
 
-// A dock, as ImGui's: panels start in one group; Alt and the arrows split
-// one off, Alt and Enter float it, closing its window docks it back. A tab
-// dragged along its bar moves along it; pulled out, it's a window that
-// follows the pointer and docks on the target it's let go over: a group's
-// cross, the dock's edges, another window's middle.
-static void dockedPanels()
+// Dockable windows, as ImGui's: each panel starts as a window; a window let
+// go on another's middle target joins it as tabs (no title then: its tab bar
+// is), on a side splits it; the bar's empty part moves it; a tab moves along
+// the bar, or out of it into a window of its own. A dock space takes them
+// too, on its groups' targets and its edges; Alt and Enter pull a panel out;
+// closing a lone window docks it into the space.
+static void dockableWindows()
 {
     Ui ui;
     gpu::Dock dock;
+    bool withSpace = false;
+    const std::vector<gpu::Dock::Panel> panels = {{"Mix", [&] { ui.button("Solo"); }}, {"Edit", [] {}}, {"Notes", [] {}}};
     auto draw = [&] {
         ui.begin(800, 600, 1);
-        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(600), CLAY_SIZING_FIXED(400)}}})
+        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(800), CLAY_SIZING_FIXED(600)}}})
         {
-            dock.draw(ui, "Main", {{"Mix", [&] { ui.button("Solo"); }}, {"Edit", [] {}}, {"Notes", [] {}}});
+            if (withSpace)
+                CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(400), CLAY_SIZING_FIXED(300)}}}) { dock.space(ui, "Main", panels); }
         }
+        dock.windows(ui, panels);
         ui.end(wgpu::RenderPassEncoder{});
         CHECK(everyNodeHasParent(ui));
     };
     using Tabs = std::vector<std::string>;
-    const gpu::Dock::Layout &layout = dock.layout;
-    draw();
-    draw();
-    CHECK(layout.root.tabs == (Tabs{"Mix", "Edit", "Notes"}));
-
-    // Along the bar: Mix dragged onto Notes takes its place.
-    const Clay_BoundingBox mix = box("Tab", 900 * 64), notes = box("Tab", 900 * 64 + 2);
-    auto at = [](Clay_BoundingBox b) { return std::pair{b.x + b.width / 2, b.y + b.height / 2}; };
+    gpu::Dock::Layout &layout = dock.layout;
     auto press = [&](float x, float y) { pointer(ui, View::Pointer::move, x, y); draw(); pointer(ui, View::Pointer::down, x, y); draw(); };
     auto moveTo = [&](float x, float y) { pointer(ui, View::Pointer::move, x, y); draw(); draw(); };
     auto release = [&](float x, float y) { pointer(ui, View::Pointer::up, x, y); draw(); draw(); };
-    press(at(mix).first, at(mix).second);
-    moveTo(at(notes).first, at(notes).second);
-    release(at(notes).first, at(notes).second);
-    CHECK(layout.root.tabs == (Tabs{"Edit", "Notes", "Mix"}) && layout.root.shown == 2);
+    auto drag = [&](float x0, float y0, float x1, float y1) { press(x0, y0); moveTo((x0 + x1) / 2, (y0 + y1) / 2); moveTo(x1, y1); release(x1, y1); };
+    auto title = [&](const char *name) { return box("WindowHeader", Clay_GetElementIdWithIndex(Clay_String{false, int32_t(std::strlen(name)), name}, 0).id); };
+    draw();
+    CHECK(layout.windows.size() == 3 && layout.space.tabs.empty());
+    layout.windows[0].frame = {20, 20, 240, 180}, layout.windows[1].frame = {300, 20, 240, 180}, layout.windows[2].frame = {20, 300, 240, 180};
+    draw();
+    draw();
 
-    // Out of the bar: a window, carried; let go on nothing, it stays there.
-    const Clay_BoundingBox edit = box("Tab", 900 * 64);
-    press(at(edit).first, at(edit).second);
-    moveTo(at(edit).first, at(edit).second + 60);
-    CHECK(layout.floating.size() == 1 && layout.floating[0].group.tabs == Tabs{"Edit"});
-    moveTo(700, 500); // off the dock
-    CHECK(std::abs(layout.floating[0].frame.x - (700 - 40)) < 1 && std::abs(layout.floating[0].frame.y - (500 - 12)) < 1);
-    release(700, 500);
-    CHECK(layout.floating.size() == 1 && layout.root.tabs == (Tabs{"Notes", "Mix"}));
+    // Edit's title onto Mix's middle target: one window of tabs.
+    Clay_BoundingBox t = title("Edit");
+    drag(t.x + 30, t.y + 6, 20 + 120, 20 + 90);
+    CHECK(layout.windows.size() == 2 && layout.windows[0].root.tabs == (Tabs{"Mix", "Edit"}));
+    // Notes' title onto that window's right target: a split in it.
+    const gpu::Rect &both = layout.windows[0].frame;
+    const Clay_BoundingBox g = box("DockGroup", 0); // its group, under the bar
+    t = title("Notes");
+    drag(t.x + 30, t.y + 6, g.x + g.width / 2 + 28, g.y + g.height / 2);
+    CHECK(layout.windows.size() == 1 && layout.windows[0].root.children.size() == 2 && !layout.windows[0].root.stacked);
+    CHECK(layout.windows[0].root.children.size() == 2 && layout.windows[0].root.children[1].tabs == Tabs{"Notes"});
 
-    // Its header onto the group's bottom button: a split below.
-    auto header = [&] { return box("WindowHeader", Clay_GetElementId(CLAY_STRING("Edit")).id); };
-    const Clay_BoundingBox h = header(), group = box("DockGroup", 0);
-    const float cx = group.x + group.width / 2, cy = group.y + group.height / 2;
-    press(h.x + 20, h.y + 6);
-    moveTo(cx, cy + 28); // the bottom button: 24 points and a gap of 4 below the middle
-    release(cx, cy + 28);
-    CHECK(layout.floating.empty() && layout.root.stacked && layout.root.children.size() == 2);
-    CHECK(layout.root.children.size() == 2 && layout.root.children[1].tabs == Tabs{"Edit"});
+    // The bar's empty part moves the window.
+    const float x0 = both.x;
+    const Clay_BoundingBox bar = box("TabList", 900);
+    drag(bar.x + bar.width - 6, bar.y + 6, bar.x + bar.width - 6 + 50, bar.y + 6 + 30);
+    CHECK(std::abs(layout.windows[0].frame.x - (x0 + 50)) < 1);
 
-    // Alt and Enter float Mix; closing its window docks it again.
-    clickAt(ui, box("Tab", 900 * 64 + 1), draw); // Mix, in the top group
+    // Along the bar: Mix onto Edit's place. Out of it: Edit in a window of its own.
+    Clay_BoundingBox mix = box("Tab", 900 * 64), edit = box("Tab", 900 * 64 + 1);
+    drag(mix.x + mix.width / 2, mix.y + 6, edit.x + edit.width / 2, edit.y + 6);
+    CHECK(layout.windows[0].root.children.size() == 2 && layout.windows[0].root.children[0].tabs == (Tabs{"Edit", "Mix"}));
+    edit = box("Tab", 900 * 64);
+    drag(edit.x + edit.width / 2, edit.y + 6, 450, 350); // let go on nothing: it stays where it's carried
+    CHECK(layout.windows.size() == 2 && layout.windows[1].root.tabs == Tabs{"Edit"});
+    CHECK(std::abs(layout.windows[1].frame.x - (450 - 60)) < 1);
+
+    // A dock space: Edit's title onto its middle target, then Alt and Enter pull it out again.
+    withSpace = true;
+    layout.windows[0].frame = {450, 20, 300, 220}; // clear of the space
+    draw();
+    draw();
+    t = title("Edit");
+    drag(t.x + 30, t.y + 6, 200, 150); // the middle of the 400 x 300 space
+    CHECK(layout.windows.size() == 1 && layout.space.tabs == Tabs{"Edit"});
+    clickAt(ui, box("Tab", 900 * 64), draw); // the space's group is drawn first
     ui.key(View::Key::enter, View::alt);
     draw();
     draw();
-    CHECK(layout.floating.size() == 1 && layout.floating[0].group.tabs == Tabs{"Mix"});
-    clickAt(ui, box("WindowClose", Clay_GetElementId(CLAY_STRING("Mix")).id), draw);
+    CHECK(layout.space.tabs.empty() && layout.windows.size() == 2);
+    // Closing it docks it into the space.
+    clickAt(ui, box("WindowClose", Clay_GetElementIdWithIndex(CLAY_STRING("Edit"), 0).id), draw);
     draw();
-    CHECK(layout.floating.empty() && dock.layout.root.children.size() == 2);
-
-    // Float Mix and Notes, then Notes' header onto Mix's window: its tabs.
-    for (int i = 0; i < 2; ++i)
-    {
-        clickAt(ui, box("Tab", 900 * 64), draw);
-        ui.key(View::Key::enter, View::alt);
-        draw();
-        draw();
-    }
-    CHECK(layout.floating.size() == 2);
-    gpu::Rect &a = dock.layout.floating[0].frame, &b = dock.layout.floating[1].frame;
-    a = {300, 60, 240, 160}, b = {40, 220, 200, 150}; // apart
+    CHECK(layout.space.tabs == Tabs{"Edit"} && layout.windows.size() == 1);
+    // The other window onto the space's left edge target: a side of all of it.
+    gpu::Rect &w = layout.windows[0].frame;
+    w = {450, 320, 300, 220};
     draw();
     draw();
-    const std::string moved = layout.floating[1].group.tabs[0], kept = layout.floating[0].group.tabs[0];
-    const Clay_BoundingBox nh = box("WindowHeader", Clay_GetElementIdWithIndex(Clay_String{false, int32_t(moved.size()), moved.c_str()}, 0).id);
-    press(nh.x + 20, nh.y + 6);
-    moveTo(300 + 120, 60 + 80); // the middle of the other window: its one button
-    release(300 + 120, 60 + 80);
-    CHECK(layout.floating.size() == 1 && layout.floating[0].group.tabs == (Tabs{kept, moved}));
-
-    // That window's header onto the dock's left edge button: a side of all of it.
-    const Clay_BoundingBox wh = box("WindowHeader", Clay_GetElementIdWithIndex(Clay_String{false, int32_t(moved.size()), moved.c_str()}, 0).id);
-    press(wh.x + 20, wh.y + 6);
-    moveTo(4 + 12, 200); // 4 points in from the edge, halfway down
-    release(4 + 12, 200);
-    CHECK(layout.floating.empty() && layout.root.children.size() == 2 && !layout.root.stacked);
-    CHECK(layout.root.children.size() == 2 && layout.root.children[0].tabs.size() == 2);
+    const Clay_BoundingBox wb = box("TabList", 901);
+    drag(wb.x + wb.width - 6, wb.y + 6, 4 + 12, 150);
+    CHECK(layout.windows.empty() && layout.space.children.size() == 2 && !layout.space.stacked);
+    CHECK(layout.space.children.size() == 2 && layout.space.children[1].tabs == Tabs{"Edit"});
 }
 
 // The views: laid out, each an image for screen readers saying what it
@@ -855,7 +852,7 @@ static void splitAtScale()
     };
     draw();
     draw();
-    const Clay_BoundingBox line = box("SplitDivider", Clay_GetElementId(CLAY_STRING("Scaled")).id); // points
+    const Clay_BoundingBox line = box("SplitDivider", Clay_GetElementIdWithIndex(CLAY_STRING("Scaled"), 0).id); // points
     const float x = (line.x + 3) * 2, y = (line.y + 20) * 2; // pixels
     pointer(ui, View::Pointer::down, x, y);
     draw();
@@ -868,7 +865,7 @@ static void splitAtScale()
     // A drag that ends outside the view, as X11 reports it: the release,
     // then a leave, before the next frame. The release counts where it was.
     {
-        const Clay_BoundingBox at = box("SplitDivider", Clay_GetElementId(CLAY_STRING("Scaled")).id);
+        const Clay_BoundingBox at = box("SplitDivider", Clay_GetElementIdWithIndex(CLAY_STRING("Scaled"), 0).id);
         const float px = (at.x + 3) * 2, py = (at.y + 20) * 2;
         pointer(ui, View::Pointer::down, px, py);
         draw();
@@ -898,11 +895,11 @@ static void splitAtScale()
     room = 150;
     inRoom();
     inRoom();
-    CHECK(kept == 200 && box("SplitDivider", Clay_GetElementId(CLAY_STRING("Room")).id).x + 7 <= 150 + 0.5f);
+    CHECK(kept == 200 && box("SplitDivider", Clay_GetElementIdWithIndex(CLAY_STRING("Room"), 0).id).x + 7 <= 150 + 0.5f);
     room = 400;
     inRoom();
     inRoom();
-    CHECK(kept == 200 && std::abs(box("SplitDivider", Clay_GetElementId(CLAY_STRING("Room")).id).x - 200) < 1);
+    CHECK(kept == 200 && std::abs(box("SplitDivider", Clay_GetElementIdWithIndex(CLAY_STRING("Room"), 0).id).x - 200) < 1);
 }
 
 static void knobDragAndKeys()
@@ -1430,7 +1427,7 @@ static void fileDrags()
     ui.dragFiles = [&](const std::vector<std::string> &paths) { out = paths; };
     auto draw = [&] {
         frame(ui, [&] {
-            const Clay_ElementId target = CLAY_ID("Target"), source = CLAY_ID("Source");
+            const Clay_ElementId target = CLAY_IDI("Target", 0), source = CLAY_IDI("Source", 0);
             ui.dropTarget(target, dropped);
             CLAY({.id = target, .layout = {.sizing = {CLAY_SIZING_FIXED(100), CLAY_SIZING_FIXED(40)}}}) {}
             ui.dragSource(source, [&] { ++made; return std::vector<std::string>{"/tmp/a.wav"}; });
@@ -1443,7 +1440,7 @@ static void fileDrags()
     CHECK(!ui.files(View::FileDrag::over, t.x + t.width + 50, 300, {"/x.txt"})); // over nothing
     CHECK(ui.files(View::FileDrag::over, t.x + 10, t.y + 10, {"/x.txt"}));
     draw();
-    CHECK(dropped.empty() && ui.fileOver(CLAY_ID("Target")));
+    CHECK(dropped.empty() && ui.fileOver(CLAY_IDI("Target", 0)));
     CHECK(ui.files(View::FileDrag::drop, t.x + 10, t.y + 10, {"/x.txt", "/y.txt"}));
     draw();
     CHECK(dropped.size() == 2 && dropped[1] == "/y.txt");
@@ -1485,7 +1482,7 @@ int main()
     dockedDrawers();
     signalViews();
     tabStrip();
-    dockedPanels();
+    dockableWindows();
     splitAtScale();
     parameterToggleAndSegmented();
     textFieldEdits();
