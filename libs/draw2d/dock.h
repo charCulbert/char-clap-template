@@ -1,16 +1,19 @@
 #pragma once
 #include "ui.h"
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <deque>
 #include <functional>
 #include <string>
 #include <vector>
 
-// Dockable windows, as Dear ImGui's. Each panel is a window of its own until
-// it's docked: drag a window by its title, and targets show over the window
-// or dock space under the pointer. Let go on one: the middle makes them one
-// window of tabs, a side splits it, a dock space's edges put it along that
-// side of the whole space. Let go anywhere else and it just moves.
+// Dockable windows, as Dear ImGui's, shown as macOS shows a tile. Each panel
+// is a window of its own until it's docked: drag a window by its title over
+// another window or a dock space, and an outline shows where it would go. Near
+// a group's edge, beside it on that side; in its middle, among its tabs (a
+// ghost tab shows); near a dock space's own edge, along that side of all of
+// it. Let go to dock it there, anywhere else and it just moves.
 //
 // - A window of several panels has no title: its tab bars are. Drag a bar's
 //   empty part to move the window; drag a tab along the bar to move it there,
@@ -81,7 +84,6 @@ public:
 
 private:
     enum class Side { middle, left, right, top, bottom };
-    static constexpr float button = 24, gap = 4; // the drop targets, points
     struct Group
     {
         Node *node;
@@ -309,12 +311,14 @@ private:
         const bool over = targets(ui, moved, px, py, target);
         if (p.down) return;
         if (over) later = [this, moved, target](Ui &u) { dock(u, size_t(moved), target); };
-        drag = {};
+        drag = {}, outlineAlpha = 0;
     }
 
-    // The targets for the group under the pointer (in a window, or the dock
-    // space), and the dock space's edges: drawn, and the one pointed at (if
-    // any) in target.
+    // Where it would go, by where the pointer is over the group under it (in
+    // a window, or the dock space): near an edge, beside the group on that
+    // side; in its middle, among its tabs; near the dock space's own edge,
+    // along that side of all of it. Shown as macOS shows a tile: an outline
+    // gliding to where it would go, with its name, and a ghost tab for a tab.
     bool targets(Ui &ui, int moved, float px, float py, Target &target)
     {
         auto inside = [](const Rect &r, float x, float y) { return x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h; };
@@ -325,65 +329,77 @@ private:
             if (side == Side::bottom) r.y += r.h * (1 - share), r.h *= share;
             return r;
         };
+        // The nearest edge, and how near (points).
+        auto nearest = [](const Rect &r, float x, float y, float &distance) {
+            const float d[] = {x - r.x, r.x + r.w - x, y - r.y, r.y + r.h - y};
+            const Side sides[] = {Side::left, Side::right, Side::top, Side::bottom};
+            int best = 0;
+            for (int i = 1; i < 4; ++i)
+                if (d[i] < d[best]) best = i;
+            distance = d[best];
+            return sides[best];
+        };
         // What's under it: a window's group (the later windows are on top), else the dock space's.
         const Group *under = nullptr;
-        for (int w = int(layout.windows.size()) - 1; w >= 0 && !under; --w)
+        bool overWindow = false;
+        for (int w = int(layout.windows.size()) - 1; w >= 0 && !overWindow; --w)
         {
             if (w == moved || !inside(layout.windows[size_t(w)].frame, px, py)) continue;
+            overWindow = true;
             for (const Group &g : groups)
                 if (g.window == w && inside(g.box, px, py)) under = &g;
-            if (!under) return false; // over a window, but not a group in it (its edge): nothing
         }
         for (const Group &g : groups)
-            if (!under && g.window < 0 && inside(g.box, px, py)) under = &g;
-        struct Button { Rect r; Target t; };
-        std::vector<Button> buttons;
-        if (under && under->box.w > 0) // the cross: the middle, then the sides
+            if (!overWindow && !under && g.window < 0 && inside(g.box, px, py)) under = &g;
+        bool found = false;
+        const Rect whole = hasSpace ? box(spaceId) : Rect{};
+        float distance = 0;
+        if (!overWindow && whole.w > 0 && inside(whole, px, py))
+            if (const Side side = nearest(whole, px, py, distance); distance < 24) // the space's own edge
+                target = {nullptr, side, part(whole, side, 1.0f / 3)}, found = true;
+        if (!found && under && under->box.w > 0)
         {
             const Rect &u = under->box;
-            const float cx = u.x + u.w / 2 - button / 2, cy = u.y + u.h / 2 - button / 2, d = button + gap;
-            const Side sides[] = {Side::middle, Side::left, Side::right, Side::top, Side::bottom};
-            const float dx[] = {0, -d, d, 0, 0}, dy[] = {0, 0, 0, -d, d};
-            for (int i = 0; i < 5; ++i)
-                buttons.push_back({{cx + dx[i], cy + dy[i], button, button}, {under->node, sides[i], part(u, sides[i], 0.5f)}});
+            const Side side = nearest(u, px, py, distance);
+            const float band = std::min(80.0f, 0.3f * (side == Side::left || side == Side::right ? u.w : u.h));
+            target = distance < band ? Target{under->node, side, part(u, side, 0.5f)} : Target{under->node, Side::middle, u};
+            found = true;
         }
-        const Rect whole = hasSpace ? box(spaceId) : Rect{};
-        if (whole.w > 0 && inside(whole, px, py) && !(under && under->window >= 0)) // the space's edges, when it's what's under
-            for (Side side : {Side::left, Side::right, Side::top, Side::bottom})
-            {
-                const float x = side == Side::left ? whole.x + gap : side == Side::right ? whole.x + whole.w - gap - button
-                                                                                          : whole.x + whole.w / 2 - button / 2;
-                const float y = side == Side::top ? whole.y + gap : side == Side::bottom ? whole.y + whole.h - gap - button
-                                                                                          : whole.y + whole.h / 2 - button / 2;
-                buttons.push_back({{x, y, button, button}, {nullptr, side, part(whole, side, 1.0f / 3)}});
-            }
-        bool found = false;
-        for (const Button &b : buttons)
-            if (inside(b.r, px, py)) target = b.t, found = true;
-        // Over everything: where it would go, then the buttons, each filled
-        // on the side it means.
+        // The outline glides to where it would go, and fades when there's nowhere.
+        const float dt = std::min(0.05f, std::chrono::duration<float>(std::chrono::steady_clock::now() - glided).count());
+        glided = std::chrono::steady_clock::now();
+        const float k = 1 - std::exp(-dt * 22);
+        if (found)
+        {
+            if (outlineAlpha <= 0.01f) outline = {px - 20, py - 14, 40, 28}; // grows from the pointer
+            outline.x += (target.preview.x - outline.x) * k, outline.y += (target.preview.y - outline.y) * k;
+            outline.w += (target.preview.w - outline.w) * k, outline.h += (target.preview.h - outline.h) * k;
+        }
+        outlineAlpha += ((found ? 1.0f : 0.0f) - outlineAlpha) * k;
+        if (outlineAlpha < 0.01f) return found;
+        ui.animate();
         const Theme theme = ui.theme;
-        const Target shown = target;
+        const Rect r = outline;
+        const float alpha = outlineAlpha;
+        const bool asTab = found && target.side == Side::middle;
+        const std::string label = names(layout.windows[size_t(moved)].root);
         CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
               .floating = {.zIndex = 150, .pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH, .attachTo = CLAY_ATTACH_TO_ROOT},
-              .custom = {.customData = ui.paint([&ui, theme, buttons, shown, found](Rect) {
-                  const float s = ui.s;
+              .custom = {.customData = ui.paint([&ui, theme, r, alpha, asTab, label](Rect) {
+                  const float s = ui.s, inset = 3;
                   const Color a = theme.accent;
-                  if (found)
-                      ui.draw.rect(shown.preview.x * s, shown.preview.y * s, shown.preview.w * s, shown.preview.h * s, 2 * s,
-                                   {a.r, a.g, a.b, 0.2f}, 2 * s, a);
-                  for (const Button &b : buttons)
+                  const Rect o{(r.x + inset) * s, (r.y + inset) * s, (r.w - 2 * inset) * s, (r.h - 2 * inset) * s};
+                  ui.draw.rect(o.x, o.y, o.w, o.h, 8 * s, {a.r, a.g, a.b, 0.18f * alpha}, 2 * s, {a.r, a.g, a.b, alpha});
+                  const float size = theme.textSize * s;
+                  const Color ink{theme.text.r, theme.text.g, theme.text.b, alpha};
+                  if (asTab) // a ghost tab, where its tab would go
                   {
-                      const bool hot = found && b.t.side == shown.side && b.t.node == shown.node;
-                      const Rect r{b.r.x * s, b.r.y * s, b.r.w * s, b.r.h * s};
-                      ui.draw.rect(r.x, r.y, r.w, r.h, 3 * s, hot ? a : theme.panel, 1 * s, theme.text);
-                      Rect mark{r.x + 4 * s, r.y + 4 * s, r.w - 8 * s, r.h - 8 * s}; // the part it fills
-                      if (b.t.side == Side::left || b.t.side == Side::right) mark.w /= 2;
-                      if (b.t.side == Side::right) mark.x += mark.w;
-                      if (b.t.side == Side::top || b.t.side == Side::bottom) mark.h /= 2;
-                      if (b.t.side == Side::bottom) mark.y += mark.h;
-                      ui.draw.rect(mark.x, mark.y, mark.w, mark.h, 1 * s, hot ? theme.background : theme.dim);
+                      const float w = ui.draw.measure(size, label, theme.labelFont) + 20 * s, h = size + 10 * s;
+                      ui.draw.rect(o.x + 8 * s, o.y + 6 * s, w, h, 4 * s, {a.r, a.g, a.b, 0.5f * alpha}, 1 * s, {a.r, a.g, a.b, alpha});
+                      ui.draw.text(o.x + 18 * s, o.y + 6 * s + h * 0.7f, size, label, ink, Draw2D::Align::left, theme.labelFont);
                   }
+                  else
+                      ui.draw.text(o.x + o.w / 2, o.y + o.h / 2 + size * 0.35f, size, label, ink, Draw2D::Align::center, theme.labelFont);
               })}}) {}
         return found;
     }
@@ -481,6 +497,9 @@ private:
     Clay_ElementId spaceId{};
     bool hasSpace = false, drawn = false, held = false;
     Drag drag;
+    Rect outline{};          // where the outline is now, points: gliding to where it would go
+    float outlineAlpha = 0;  // and how much it shows
+    std::chrono::steady_clock::time_point glided;
     std::function<void(Ui &)> later; // a change to the layout, once the frame is drawn
 };
 

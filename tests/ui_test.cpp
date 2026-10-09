@@ -707,15 +707,15 @@ static void dockableWindows()
     draw();
     draw();
 
-    // Edit's title onto Mix's middle target: one window of tabs.
+    // Edit's title onto the middle of Mix's window: one window of tabs.
     Clay_BoundingBox t = title("Edit");
     drag(t.x + 30, t.y + 6, 20 + 120, 20 + 90);
     CHECK(layout.windows.size() == 2 && layout.windows[0].root.tabs == (Tabs{"Mix", "Edit"}));
-    // Notes' title onto that window's right target: a split in it.
+    // Notes' title near that window's right edge: a split in it.
     const gpu::Rect &both = layout.windows[0].frame;
     const Clay_BoundingBox g = box("DockGroup", 0); // its group, under the bar
     t = title("Notes");
-    drag(t.x + 30, t.y + 6, g.x + g.width / 2 + 28, g.y + g.height / 2);
+    drag(t.x + 30, t.y + 6, g.x + g.width - 10, g.y + g.height / 2);
     CHECK(layout.windows.size() == 1 && layout.windows[0].root.children.size() == 2 && !layout.windows[0].root.stacked);
     CHECK(layout.windows[0].root.children.size() == 2 && layout.windows[0].root.children[1].tabs == Tabs{"Notes"});
 
@@ -734,7 +734,7 @@ static void dockableWindows()
     CHECK(layout.windows.size() == 2 && layout.windows[1].root.tabs == Tabs{"Edit"});
     CHECK(std::abs(layout.windows[1].frame.x - (450 - 60)) < 1);
 
-    // A dock space: Edit's title onto its middle target, then Alt and Enter pull it out again.
+    // A dock space: Edit's title onto its middle, then Alt and Enter pull it out again.
     withSpace = true;
     layout.windows[0].frame = {450, 20, 300, 220}; // clear of the space
     draw();
@@ -751,7 +751,7 @@ static void dockableWindows()
     clickAt(ui, box("WindowClose", Clay_GetElementIdWithIndex(CLAY_STRING("Edit"), 0).id), draw);
     draw();
     CHECK(layout.space.tabs == Tabs{"Edit"} && layout.windows.size() == 1);
-    // The other window onto the space's left edge target: a side of all of it.
+    // The other window to the space's own left edge: a side of all of it.
     gpu::Rect &w = layout.windows[0].frame;
     w = {450, 320, 300, 220};
     draw();
