@@ -5,6 +5,8 @@
 #include "../libs/draw2d/views.h"
 #include "../libs/draw2d/dock.h"
 #include <set>
+#include <thread>
+#include <chrono>
 #include <clocale>
 #include <cstring>
 #include <iterator>
@@ -792,6 +794,16 @@ static void signalViews()
         CHECK(read[2].first == "Output" && read[2].second == "One-channel waveform, from -2 to 2");
         CHECK(read[3].first == "Spectrum" && read[3].second.find("log scale") != std::string::npos);
     }
+    // Scrolling smoothly, it asks for frames while columns arrive, and not
+    // once they've stopped.
+    auto draw = [&] { frame(ui, [&] { spectrogram.draw(ui, "Spectrum", 60); }); };
+    spectrogram.add(decibels, frequencies, 2);
+    draw();
+    CHECK(ui.animating());
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    draw();
+    draw();
+    CHECK(!ui.animating());
 }
 
 // A docked drawer: its header opens and closes it; its handle resizes it,

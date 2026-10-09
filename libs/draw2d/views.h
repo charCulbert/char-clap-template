@@ -1,6 +1,8 @@
 #pragma once
 #include "ui.h"
 #include <algorithm>
+#include <chrono>
+#include <deque>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -117,6 +119,10 @@ public:
         float minDecibels = -100, maxDecibels = 0;
         Palette palette = Palette::system;
         int columns = 512, rows = 256; // the history kept, and its resolution up the side
+        // Scrolls smoothly at the rate columns arrive, a column or so behind
+        // the newest, asking for a frame at each of the display's (Ui::animate);
+        // else it moves a whole column at a time, as they're added.
+        bool smooth = true;
     };
 
     Spectrogram() { configure(Options{}); }
@@ -150,12 +156,16 @@ public:
         std::copy_n(values, count, &history[size_t(head) * count]);
         changed.push_back(head);
         head = (head + 1) % options.columns;
+        ++added;
+        arrivals.push_back(std::chrono::steady_clock::now());
+        if (arrivals.size() > 32) arrivals.pop_front();
     }
 
     void clear()
     {
         history.assign(size_t(options.columns) * bins.size(), -INFINITY);
         head = 0, mapped = false, changed.clear();
+        added = 0, edge = 0, arrivals.clear();
     }
 
     const Options &settings() const { return options; }
@@ -164,12 +174,19 @@ public:
     void draw(Ui &ui, const char *name, Rect r)
     {
         upload(ui);
-        const float split = float(head) / float(options.columns); // the oldest column is head's
-        const float older = r.w * (1 - split);
+        const double n = options.columns;
+        // The history's right edge, in columns added, and how many show: all
+        // of them, or (scrolling smoothly) all but the one being overwritten.
+        double end = double(added), count = n;
+        if (options.smooth && options.columns > 1) end = scroll(ui), count = n - 1;
+        const double start = std::fmod(std::fmod(end - count, n) + n, n); // where the left edge is, in the ring
+        const double first = std::min(count, n - start);                   // up to the ring's end, then from its start
         if (image >= 0)
         {
-            ui.draw.image(image, r.x, r.y, older, r.h, {}, {1, 1, 1, 1}, {split, 0, 1, 1});
-            if (head > 0) ui.draw.image(image, r.x + older, r.y, r.w - older, r.h, {}, {1, 1, 1, 1}, {0, 0, split, 1});
+            const float w1 = float(r.w * first / count);
+            ui.draw.image(image, r.x, r.y, w1, r.h, {}, {1, 1, 1, 1}, {float(start / n), 0, float((start + first) / n), 1});
+            if (count - first > 1e-6)
+                ui.draw.image(image, r.x + w1, r.y, r.w - w1, r.h, {}, {1, 1, 1, 1}, {0, 0, float((count - first) / n), 1});
         }
         const Color &t = ui.theme.text;
         ui.draw.rect(r.x, r.y, r.w, r.h, 0, {0, 0, 0, 0}, 1 * ui.s, Color{t.r, t.g, t.b, 0.3f});
@@ -188,6 +205,28 @@ public:
     }
 
 private:
+    // Where the right edge is now (in columns added): moving at the rate they
+    // arrive, so a pair arriving together doesn't jump, a column behind the
+    // newest; caught up if it falls three behind; still when they stop.
+    double scroll(Ui &ui)
+    {
+        using namespace std::chrono;
+        const steady_clock::time_point now = steady_clock::now();
+        const double dt = std::min(0.1, duration<double>(now - lastDraw).count());
+        lastDraw = now;
+        const bool flowing = arrivals.size() >= 2 && duration<double>(now - arrivals.back()).count() < 0.25;
+        if (!flowing)
+        {
+            edge = double(added);
+            return edge;
+        }
+        const double rate = double(arrivals.size() - 1) / std::max(1e-3, duration<double>(arrivals.back() - arrivals.front()).count());
+        edge = std::clamp(edge + dt * rate, double(added) - 3, double(added));
+        if (edge <= double(added) - 3) edge = double(added) - 1.5; // fell behind: back to about a column and a half
+        ui.animate();
+        return edge;
+    }
+
     // The frequency at a fraction of the height, 0 at the bottom.
     float frequencyAt(float fraction) const
     {
@@ -316,6 +355,10 @@ private:
     std::vector<uint8_t> pixels; // rows x columns, coloured
     std::vector<int> changed;   // columns added since the last upload
     int head = 0;               // the next column to write: the oldest
+    uint64_t added = 0;         // columns added since the history began
+    double edge = 0;            // smooth: the right edge's place, in columns added
+    std::deque<std::chrono::steady_clock::time_point> arrivals; // the last columns' times
+    std::chrono::steady_clock::time_point lastDraw;
     int image = -1, imageRows = 0;
     unsigned prepared = 0; // Draw2D::prepared() when the image was added
     bool mapped = false, redraw = true; // the rows' bins are known; the whole picture is to be coloured again

@@ -264,11 +264,12 @@ bool Ui::animating() const
 {
     // Controls declared before a click was handled drew the old state, and
     // Clay hit-tests against the last layout: one more frame settles both.
-    return tooltipWaiting || settle || scrollWaiting || draw.atlasRefilling();
+    return tooltipWaiting || settle || scrollWaiting || animateAsked || draw.atlasRefilling();
 }
 
 void Ui::begin(float width, float height, float scale)
 {
+    animateAsked = false;
     s = scale;
     viewWidth = width / scale, viewHeight = height / scale;
     draw.begin(width, height);

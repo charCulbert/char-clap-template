@@ -278,7 +278,8 @@ int main(int argc, char **argv)
         Ui ui;
         CHECK(ui.draw.prepare(gpu.device, format, font));
         Spectrogram spectrogram({.minFrequency = 0, .maxFrequency = 1000, .scale = Spectrogram::Scale::linear,
-                                 .palette = Spectrogram::Palette::inferno, .columns = 4, .rows = 2});
+                                 .palette = Spectrogram::Palette::inferno, .columns = 4, .rows = 2,
+                                 .smooth = false}); // a column at a time: pixels to check
         const Color quiet = black, loud{1, 0.973f, 0.263f}; // inferno's ends
         const float frequencies[] = {250, 750};
         const float lowLoud[] = {0, -100}, highLoud[] = {-100, 0};

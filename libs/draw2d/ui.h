@@ -114,6 +114,9 @@ public:
     bool text(const char *utf8);
     // True while something waits to be drawn without input (a tooltip's delay).
     bool animating() const;
+    // Asks for another frame after this one: for a widget that moves on its own
+    // (a scrolling spectrogram), drawn at the display's rate while it asks.
+    void animate() { animateAsked = true; }
     // True while a control is held: an edit isn't finished until it's let go.
     bool dragging() const { return active != nullptr; }
     bool editingText() const { return editing != 0; }
@@ -452,6 +455,7 @@ private:
     std::chrono::steady_clock::time_point hoveredSince;
     bool tooltipWaiting = false;
     bool settle = false;        // input arrived this frame: draw one more
+    bool animateAsked = false;   // animate() this frame
     bool leftAfterRelease = false; // the pointer left the view after a release this frame hasn't seen
 
     int playing = -1;           // the piano note held down, or -1
