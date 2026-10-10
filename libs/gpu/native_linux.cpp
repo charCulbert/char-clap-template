@@ -59,6 +59,10 @@ struct Window
     accesskit_unix_adapter *access = nullptr; // screen readers, through AT-SPI
     uintptr_t accessId = 0;                   // its inbox, below
     ::Window outer = 0;                       // our outermost ancestor below the root: the host's frame
+    // The input method, where there is one: keys as UTF-8 text, composed
+    // (dead keys, Compose, IBus). Without, keys give Latin-1 (XLookupString).
+    XIM im = nullptr;
+    XIC ic = nullptr;
 };
 
 // Screen readers: AccessKit calls from a thread of its own, and may still
@@ -250,8 +254,20 @@ Window *create(const Parent &parent, uint32_t width, uint32_t height, Callbacks 
         if (!XQueryTree(display, w, &root, &up, &children, &count)) break;
         if (children) XFree(children);
     }
+    // The one XMODIFIERS names (@im=ibus), else Xlib's own. The modifiers
+    // are Xlib's, for the whole process: the host's put back afterwards.
+    const char *current = XSetLocaleModifiers(nullptr);
+    const std::string hostModifiers = current ? current : "";
+    if (XSetLocaleModifiers("")) window->im = XOpenIM(display, nullptr, nullptr, nullptr);
+    if (!window->im && XSetLocaleModifiers("@im=none")) window->im = XOpenIM(display, nullptr, nullptr, nullptr);
+    XSetLocaleModifiers(hostModifiers.c_str());
+    if (window->im)
+        window->ic = XCreateIC(window->im, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, window->window,
+                               XNFocusWindow, window->window, nullptr);
+    long imEvents = 0; // what the input method needs to see besides
+    if (window->ic) XGetICValues(window->ic, XNFilterEvents, &imEvents, nullptr);
     XSelectInput(display, window->window, ButtonPressMask | ButtonReleaseMask | PointerMotionMask | LeaveWindowMask
-                                              | KeyPressMask | ExposureMask | StructureNotifyMask);
+                                              | KeyPressMask | ExposureMask | StructureNotifyMask | imEvents);
     XMapWindow(display, window->window);
     {
         std::lock_guard lock(accessLock);
@@ -328,6 +344,8 @@ void destroy(Window *window)
     if (window->blank) XFreeCursor(window->display, window->blank);
     for (::Cursor shape : window->shapes)
         if (shape) XFreeCursor(window->display, shape);
+    if (window->ic) XDestroyIC(window->ic);
+    if (window->im) XCloseIM(window->im);
     for (::Window w : window->proxies) // ours to take back, unless something else took them over
         if (xdndReceiver(window, w) == window->window)
         {
@@ -426,6 +444,7 @@ void textInput(Window *window, bool editing, View::Caret)
 {
     if (editing == window->focused) return;
     window->focused = editing;
+    if (window->ic) editing ? XSetICFocus(window->ic) : XUnsetICFocus(window->ic);
     XSetInputFocus(window->display, editing ? window->window : window->parent, RevertToParent, CurrentTime);
     XFlush(window->display);
 }
@@ -638,6 +657,32 @@ static void dragMotion(Window *window, const XMotionEvent &motion)
                     long(motion.time), long(window->xdndCopy), window->window);
 }
 
+// Latin-1, X11's STRING, from UTF-8 and back; false for text beyond it.
+static bool toLatin1(const std::string &utf8, std::string &latin1)
+{
+    for (size_t i = 0; i < utf8.size(); ++i)
+    {
+        const auto c = static_cast<unsigned char>(utf8[i]);
+        if (c < 0x80) latin1 += char(c);
+        else if ((c == 0xC2 || c == 0xC3) && i + 1 < utf8.size() && (static_cast<unsigned char>(utf8[i + 1]) & 0xC0) == 0x80)
+            latin1 += char((c & 0x03) << 6 | (utf8[++i] & 0x3F));
+        else return false;
+    }
+    return true;
+}
+
+static std::string fromLatin1(const char *latin1, size_t length)
+{
+    std::string utf8;
+    for (size_t i = 0; i < length; ++i)
+    {
+        const auto c = static_cast<unsigned char>(latin1[i]);
+        if (c < 0x80) utf8 += char(c);
+        else utf8 += char(0xC0 | c >> 6), utf8 += char(0x80 | (c & 0x3F));
+    }
+    return utf8;
+}
+
 static void answerSelection(Window *window, const XSelectionRequestEvent &request)
 {
     XSelectionEvent reply = {};
@@ -670,9 +715,16 @@ static void answerSelection(Window *window, const XSelectionRequestEvent &reques
     }
     else if (request.target == window->utf8 || request.target == XA_STRING)
     {
-        XChangeProperty(window->display, request.requestor, property, request.target, 8, PropModeReplace,
-                        reinterpret_cast<const unsigned char *>(window->clipboard.data()), int(window->clipboard.size()));
-        reply.property = property;
+        // STRING is Latin-1: declined (no property) for text beyond it.
+        std::string latin1;
+        const std::string *text = &window->clipboard;
+        if (request.target == XA_STRING) text = toLatin1(window->clipboard, latin1) ? &latin1 : nullptr;
+        if (text)
+        {
+            XChangeProperty(window->display, request.requestor, property, request.target, 8, PropModeReplace,
+                            reinterpret_cast<const unsigned char *>(text->data()), int(text->size()));
+            reply.property = property;
+        }
     }
     XSendEvent(window->display, request.requestor, False, 0, reinterpret_cast<XEvent *>(&reply));
     XFlush(window->display);
@@ -756,6 +808,7 @@ void pumpEvents(Window *window)
     {
         XEvent event;
         XNextEvent(window->display, &event);
+        if (XFilterEvent(&event, None)) continue; // the input method's: a key it composes with
         if (event.type == ReparentNotify && event.xreparent.window != window->window) watchAncestors(window);
         if (event.type == ConfigureNotify || event.type == ReparentNotify) accessBounds(window);
         if (event.type == FocusIn || event.type == FocusOut) accessFocus(window);
@@ -779,7 +832,7 @@ void pumpEvents(Window *window)
             if (window->dropPending) dropNow(window);
             else if (window->dropSource) dropStatus(window);
         }
-        if (event.type == SelectionClear) window->clipboard.clear();
+        if (event.type == SelectionClear && event.xselectionclear.selection == window->clipboardAtom) window->clipboard.clear();
         if (event.type == LeaveNotify && !window->locked)
             window->callbacks.pointer({View::Pointer::leave, window->x, window->y, modifiers(event.xcrossing.state)});
         if (event.type == MotionNotify)
@@ -847,18 +900,19 @@ void pumpEvents(Window *window)
                 break;
             default:
             {
-                // Typed characters (Latin-1 without an input method, which is
-                // enough for numbers). X11 has no simple way to hand unused
-                // keys back to the host.
-                char typed[8] = {};
-                if (XLookupString(&event.xkey, typed, sizeof(typed) - 1, nullptr, nullptr) == 1
-                    && static_cast<unsigned char>(typed[0]) >= 0x20 && typed[0] != 0x7F && !(event.xkey.state & ControlMask))
+                // Typed characters, through the input method where there is
+                // one. X11 has no simple way to hand unused keys back to the host.
+                if (event.xkey.state & ControlMask) continue;
+                char typed[64];
+                std::string text;
+                if (window->ic)
                 {
-                    const auto c = static_cast<unsigned char>(typed[0]);
-                    char utf8[3] = {char(c)};
-                    if (c >= 0x80) utf8[0] = char(0xC0 | c >> 6), utf8[1] = char(0x80 | (c & 0x3F));
-                    window->callbacks.text(utf8);
+                    Status status;
+                    const int length = Xutf8LookupString(window->ic, &event.xkey, typed, sizeof(typed), nullptr, &status);
+                    if (status == XLookupChars || status == XLookupBoth) text.assign(typed, size_t(length));
                 }
+                else text = fromLatin1(typed, size_t(XLookupString(&event.xkey, typed, sizeof(typed), nullptr, nullptr)));
+                if (!text.empty() && static_cast<unsigned char>(text[0]) >= 0x20 && text[0] != 0x7F) window->callbacks.text(text.c_str());
                 continue;
             }
             }
