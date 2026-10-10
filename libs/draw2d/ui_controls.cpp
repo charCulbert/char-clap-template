@@ -626,7 +626,7 @@ void Ui::tooltip(const char *text)
     if (!lastElement) return;
     said.push_back({lastElement, {}, text ? text : "", false, false, true}); // as HTML's title: its description
     const Clay_ElementId target{lastElement, 0, 0, {}};
-    if (!Clay_PointerOver(target) || mouse.down || active)
+    if (!Clay_PointerOver(target) || mouse.down || active || openMenu) // (nor over an open menu)
     {
         if (hovered == lastElement) hovered = 0;
         return;
