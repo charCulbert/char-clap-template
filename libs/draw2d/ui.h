@@ -91,6 +91,11 @@ struct DrawerOptions
     Edge edge = Edge::top;
     bool resizable = true;
     float min = 40, max = 1e9f;
+    // Its header only an arrow, 24 points square (WCAG 2.5.8's least),
+    // pointing the way it opens and the other way while open: for a drawer
+    // over or beside a plot. The title stays its name to screen readers and
+    // shows as its tooltip.
+    bool arrowOnly = false;
 };
 
 // How a Ui::split lays out and limits its two areas (points).
@@ -387,7 +392,7 @@ public:
 private:
     enum Builtin { knobBox = -1, sliderBox = -2, chevronBox = -3, chevronRightBox = -4, vsliderBox = -5, xyBox = -6, meterBox = -7,
                    imageKnobBox = -8, pianoBox = -9, envelopeBox = -10, stepsBox = -11, gripBox = -12, closeBox = -13,
-                   paintBox = -14 };
+                   paintBox = -14, chevronLeftBox = -15, chevronUpBox = -16 };
     struct Placed
     {
         Params *params;
@@ -432,6 +437,9 @@ private:
         uint64_t parent = 0;    // 0: the view's
         float place = -1;       // its place among its siblings when said by hand, not by where it is drawn
     };
+    // A drawer's header: the title after a chevron, or (arrow: a chevron
+    // Builtin) that arrow alone.
+    bool drawerHeader(const char *title, bool &open, int index, int arrow);
     bool handle(Clay_ElementId hid, const char *name, float &size, float min, float most, bool vertical, float origin, int sign);
     void handleBox(Clay_ElementId hid, bool vertical);
     std::vector<Described> described;

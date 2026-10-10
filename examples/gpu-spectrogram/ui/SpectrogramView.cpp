@@ -1,6 +1,6 @@
 // GPU Spectrogram's interface, made only of libs/draw2d's parts: a
 // gpu::Spectrogram (draw2d/views.h) fills the window, its scales drawn over
-// its edges, with a Pause toggle and the settings drawer's header (Ui::drawer)
+// its edges, with a Pause toggle and the settings drawer's arrow (Ui::drawer)
 // in its top right corner. Open, the drawer docks to the right edge, beside
 // the plot, with the plugin's settings as readouts (Ui::readout) to drag,
 // scroll or click; its edge resizes it. Hovering shows the frequency, nearest
@@ -136,7 +136,7 @@ public:
         const Clay_ElementId plot = ui.id("Plot"), corner = ui.id("Corner");
         const bool drawerOpen = p[drawer]->value >= 0.5;
         // The spectrogram fills the window, edge to edge, beside the drawer
-        // while it's open; Pause (and the drawer's header while it's closed)
+        // while it's open; Pause (and the drawer's arrow while it's closed)
         // over its top right corner.
         CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
         {
@@ -153,7 +153,7 @@ public:
             {
                 const gpu::Color &b = ui.theme.background;
                 CLAY({.id = corner, .layout = {.sizing = {CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0)}, .padding = {4, 4, 4, 4}, .childGap = 4,
-                                               .childAlignment = {.y = CLAY_ALIGN_Y_TOP}},
+                                               .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
                       .backgroundColor = gpu::clayColor({b.r, b.g, b.b, 0.78f}), .cornerRadius = CLAY_CORNER_RADIUS(4),
                       .floating = {.offset = {-8, 8}, .attachPoints = {CLAY_ATTACH_POINT_RIGHT_TOP, CLAY_ATTACH_POINT_RIGHT_TOP},
                                    .attachTo = CLAY_ATTACH_TO_PARENT}})
@@ -196,7 +196,7 @@ private:
         float size = float(p[drawerWidth]->value);
         const float least = float(p[drawerWidth]->min), most = std::max(least, std::min(float(p[drawerWidth]->max), widthPoints - 200));
         ui.drawer("Settings", open, size, [&] { readouts(size); },
-                  {.edge = gpu::DrawerOptions::Edge::right, .min = least, .max = most});
+                  {.edge = gpu::DrawerOptions::Edge::right, .min = least, .max = most, .arrowOnly = true});
         auto keep = [this](gpu::Param &q, double value) {
             if (value == q.value) return;
             params.begin(q), params.change(q, value), params.end(q);

@@ -1333,6 +1333,45 @@ static void dockedDrawers()
     CHECK(!topOpen && bottomOpen);
 }
 
+// A drawer whose header is only an arrow: 24 points square, named by its
+// title (with no description repeating it) and expanded while open; a click
+// opens it and its contents come, and a click closes it.
+static void arrowOnlyDrawer()
+{
+    Ui ui;
+    bool open = false, declared = false;
+    float width = 120;
+    auto draw = [&] {
+        declared = false;
+        frame(ui, [&] {
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
+            {
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) {}
+                ui.drawer("Settings", open, width, [&] { declared = true; },
+                          {.edge = gpu::DrawerOptions::Edge::right, .min = 80, .max = 200, .arrowOnly = true});
+            }
+        });
+    };
+    draw();
+    draw();
+    const Clay_BoundingBox header = box("DrawerHeader", Clay_GetElementIdWithIndex(CLAY_STRING("Settings"), 0).id);
+    CHECK(header.width == 24 && header.height == 24);
+    CHECK(header.x + header.width == 390); // closed, at the right edge (inside the frame's padding)
+    auto node = [&]() -> const gpu::Accessible * {
+        for (const gpu::Accessible &n : ui.accessibility()->nodes)
+            if (n.role == gpu::Accessible::Role::button && n.name == "Settings") return &n;
+        return nullptr;
+    };
+    CHECK(node() && node()->expanded == 0 && node()->description.empty());
+    clickAt(ui, header, draw);
+    draw();
+    CHECK(open && declared && node() && node()->expanded == 1);
+    const Clay_BoundingBox opened = box("DrawerHeader", Clay_GetElementIdWithIndex(CLAY_STRING("Settings"), 0).id);
+    CHECK(opened.width == 24 && opened.height == 24);
+    clickAt(ui, opened, draw);
+    CHECK(!open);
+}
+
 // The same drag at 2 pixels a point (a Retina or 2x desktop).
 static void splitAtScale()
 {
@@ -2552,6 +2591,7 @@ int main()
     windows();
     windowInScope();
     dockedDrawers();
+    arrowOnlyDrawer();
     signalViews();
     tabStrip();
     dockableWindows();

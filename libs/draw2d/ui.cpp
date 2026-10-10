@@ -248,6 +248,16 @@ bool Ui::record()
             const float xy[] = {r.x + r.w * 0.3f, r.y, r.x + r.w * 0.7f, r.y + r.h / 2, r.x + r.w * 0.3f, r.y + r.h};
             draw.polyline(xy, 3, 1.2f * s, theme.dim);
         }
+        else if (kind == chevronLeftBox)
+        {
+            const float xy[] = {r.x + r.w * 0.7f, r.y, r.x + r.w * 0.3f, r.y + r.h / 2, r.x + r.w * 0.7f, r.y + r.h};
+            draw.polyline(xy, 3, 1.2f * s, theme.dim);
+        }
+        else if (kind == chevronUpBox)
+        {
+            const float xy[] = {r.x, r.y + r.h * 0.7f, r.x + r.w / 2, r.y + r.h * 0.3f, r.x + r.w, r.y + r.h * 0.7f};
+            draw.polyline(xy, 3, 1.2f * s, theme.dim);
+        }
         else if (kind == gripBox) // three short diagonals, as a window's resize corner
         {
             for (float d : {0.3f, 0.6f, 0.9f})

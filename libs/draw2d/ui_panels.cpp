@@ -158,7 +158,12 @@ bool Ui::drawer(const char *title, bool &open, float &size, const std::function<
         CLAY({.layout = {.sizing = {grow, grow}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
         {
             if (open && options.edge == Edge::bottom) body();
-            drawer(title, open, index); // the header
+            // The header: an arrow pointing the way it opens (away from its
+            // edge), the other way while open; or the plain drawer's.
+            const bool towardsEnd = options.edge == Edge::left || options.edge == Edge::top; // opens right or down
+            const int opens = across ? (towardsEnd ? chevronRightBox : chevronLeftBox) : (towardsEnd ? chevronBox : chevronUpBox);
+            const int closes = across ? (towardsEnd ? chevronLeftBox : chevronRightBox) : (towardsEnd ? chevronUpBox : chevronBox);
+            drawerHeader(title, open, index, options.arrowOnly ? (open ? closes : opens) : 0);
             if (before && open && options.edge != Edge::bottom) body();
         }
         if (open && options.resizable && (options.edge == Edge::top || options.edge == Edge::left)) handleBox(hid, !across);
@@ -282,7 +287,9 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
 
 // A header that opens and closes the section under it (compost's drawer,
 // ImGui's collapsing header). Declare the section only while it returns true.
-bool Ui::drawer(const char *title, bool &open, int index)
+bool Ui::drawer(const char *title, bool &open, int index) { return drawerHeader(title, open, index, 0); }
+
+bool Ui::drawerHeader(const char *title, bool &open, int index, int arrow)
 {
     // Its id from its title, as a window's: two drawers need no index to
     // differ. (Not the title's own id: a docked drawer's box has that.)
@@ -294,6 +301,20 @@ bool Ui::drawer(const char *title, bool &open, int index)
     Described &d = describe(reinterpret_cast<const void *>(uintptr_t(did.id)), Accessible::Role::button, title);
     d.element = did.id, d.node.expanded = open, d.node.actions |= Accessible::click | Accessible::expand | Accessible::collapse;
     const bool hot = Clay_PointerOver(did);
+    if (arrow)
+    {
+        // 24 points square, outlined as a toggle is; the title as its tooltip.
+        CLAY({.id = did, .layout = {.sizing = {CLAY_SIZING_FIXED(24), CLAY_SIZING_FIXED(24)},
+                                    .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
+              .backgroundColor = clayColor(hot ? theme.panel : Color{0, 0, 0, 0}), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+              .border = {.color = clayColor(focusShown(did) ? theme.accent : hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+        {
+            CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(8), CLAY_SIZING_FIXED(8)}}, .custom = {.customData = layout.custom(arrow)}}) {}
+        }
+        lastElement = did.id;
+        tooltip(title);
+        return open;
+    }
     CLAY({.id = did, .layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {6, 6, 4, 4}, .childGap = 6,
                                 .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
           .backgroundColor = clayColor(hot ? theme.panel : Color{0, 0, 0, 0}),
