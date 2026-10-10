@@ -462,4 +462,116 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
     lastElement = nid.id;
 }
 
+void Ui::readout(Params &params, Param *p, const char *label, const char *format, bool log, float widthPoints)
+{
+    if (p) readout(params, *p, label, format, log, nullptr, 0, widthPoints);
+}
+
+void Ui::readout(Params &params, Param *p, const char *label, const char *const *items, int count, float widthPoints)
+{
+    if (p && count > 0) readout(params, *p, label, nullptr, false, items, count, widthPoints);
+}
+
+// Text that changes when dragged, as char-spectrum's Smoothing readout; with
+// items, an enumeration a click steps through.
+void Ui::readout(Params &params, Param &p, const char *label, const char *format, bool log, const char *const *items, int count,
+                 float widthPoints)
+{
+    const Clay_ElementId rid = id("Readout", p.id);
+    const void *me = reinterpret_cast<const void *>(uintptr_t(rid.id));
+    const int item = items ? std::clamp(int(std::lround(p.value - p.min)), 0, count - 1) : 0;
+    char shown[32];
+    if (items) std::snprintf(shown, sizeof(shown), "%s", items[item]);
+    else std::snprintf(shown, sizeof(shown), format, p.value);
+    Described &self = describeParam(me, params, p, shown, {});
+    self.node.role = Accessible::Role::spinButton, self.element = rid.id;
+    order.push_back(me);
+    // A value a step from this one: items, or a fraction of the range.
+    auto step = [&](double by) {
+        if (items) return p.min + std::clamp(item + int(by), 0, count - 1);
+        return fromUnit(p, std::clamp(toUnit(p, p.value, log) + by, 0.0, 1.0), log);
+    };
+    const Area a = element(rid, eachPress); // a second press too: a double-click is told by mouse.doubleClicked
+    if (a.pressed) focus = me, pressFocused = true;
+    if (focus == me) focusUses = stepKeys | keyBit(View::Key::escape) | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward);
+    // A drag up (or right), past a few points' dead zone, raises it: the
+    // whole range in 200 points, or an item every 16; Shift slows it.
+    const bool fine = mouse.modifiers & View::shift;
+    auto grabHere = [&] {
+        grabX = mouse.x, grabY = mouse.y, grabUnit = items ? double(item) : toUnit(p, p.value, log), grabFine = fine;
+    };
+    if (a.pressed)
+    {
+        grabSecond = mouse.doubleClicked;
+        grabHere();
+        numberDrag = rid.id, numberMoved = false, numberStart = p.value;
+        params.begin(p);
+        held = {&params, &p, nullptr, false};
+    }
+    else if (a.held && numberDrag == rid.id)
+    {
+        if (fine != grabFine) grabHere();
+        const float moved = (mouse.x - grabX) + (grabY - mouse.y);
+        numberMoved |= std::abs(moved) > 4 * s;
+        if (numberMoved)
+        {
+            const double value = items ? p.min + std::clamp(int(std::lround(grabUnit + moved / (16 * s * (fine ? 4 : 1)))), 0, count - 1)
+                                       : fromUnit(p, std::clamp(grabUnit + moved / (200 * s) * (fine ? 0.1 : 1), 0.0, 1.0), log);
+            if (value != p.value) params.change(p, value);
+        }
+    }
+    if (a.released && numberDrag == rid.id)
+    {
+        if (!numberMoved && grabSecond) params.change(p, p.defaultValue);             // a double-click: reset
+        else if (!numberMoved && items) params.change(p, p.min + (item + 1) % count); // a click: the next item
+        numberDrag = 0, held = {};
+        params.end(p);
+    }
+    if (a.wheel != 0 && !a.held)
+    {
+        if (items) // an item a notch; a trackpad's small turns add up to one
+        {
+            itemWheel += a.wheel;
+            if (std::abs(itemWheel) >= 1) set(params, p, step(itemWheel > 0 ? 1 : -1)), itemWheel = 0;
+        }
+        else set(params, p, step(a.wheel * (fine ? 0.002 : 0.02)));
+        wheelUsed = true;
+    }
+    if (focus == me)
+        for (auto [key, modifiers] : keys)
+        {
+            const double small = items ? 1 : modifiers & View::shift ? 0.001 : 0.01, large = items ? 2 : 0.1;
+            switch (key)
+            {
+            case View::Key::up: case View::Key::right: set(params, p, step(small)); break;
+            case View::Key::down: case View::Key::left: set(params, p, step(-small)); break;
+            case View::Key::pageUp: set(params, p, step(large)); break;
+            case View::Key::pageDown: set(params, p, step(-large)); break;
+            case View::Key::home: set(params, p, p.min); break;
+            case View::Key::end: set(params, p, items ? p.min + count - 1 : p.max); break;
+            case View::Key::escape:
+                if (numberDrag == rid.id) params.change(p, numberStart), numberDrag = 0, held = {}, params.end(p); // cancel the drag
+                else set(params, p, p.defaultValue);
+                break;
+            case View::Key::backspace: case View::Key::deleteForward: set(params, p, p.defaultValue); break;
+            default: break;
+            }
+        }
+    // The label dim and the value in the text colour (the accent while
+    // held), a faint wash under the pointer, an accent outline when focus shows.
+    const bool hot = Clay_PointerOver(rid), fixed = widthPoints > 0;
+    const Color wash{theme.text.r, theme.text.g, theme.text.b, hot || a.held ? 0.12f : 0};
+    CLAY({.id = rid, .layout = {.sizing = {fixed ? CLAY_SIZING_FIXED(widthPoints) : CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0)},
+                                .padding = {4, 4, 1, 1}, .childGap = uint16_t(theme.textSize / 2),
+                                .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
+          .backgroundColor = clayColor(wash), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+          .border = {.color = clayColor(focusShown(rid) ? theme.accent : Color{0, 0, 0, 0}), .width = CLAY_BORDER_OUTSIDE(1)}})
+    {
+        CLAY_TEXT(layout.text(label), textConfig(theme.dim));
+        if (fixed) CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}}}) {}
+        CLAY_TEXT(layout.text(shown), textConfig(a.held ? theme.accent : theme.text, theme.valueFont));
+    }
+    lastElement = rid.id;
+}
+
 }

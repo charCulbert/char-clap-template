@@ -206,6 +206,17 @@ public:
     int contextMenu(Clay_ElementId element, const char *const *items, int count);
     // Drag up or down to change, Shift for fine; double-click to type a value.
     void numberBox(Params &params, Param *p, const char *format, bool log = false, float widthPoints = 64);
+    // A parameter as a line of text, its label then its value, for laying
+    // over a plot (char-spectrum's readouts): drag up or down (Shift for
+    // fine) or scroll over it to change it, double-click for the default.
+    // With items (item i is the value min + i) it shows the item, and a
+    // click steps to the next, wrapping. To screen readers a spin button
+    // named for its parameter; focused, the arrows step it (an item at a
+    // time), Page Up and Down step further, Home and End go to the ends,
+    // and Escape, Delete or Backspace reset it. widthPoints 0: as wide as
+    // its text; else the value is right-aligned in that width.
+    void readout(Params &params, Param *p, const char *label, const char *format, bool log = false, float widthPoints = 0);
+    void readout(Params &params, Param *p, const char *label, const char *const *items, int count, float widthPoints = 0);
     // A header that opens and closes the section under it: declare the
     // section while this returns true.
     bool drawer(const char *title, bool &open, int index = 0);
@@ -442,6 +453,8 @@ private:
     bool editKeys(uint32_t field, std::string &value, bool overField, float textX = NAN);
     static std::string plainNumber(double value);
     bool valueEntry(Params &params, Param &p, const void *id, Rect r, Draw2D::Align align);
+    void readout(Params &params, Param &p, const char *label, const char *format, bool log, const char *const *items, int count,
+                 float widthPoints);
     void startEditing(uint32_t field, std::string text, bool selectAll = false);
     void fieldText(const std::string &shown, bool edit);
 
@@ -530,6 +543,7 @@ private:
     uint32_t numberDrag = 0;    // the number box being dragged
     bool numberMoved = false;   // past its dead zone
     double numberStart = 0;     // its value when the drag began, for Escape
+    float itemWheel = 0;        // a readout's wheel turned less than an item's step, kept for the next turn
     int lastStep = -1;          // the step painted last in a drag
     std::vector<const void *> changedNow, changedLast; // envelopes and steps (by their data) changed in this end() and the last
     struct

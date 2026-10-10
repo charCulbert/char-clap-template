@@ -106,6 +106,8 @@ inline void scope(Ui &ui, const char *name, const float *samples, size_t count, 
 // the last columns that fit. Frequencies go up the side on a linear, log or
 // mel scale. It keeps the values it was given, so a new scale, range or
 // palette redraws the whole history, and it sends the GPU only new columns.
+// Time goes across one column per add(), or (pixelsPerSecond) at a steady
+// rate whatever the columns' rate. probe() says what's under the pointer.
 // Keep one per view (it's the history); add from the UI thread.
 class Spectrogram
 {
@@ -119,8 +121,15 @@ public:
         float minDecibels = -100, maxDecibels = 0;
         Palette palette = Palette::system;
         int columns = 512, rows = 256; // the history kept, and its resolution up the side
-        // Scrolls smoothly at the rate columns arrive, a column or so behind
-        // the newest, asking for a frame at each of the display's (Ui::animate);
+        // 0: each add() is a column, the history stretched across the width.
+        // Else time goes across at this many points a second, as Listener's
+        // scroll rate: each add() covers the seconds it's given, and each
+        // column is a point's worth of time, the loudest of what fell in it.
+        // Then `columns` is the most kept: make it the widest it's drawn, in
+        // points, and a few more.
+        float pixelsPerSecond = 0;
+        // Scrolls smoothly at the rate columns arrive, a little behind the
+        // newest, asking for a frame at each of the display's (Ui::animate);
         // else it moves a whole column at a time, as they're added.
         bool smooth = true;
     };
@@ -128,24 +137,28 @@ public:
     Spectrogram() { configure(Options{}); }
     explicit Spectrogram(const Options &o) { configure(o); }
 
-    // New options; a different number of columns starts the history again.
-    // The same options again change nothing, so it can be called every frame.
+    // New options. A different number of columns keeps the newest that fit;
+    // a different pixelsPerSecond starts the history again. The same options
+    // again change nothing, so it can be called every frame.
     void configure(Options o)
     {
         o.columns = std::max(1, o.columns), o.rows = std::max(1, o.rows);
-        const bool resized = o.columns != options.columns;
+        const int before = options.columns;
+        const bool resized = o.columns != options.columns, restart = o.pixelsPerSecond != options.pixelsPerSecond;
         const bool remap = resized || o.rows != options.rows || o.scale != options.scale || o.minFrequency != options.minFrequency
                         || o.maxFrequency != options.maxFrequency;
         const bool recolour = o.palette != options.palette || o.minDecibels != options.minDecibels || o.maxDecibels != options.maxDecibels;
         options = o;
-        if (resized) clear();
+        if (restart || before <= 0) clear();
+        else if (resized) keep(before);
         if (remap) mapped = false;
         if (recolour) redraw = true;
     }
 
-    // One column: values[i] decibels at frequencies[i] (Hz, ascending). Other
+    // One column: values[i] decibels at frequencies[i] (Hz, ascending), the
+    // last `seconds` of the signal (needed with pixelsPerSecond). Other
     // frequencies than the last column's (a new FFT size) start the history again.
-    void add(const float *values, const float *frequencies, size_t count)
+    void add(const float *values, const float *frequencies, size_t count, float seconds = 0)
     {
         if (!values || !frequencies || !count) return;
         if (count != bins.size() || !std::equal(bins.begin(), bins.end(), frequencies))
@@ -153,12 +166,22 @@ public:
             bins.assign(frequencies, frequencies + count);
             clear();
         }
-        std::copy_n(values, count, &history[size_t(head) * count]);
-        changed.push_back(head);
-        head = (head + 1) % options.columns;
-        ++added;
-        arrivals.push_back(std::chrono::steady_clock::now());
-        if (arrivals.size() > 32) arrivals.pop_front();
+        if (options.pixelsPerSecond <= 0)
+        {
+            push(values);
+            return;
+        }
+        // The column is part of the one being filled, and may fill it and more.
+        if (pending.empty()) pending.assign(values, values + count);
+        else for (size_t i = 0; i < count; ++i) pending[i] = std::max(pending[i], values[i]);
+        filled = std::min(filled + std::max(0.0, double(seconds) * options.pixelsPerSecond), double(options.columns)); // no more than it keeps
+        while (filled >= 1)
+        {
+            push(pending.data());
+            filled -= 1;
+            pending.assign(values, values + count);
+        }
+        if (filled <= 0) pending.clear();
     }
 
     void clear()
@@ -166,6 +189,7 @@ public:
         history.assign(size_t(options.columns) * bins.size(), -INFINITY);
         head = 0, mapped = false, changed.clear();
         added = 0, edge = 0, arrivals.clear();
+        pending.clear(), filled = 0;
     }
 
     const Options &settings() const { return options; }
@@ -175,28 +199,42 @@ public:
     {
         upload(ui);
         const double n = options.columns;
+        const int lag = maxLag();
         // The history's right edge, in columns added, and how many show: all
         // of them, or (scrolling smoothly) all but the ones that may already
-        // be overwritten: the edge lags up to maxLag columns behind the
-        // newest, and the viewport's left end lags with it, so maxLag + 1
-        // of the oldest slots (those the newest columns went into) stay out.
+        // be overwritten: the edge lags up to `lag` columns behind the
+        // newest, and the viewport's left end lags with it, so lag + 1 of
+        // the oldest slots (those the newest columns went into) stay out.
+        // Across time, a column a point, as many as fit.
         double end = double(added), count = n;
-        if (options.smooth && options.columns > maxLag + 1) end = scroll(ui), count = n - (maxLag + 1);
+        if (options.smooth && options.columns > lag + 1) end = scroll(ui, lag), count = n - (lag + 1);
+        // Across time, a column a point, right-aligned: as many as fit, and
+        // the left part empty while fewer are kept.
+        Rect at = r;
+        if (options.pixelsPerSecond > 0)
+        {
+            count = std::max(1.0, std::min(count, double(r.w / ui.s)));
+            at.w = std::min(r.w, float(count) * ui.s), at.x = r.x + r.w - at.w;
+        }
         const double start = std::fmod(std::fmod(end - count, n) + n, n); // where the left edge is, in the ring
         const double first = std::min(count, n - start);                   // up to the ring's end, then from its start
         if (image >= 0)
         {
-            const float w1 = float(r.w * first / count);
-            ui.draw.image(image, r.x, r.y, w1, r.h, {}, {1, 1, 1, 1}, {float(start / n), 0, float((start + first) / n), 1});
+            const float w1 = float(at.w * first / count);
+            ui.draw.image(image, at.x, at.y, w1, at.h, {}, {1, 1, 1, 1}, {float(start / n), 0, float((start + first) / n), 1});
             if (count - first > 1e-6)
-                ui.draw.image(image, r.x + w1, r.y, r.w - w1, r.h, {}, {1, 1, 1, 1}, {0, 0, float((count - first) / n), 1});
+                ui.draw.image(image, at.x + w1, at.y, at.w - w1, at.h, {}, {1, 1, 1, 1}, {0, 0, float((count - first) / n), 1});
         }
+        drawn = {r, at.x, at.w, end - count, count, ui.s};
         const Color &t = ui.theme.text;
         ui.draw.rect(r.x, r.y, r.w, r.h, 0, {0, 0, 0, 0}, 1 * ui.s, Color{t.r, t.g, t.b, 0.3f});
         static const char *const scales[] = {"linear", "log", "mel"};
-        char about[160];
-        std::snprintf(about, sizeof about, "Spectrogram, newest on the right: %g Hz to %g Hz on a %s scale, %g to %g dB",
-                      options.minFrequency, options.maxFrequency, scales[int(options.scale)], options.minDecibels, options.maxDecibels);
+        char about[200];
+        int length = std::snprintf(about, sizeof about, "Spectrogram, newest on the right: %g Hz to %g Hz on a %s scale, %g to %g dB",
+                                   options.minFrequency, options.maxFrequency, scales[int(options.scale)], options.minDecibels,
+                                   options.maxDecibels);
+        if (options.pixelsPerSecond > 0 && length > 0 && length < int(sizeof about))
+            std::snprintf(about + length, sizeof about - size_t(length), ", the last %.1f s", r.w / ui.s / options.pixelsPerSecond);
         ui.accessible(Accessible::Role::image, name, nullptr, r, about);
     }
 
@@ -207,12 +245,99 @@ public:
               .custom = {.customData = ui.paint([this, &ui, name](Rect r) { draw(ui, name, r); })}}) {}
     }
 
+    // The frequency at a height in r, and the height of a frequency (pixels).
+    float frequencyAt(Rect r, float y) const { return frequencyOf(1 - (y - r.y) / std::max(r.h, 1e-6f)); }
+    float yAt(Rect r, float hz) const { return r.y + (1 - fractionOf(hz)) * r.h; }
+
+    // What's under a point of the last drawing (pixels): the frequency at
+    // that height and the level there in the column under it. Snapping, as
+    // Listener's peak snap: the nearest peak in that column within 10 points
+    // above or below (one already followed is kept within 18), its frequency
+    // and level found between the bins around it; y is then its height.
+    // False off the picture, or over columns not yet added.
+    struct Probe
+    {
+        float frequency = 0, decibels = -INFINITY, y = 0;
+        bool peak = false; // snapped to one
+    };
+    bool probe(float x, float y, bool snap, Probe &out)
+    {
+        const Rect &r = drawn.r;
+        if (bins.size() < 3 || x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return false;
+        if (x < drawn.left) return false;
+        const double column = std::floor(drawn.start + (x - drawn.left) / drawn.width * drawn.count);
+        if (column < 0 || column >= double(added) || column < double(added) - options.columns) return false;
+        const float *values = &history[size_t(uint64_t(column) % uint64_t(options.columns)) * bins.size()];
+        out = {frequencyAt(r, y), -INFINITY, y, false};
+        // The level between the two bins either side of the frequency.
+        const size_t above = std::min(bins.size() - 1, size_t(std::max<ptrdiff_t>(1, std::lower_bound(bins.begin(), bins.end(), out.frequency) - bins.begin())));
+        const float f0 = bins[above - 1], f1 = bins[above], along = std::clamp((out.frequency - f0) / std::max(f1 - f0, 1e-6f), 0.0f, 1.0f);
+        out.decibels = values[above - 1] + (values[above] - values[above - 1]) * along;
+        if (!std::isfinite(out.decibels)) return false;
+        if (!snap) return true;
+        size_t best = 0;
+        float closest = 10 * drawn.scale;
+        for (size_t k = 1; k + 1 < bins.size(); ++k)
+        {
+            const float v = values[k];
+            if (bins[k] < options.minFrequency || bins[k] > options.maxFrequency || !std::isfinite(v) || v < options.minDecibels + 6
+                || v < values[k - 1] || v < values[k + 1] || (v == values[k - 1] && v == values[k + 1]))
+                continue;
+            const float distance = std::abs(yAt(r, bins[k]) - y);
+            if (bins[k] == followed && distance <= 18 * drawn.scale)
+            {
+                best = k;
+                break;
+            }
+            if (distance <= closest) best = k, closest = distance;
+        }
+        followed = best ? bins[best] : 0;
+        if (!best) return true;
+        // A parabola through the peak's bin and its neighbours (in dB).
+        const float a = values[best - 1], b = values[best], c = values[best + 1], curve = a - 2 * b + c;
+        const float p = curve < 0 ? std::clamp(0.5f * (a - c) / curve, -0.5f, 0.5f) : 0;
+        out.frequency = bins[best] + p * (bins[best + 1] - bins[best - 1]) / 2;
+        out.decibels = b - 0.25f * (a - c) * p;
+        out.y = yAt(r, out.frequency);
+        out.peak = true;
+        return true;
+    }
+
 private:
+    // Adds a column of bins.size() values on the right.
+    void push(const float *values)
+    {
+        std::copy_n(values, bins.size(), &history[size_t(head) * bins.size()]);
+        changed.push_back(head);
+        head = (head + 1) % options.columns;
+        ++added;
+        arrivals.push_back(std::chrono::steady_clock::now());
+        if (arrivals.size() > 32) arrivals.pop_front();
+    }
+
+    // A new number of columns: the newest that fit stay, each where the
+    // column count puts it (column a at a % columns, as push writes them).
+    void keep(int before)
+    {
+        const size_t n = bins.size();
+        std::vector<float> kept(size_t(options.columns) * n, -INFINITY);
+        const uint64_t count = std::min<uint64_t>(added, uint64_t(std::min(before, options.columns)));
+        for (uint64_t a = added - count; a < added; ++a)
+            std::copy_n(&history[size_t(a % uint64_t(before)) * n], n, &kept[size_t(a % uint64_t(options.columns)) * n]);
+        history.swap(kept);
+        head = int(added % uint64_t(options.columns));
+        changed.clear();
+    }
+
+    // How far the smooth edge may lag the newest column: three columns, or
+    // across time three of the bursts columns tend to come in (an interface
+    // gets them about 60 times a second) and a little more.
+    int maxLag() const { return options.pixelsPerSecond > 0 ? std::max(3, int(std::ceil(options.pixelsPerSecond / 20)) + 2) : 3; }
+
     // Where the right edge is now (in columns added): moving at the rate they
     // arrive, so a pair arriving together doesn't jump, a column behind the
-    // newest; caught up if it falls maxLag (three) behind; still when they stop.
-    static constexpr int maxLag = 3;
-    double scroll(Ui &ui)
+    // newest; caught up if it falls `lag` behind; still when they stop.
+    double scroll(Ui &ui, int lag)
     {
         using namespace std::chrono;
         const steady_clock::time_point now = steady_clock::now();
@@ -225,14 +350,14 @@ private:
             return edge;
         }
         const double rate = double(arrivals.size() - 1) / std::max(1e-3, duration<double>(arrivals.back() - arrivals.front()).count());
-        edge = std::clamp(edge + dt * rate, double(added) - maxLag, double(added));
-        if (edge <= double(added) - maxLag) edge = double(added) - 1.5; // fell behind: back to about a column and a half
+        edge = std::clamp(edge + dt * rate, double(added) - lag, double(added));
+        if (edge <= double(added) - lag) edge = double(added) - std::max(1.5, lag / 2.0); // fell behind: back to the middle
         ui.animate();
         return edge;
     }
 
-    // The frequency at a fraction of the height, 0 at the bottom.
-    float frequencyAt(float fraction) const
+    // The frequency at a fraction of the height, 0 at the bottom, and back.
+    float frequencyOf(float fraction) const
     {
         const float low = options.minFrequency, high = std::max(options.maxFrequency, low + 1);
         if (options.scale == Scale::log)
@@ -241,12 +366,21 @@ private:
             return floor * std::pow(high / floor, fraction);
         }
         if (options.scale == Scale::mel)
-        {
-            auto mel = [](float f) { return 2595 * std::log10(1 + f / 700); };
             return 700 * (std::pow(10.0f, (mel(low) + (mel(high) - mel(low)) * fraction) / 2595) - 1);
-        }
         return low + (high - low) * fraction;
     }
+    float fractionOf(float hz) const
+    {
+        const float low = options.minFrequency, high = std::max(options.maxFrequency, low + 1);
+        if (options.scale == Scale::log)
+        {
+            const float floor = std::max(low, 1.0f);
+            return std::log(std::max(hz, 1e-3f) / floor) / std::log(high / floor);
+        }
+        if (options.scale == Scale::mel) return (mel(hz) - mel(low)) / (mel(high) - mel(low));
+        return (hz - low) / (high - low);
+    }
+    static float mel(float hz) { return 2595 * std::log10(1 + hz / 700); }
 
     // Which bins each row shows, top row first: the loudest of those in its
     // band, or between the two either side of a band with none in it.
@@ -257,7 +391,7 @@ private:
         const size_t count = bins.size();
         for (int row = 0; row < options.rows; ++row)
         {
-            const float high = frequencyAt(1 - float(row) / float(options.rows)), low = frequencyAt(1 - float(row + 1) / float(options.rows));
+            const float high = frequencyOf(1 - float(row) / float(options.rows)), low = frequencyOf(1 - float(row + 1) / float(options.rows));
             Band &b = bands[size_t(row)];
             b.from = size_t(std::lower_bound(bins.begin(), bins.end(), low) - bins.begin());
             b.to = size_t(std::upper_bound(bins.begin(), bins.end(), high) - bins.begin());
@@ -369,6 +503,11 @@ private:
 
     Options options{0, 0, Scale::log, 0, 0, Palette::system, 0, 0};
     std::vector<float> bins;    // the frequencies of the values added
+    std::vector<float> pending; // across time: the column being filled, the loudest of what fell in it
+    double filled = 0;          // and how much of it is (0..1)
+    // The last drawing: its box, the part the columns took (pixels), from which column, how many, and the scale.
+    struct { Rect r; float left, width; double start, count; float scale; } drawn{};
+    float followed = 0;         // the peak probe() snapped to last, by its bin's frequency
     std::vector<float> history; // columns x bins: a ring of the values added
     std::vector<Band> bands;    // each row's bins, for the scale and range
     std::vector<uint8_t> pixels; // rows x columns, coloured

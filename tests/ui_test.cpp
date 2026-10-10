@@ -1674,6 +1674,97 @@ static void numberBoxLikeCompost()
     CHECK(std::abs(a->value - 0.5) < 1e-9);
 }
 
+// Readouts, as char-spectrum's: a number drags (the range in 200 points) and
+// resets on a double-click; one of items steps on a click and on the wheel;
+// both are spin buttons to screen readers, stepped by the arrows.
+static void readouts()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A"), *b = params.find("B");
+    static const char *const onOff[] = {"Off", "On"};
+    auto draw = [&] { frame(ui, [&] { ui.readout(params, a, "Amount", "%.2f"); ui.readout(params, b, "Bypass", onOff, 2, 120); }); };
+    draw();
+    const Clay_BoundingBox ra = box("Readout", int(a->id)), rb = box("Readout", int(b->id));
+    CHECK(rb.width == 120 && ra.width > 0);
+    const float x = ra.x + ra.width / 2, y = ra.y + ra.height / 2;
+    pointer(ui, View::Pointer::move, x, y);
+    draw();
+    pointer(ui, View::Pointer::down, x, y);
+    draw();
+    pointer(ui, View::Pointer::move, x, y - 40); // up a fifth of 200 points
+    draw();
+    CHECK(std::abs(a->value - 0.7) < 1e-6);
+    pointer(ui, View::Pointer::up, x, y - 40);
+    draw();
+    for (int i = 0; i < 2; ++i) // double-click: back to the default
+    {
+        pointer(ui, View::Pointer::down, x, y);
+        draw();
+        pointer(ui, View::Pointer::up, x, y);
+        draw();
+    }
+    CHECK(std::abs(a->value - 0.5) < 1e-9);
+    CHECK(ui.key(View::Key::up, 0)); // focused by the click: the arrows step it
+    draw();
+    CHECK(std::abs(a->value - 0.51) < 1e-9);
+    // B's default 0.5 is item 1, "On": a click steps (wrapping) to "Off", the wheel back.
+    clickAt(ui, rb, draw);
+    CHECK(b->value == 0);
+    ui.pointer({View::Pointer::wheel, rb.x + 4, rb.y + 4, 0, 0.5f}); // half a notch: not yet
+    draw();
+    CHECK(b->value == 0);
+    ui.pointer({View::Pointer::wheel, rb.x + 4, rb.y + 4, 0, 0.5f});
+    draw();
+    CHECK(b->value == 1);
+    draw(); // described as it was drawn
+    int spins = 0;
+    for (const gpu::Accessible &n : ui.accessibility()->nodes)
+        if (n.role == gpu::Accessible::Role::spinButton)
+        {
+            ++spins;
+            CHECK(n.name == "A" || (n.name == "B" && n.value == "On"));
+        }
+    CHECK(spins == 2);
+}
+
+// A spectrogram across time: columns fill points of time at its rate, newest
+// on the right; probe reads what's under a point and snaps to a peak near it;
+// fewer columns keep the newest.
+static void spectrogramTime()
+{
+    Ui ui;
+    gpu::Spectrogram spectrogram({.minFrequency = 0, .maxFrequency = 1000, .scale = gpu::Spectrogram::Scale::linear, .columns = 400,
+                                  .rows = 60, .pixelsPerSecond = 100, .smooth = false});
+    float hz[11], at500[11], at300[11];
+    for (int k = 0; k < 11; ++k) hz[k] = 100.0f * k, at500[k] = at300[k] = -100;
+    at500[4] = at500[6] = -20, at500[5] = 0;  // a peak on 500 Hz, even either side
+    at300[2] = -20, at300[3] = 0, at300[4] = -10; // one between 300 and 400 Hz
+    spectrogram.add(at500, hz, 11, 0.1f); // ten points
+    for (int i = 0; i < 4; ++i) spectrogram.add(at300, hz, 11, 0.0125f); // five, a column at a time
+    const gpu::Rect r{10, 10, 380, 60}; // the box the layout gives it
+    auto draw = [&] { frame(ui, [&] { spectrogram.draw(ui, "Spectrum", 60); }); };
+    draw();
+    auto yOf = [&](float f) { return r.y + (1 - f / 1000) * r.h; };
+    gpu::Spectrogram::Probe p;
+    CHECK(spectrogram.probe(r.x + r.w - 0.5f, yOf(480), false, p)); // the newest point: 300 Hz's column
+    CHECK(std::abs(p.frequency - 480) < 0.5f && std::abs(p.decibels - (-10 + (-100 + 10) * 0.8f)) < 0.1f && !p.peak);
+    CHECK(spectrogram.probe(r.x + r.w - 7.5f, yOf(480), false, p) && std::abs(p.decibels - (-4)) < 0.1f); // 500 Hz's
+    CHECK(spectrogram.probe(r.x + r.w - 7.5f, yOf(480), true, p) && p.peak && std::abs(p.frequency - 500) < 1e-3f
+          && std::abs(p.decibels) < 1e-3f && std::abs(p.y - yOf(500)) < 1e-3f);
+    CHECK(spectrogram.probe(r.x + r.w - 0.5f, yOf(320), true, p) && p.peak && p.frequency > 300 && p.frequency < 350);
+    CHECK(spectrogram.probe(r.x + r.w - 7.5f, yOf(700), true, p) && !p.peak); // 12 points from the peak: too far
+    CHECK(!spectrogram.probe(r.x + r.w - 20.5f, yOf(500), false, p)); // before the first column
+    // Fewer columns: the newest stay where they were.
+    gpu::Spectrogram::Options o = spectrogram.settings();
+    o.columns = 12;
+    spectrogram.configure(o);
+    draw();
+    CHECK(spectrogram.probe(r.x + r.w - 7.5f, yOf(500), true, p) && p.peak && std::abs(p.frequency - 500) < 1e-3f);
+    CHECK(!spectrogram.probe(r.x + r.w - 14.5f, yOf(500), false, p)); // kept no further back than 12
+}
+
 // While a knob is dragged nothing else is hovered, however far the pointer
 // goes; after the release the button under it is.
 static void noHoverWhileDragging()
@@ -1990,6 +2081,8 @@ int main()
     flickAfterPress();
     noHoverWhileDragging();
     numberBoxLikeCompost();
+    readouts();
+    spectrogramTime();
     pianoNotes();
     editors();
     editorKeysAndScreenReader();

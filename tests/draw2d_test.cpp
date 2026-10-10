@@ -328,12 +328,14 @@ int main(int argc, char **argv)
         const int top = size / 4, bottom = size * 3 / 4;
         CHECK(is(px, size * 15 / 16, top, loud) && is(px, size * 15 / 16, bottom, quiet)); // the newest, slot 5
         CHECK(is(px, size * 13 / 16, bottom, loud) && is(px, size * 13 / 16, top, quiet)); // slot 4
-        // Fewer columns again leaves no stale texels from the wider history.
+        // Fewer columns again keep the newest, in order: low, low, high and
+        // the one added now, low.
         settings.columns = 4;
         spectrogram.configure(settings);
         spectrogram.add(lowLoud, frequencies, 2);
         px = shot();
-        CHECK(is(px, size * 7 / 8, bottom, loud) && is(px, size / 8, bottom, quiet));
+        CHECK(is(px, size * 7 / 8, bottom, loud) && is(px, size * 5 / 8, top, loud) && is(px, size * 5 / 8, bottom, quiet));
+        CHECK(is(px, size / 8, bottom, loud) && is(px, size / 8, top, quiet));
         // Toggling the rows makes one texture per size, not one per toggle.
         const uint8_t one[4] = {};
         const int before = ui.draw.addImage(one, 1, 1);
@@ -343,7 +345,7 @@ int main(int argc, char **argv)
             spectrogram.configure(settings);
             px = shot();
         }
-        CHECK(is(px, size * 7 / 8, bottom, loud) && is(px, size / 8, bottom, quiet)); // still drawing right
+        CHECK(is(px, size * 7 / 8, bottom, loud) && is(px, size * 5 / 8, top, loud)); // still drawing right
         CHECK(ui.draw.addImage(one, 1, 1) == before + 2); // the rows-4 texture was new; the rest were reused
     }
 
