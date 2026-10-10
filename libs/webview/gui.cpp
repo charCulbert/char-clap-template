@@ -45,6 +45,9 @@ struct NativeView
     // CHOC starts loading before it lets us install the bridge (and WebView2
     // installs scripts asynchronously), so serve a blank page until then.
     bool bridgeInstalled = false;
+    // Lets a callback the WebView makes later (a script's completion) find
+    // out whether we're still here.
+    std::shared_ptr<NativeView *> self = std::make_shared<NativeView *>(this);
 
     ~NativeView()
     {
@@ -151,7 +154,16 @@ bool Gui::create(const char *api, bool floating)
         char uri[2048] = {};
         const int32_t length = pluginWebview->get_uri(plugin, uri, sizeof(uri));
         if (length <= 0 || length > int32_t(sizeof(uri))) return;
-        view.navigate(uri[0] == '/' ? home + (uri + 1) : std::string(uri));
+        // WebView2 adds init scripts (ours and bind's) asynchronously, and a
+        // page loaded before they're in runs without them. CHOC doesn't pass
+        // on their completion, so the page waits for a script run after them
+        // to complete: WebView2 handles a view's calls in order. Elsewhere
+        // they're in already, and this costs a round trip.
+        view.evaluateJavascript("0", [self = std::weak_ptr(state->self),
+                                       page = uri[0] == '/' ? home + (uri + 1) : std::string(uri)](const std::string &,
+                                                                                                   const choc::value::ValueView &) {
+            if (const auto alive = self.lock()) (*alive)->view->navigate(page);
+        });
     };
     nativeView->view = std::make_unique<choc::ui::WebView>(options);
     if (!nativeView->view->loadedOK() || !nativeView->view->getViewHandle()) return false;
