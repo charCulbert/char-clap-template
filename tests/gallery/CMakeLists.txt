@@ -1,5 +1,5 @@
 # GUI Gallery: every feature of the GPU interface (libs/gpu, libs/draw2d), one
-# page each, for checking it in real hosts. CLAP and VST3 natively, and a WCLAP.
+# page each, for checking it in real hosts. CLAP, VST3 and a standalone app natively, and a WCLAP.
 #
 #   cmake -B build && cmake --build build
 cmake_minimum_required(VERSION 3.28)
