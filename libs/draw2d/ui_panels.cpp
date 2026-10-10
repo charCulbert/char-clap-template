@@ -231,6 +231,7 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
     // focus), what's in it its children; a close button named for it.
     Described &dialog = describe(me, Accessible::Role::dialog, title);
     dialog.element = wid.id;
+    windowDialogs.push_back({wid.id, dialog.node.id}); // for its contents, once the frame's laid out (and its scope gone)
     const bool front = !windowOrder.empty() && windowOrder.back() == wid.id;
     const auto z = int16_t(10 + 2 * (std::find(windowOrder.begin(), windowOrder.end(), wid.id) - windowOrder.begin())); // its grip at z + 1, under the next window
     CLAY({.id = wid, .layout = {.sizing = {CLAY_SIZING_FIXED(frame.w), CLAY_SIZING_FIXED(frame.h)}, .layoutDirection = CLAY_TOP_TO_BOTTOM},

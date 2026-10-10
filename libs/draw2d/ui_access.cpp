@@ -92,6 +92,29 @@ void Ui::hidden(Clay_ElementId element) { said.push_back({element.id, {}, {}, tr
 
 void Ui::announce(const char *text) { announcement = text ? text : ""; }
 
+// A screen reader focused or clicked a part of a control that isn't a
+// control of its own (a segmented control's radio, a tab, a dropdown's
+// option, an XY pad's axis, a window's close button): the keys go to the
+// control it's part of.
+void Ui::focusOwner()
+{
+    auto inOrder = [&](uint64_t id) { return std::find(order.begin(), order.end(), reinterpret_cast<const void *>(uintptr_t(id))) != order.end(); };
+    if (!focus || inOrder(accessId(focus))) return;
+    uint64_t at = accessId(focus);
+    for (size_t step = 0; step < described.size(); ++step) // up through its parents
+    {
+        const auto d = std::find_if(described.begin(), described.end(), [&](const Described &d) { return d.node.id == at; });
+        if (d == described.end() || !d->parent) return; // nobody's part (an open context menu has focus itself)
+        at = d->parent;
+        if (inOrder(at))
+        {
+            focus = reinterpret_cast<const void *>(uintptr_t(at));
+            settle = true; // drawn once more with it, so it takes the keys it uses
+            return;
+        }
+    }
+}
+
 static bool same(const Accessible &a, const Accessible &b)
 {
     return a.id == b.id && a.role == b.role && a.name == b.name && a.value == b.value && a.description == b.description
@@ -184,10 +207,11 @@ void Ui::finishDescribing()
     for (auto w = windowOrder.rbegin(); w != windowOrder.rend(); ++w)
     {
         const std::optional<Rect> r = box(*w);
-        const uint64_t dialogId = accessId(reinterpret_cast<const void *>(uintptr_t(id("WindowHeader", *w).id)));
         // Not one that closed this frame: it didn't describe itself, and a
         // child of a node that isn't there is an error to AccessKit.
-        if (!r || std::none_of(entries.begin(), entries.end(), [&](const Entry &e) { return e.node.id == dialogId; })) continue;
+        const auto dialog = std::find_if(windowDialogs.begin(), windowDialogs.end(), [&](auto &d) { return d.first == *w; });
+        if (!r || dialog == windowDialogs.end()) continue;
+        const uint64_t dialogId = dialog->second;
         for (Entry &e : entries)
             // (Not another window: two in the same place would each take the other.)
             if (!e.parent && e.node.id != dialogId && e.node.role != Accessible::Role::dialog && e.node.width > 0
@@ -248,11 +272,20 @@ void Ui::finishDescribing()
     for (const Entry *e : inner)
         for (Accessible &n : tree.nodes)
             if (n.id == e->parent) { n.children.push_back(e->node.id); break; }
-    if (!announcement.empty()) // a live region: screen readers read it as it changes
+    // A live region: screen readers read it as it changes. Once published an
+    // announcement is cleared, so the same words again are a change too, and
+    // they don't stay on the page as a label. The same words as are shown wait
+    // a frame, for the clearing to go first.
+    const bool waiting = std::any_of(accessTree.nodes.begin(), accessTree.nodes.end(),
+                                     [&](const Accessible &n) { return n.live && !announcement.empty() && n.value == announcement; });
+    if (announcer || !announcement.empty())
     {
         Accessible &live = tree.nodes.emplace_back();
-        live.id = 3, live.role = Accessible::Role::label, live.value = announcement, live.live = true;
+        live.id = 3, live.role = Accessible::Role::label, live.live = true;
+        if (!waiting) live.value = std::exchange(announcement, {});
         tree.nodes.front().children.push_back(live.id);
+        settle |= !live.value.empty() || waiting; // a frame more, to clear it
+        announcer = true;
     }
     tree.focus = viewNode;
     for (const Accessible &n : tree.nodes)

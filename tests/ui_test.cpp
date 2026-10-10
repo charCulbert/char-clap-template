@@ -340,11 +340,91 @@ static void screenReaderReading()
         if (n.name == "Shape") CHECK(n.role == gpu::Accessible::Role::comboBox && n.value == "Sine");
         CHECK(n.value != "ornament");
     }
+    // Announced: read out once, then cleared (not left on the page), so the
+    // same words again are read again.
+    auto live = [&] {
+        for (const gpu::Accessible &n : tree->nodes)
+            if (n.live) return n.value;
+        return std::string("(none)");
+    };
     ui.announce("Preset loaded");
     draw();
-    bool announced = false;
-    for (const gpu::Accessible &n : tree->nodes) announced |= n.live && n.value == "Preset loaded";
-    CHECK(announced);
+    CHECK(live() == "Preset loaded" && ui.animating());
+    draw();
+    CHECK(live().empty());
+    ui.announce("Preset loaded");
+    draw();
+    CHECK(live() == "Preset loaded");
+    ui.announce("Preset loaded"); // straight after: it waits for the clearing
+    draw();
+    CHECK(live().empty());
+    draw();
+    CHECK(live() == "Preset loaded");
+}
+
+// A screen reader focusing part of a control (a radio of a segmented
+// control, a tab, a dropdown's option, an XY pad's axis): the keys then go
+// to the control it's part of.
+static void screenReaderFocusesParts()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A"), *b = params.find("B");
+    static const char *const items[] = {"One", "Two", "Three"};
+    int segment = 0, tab = 0, choice = 0;
+    auto draw = [&] {
+        frame(ui, [&] {
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 4, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+            {
+                ui.segmented(items, 3, segment);
+                ui.label("Segments");
+                ui.tabs(items, 3, tab);
+                ui.label("Tabs");
+                ui.dropdown(items, 3, choice);
+                ui.label("Choice");
+                CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(100), CLAY_SIZING_FIXED(100)}}}) { ui.xyPad(params, a, b); }
+            }
+        });
+    };
+    draw();
+    draw();
+    auto node = [&](gpu::Accessible::Role role, const std::string &name) -> uint64_t {
+        for (const gpu::Accessible &n : ui.accessibility()->nodes)
+            if (n.role == role && n.name == name) return n.id;
+        return 0;
+    };
+    using Role = gpu::Accessible::Role;
+    ui.accessAction(node(Role::radioButton, "Two"), gpu::Accessible::focus, 0);
+    draw();
+    draw(); // (the frame it asks for, as the presenter draws it)
+    ui.key(View::Key::right, 0);
+    draw();
+    CHECK(segment == 1); // the group has the keys (focus was on One's group, with One checked)
+    ui.accessAction(node(Role::tab, "Three"), gpu::Accessible::focus, 0);
+    draw();
+    draw();
+    CHECK(ui.key(View::Key::left, 0));
+    draw();
+    CHECK(tab == 2); // wrapped from the first
+    // The dropdown opened, and a screen reader on one of its options.
+    ui.accessAction(node(Role::comboBox, "Choice"), gpu::Accessible::expand, 0);
+    draw();
+    draw();
+    ui.accessAction(node(Role::option, "Three"), gpu::Accessible::focus, 0);
+    draw();
+    draw();
+    CHECK(ui.key(View::Key::down, 0)); // the dropdown's keys: the highlight moves
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(choice == 1);
+    const double before = a->value;
+    ui.accessAction(node(Role::slider, "A"), gpu::Accessible::focus, 0); // the pad's x axis
+    draw();
+    draw();
+    CHECK(ui.key(View::Key::right, 0));
+    draw();
+    CHECK(a->value > before);
 }
 
 // Tab reaches a number box after a knob, and its keys step it.
@@ -638,6 +718,38 @@ static void windows()
     draw(); // the frame after: the page under it is the page's again
 }
 
+// Whether a node named `parent` has one named `child` among its children.
+static bool hasChild(const Ui &ui, const std::string &parent, const std::string &child)
+{
+    for (const gpu::Accessible &p : ui.accessibility()->nodes)
+        if (p.name == parent)
+            for (uint64_t id : p.children)
+                for (const gpu::Accessible &c : ui.accessibility()->nodes)
+                    if (c.id == id && c.name == child) return true;
+    return false;
+}
+
+// A window declared inside an id scope (as a widget of one's own makes
+// them): what's in it is still its dialog's.
+static void windowInScope()
+{
+    Ui ui;
+    gpu::Rect frame1{40, 40, 200, 150};
+    bool open = true;
+    int scope = 0;
+    auto draw = [&] {
+        frame(ui, [&] {
+            ui.pushId(&scope);
+            ui.window("Scoped", frame1, open, [&] { ui.button("Inside"); });
+            ui.popId();
+        });
+        CHECK(everyNodeHasParent(ui));
+    };
+    draw();
+    draw();
+    CHECK(hasChild(ui, "Scoped", "Inside") && hasChild(ui, "Scoped", "Close Scoped"));
+}
+
 // Tabs: a press shows one; focused, the arrows wrap, Home and End go to the
 // ends, and a key with Alt is the caller's; screen readers get a tab list.
 static void tabStrip()
@@ -720,6 +832,7 @@ static void dockableWindows()
     drag(t.x + 30, t.y + 6, 20 + 120, 20 + 90);
     CHECK(layout.windows.size() == 2 && layout.windows[0].root.tabs == (Tabs{"Mix", "Edit"}));
     CHECK(changes >= 1); // told, to save it
+    CHECK(hasChild(ui, "Mix, Edit", "Panels")); // what's in a dock's window (its tab list) is its dialog's
     auto popOuts = [&] {
         int n = 0;
         for (const gpu::Accessible &node : ui.accessibility()->nodes) n += node.name.rfind("Pop out ", 0) == 0;
@@ -2142,11 +2255,13 @@ int main()
     knobDragAndKeys();
     screenReader();
     screenReaderReading();
+    screenReaderFocusesParts();
     numberBoxTabs();
     keyboardReachesEverything();
     doubleClickOrFineDrag();
     splitPanes();
     windows();
+    windowInScope();
     dockedDrawers();
     signalViews();
     tabStrip();

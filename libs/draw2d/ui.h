@@ -431,12 +431,14 @@ private:
         bool menu = false; // it has a context menu: screen readers can open it
     };
     std::vector<Said> said;
-    std::string announcement;
+    std::string announcement; // to be read out, until it's published
+    bool announcer = false;   // the live region exists: kept, so each announcement is a change to it
     Accessibility accessTree;
     const void *accessClick = nullptr; // clicked by a screen reader: press() reports it
     Described &describe(const void *me, Accessible::Role role, const char *name, uint64_t parent = 0);
     Described &describeParam(const void *me, Params &params, Param &p, const char *value, Rect r);
     void finishDescribing();
+    void focusOwner();
     bool focusShown(const void *id) const { return focus == id && focusVisible; }
     bool focusShown(Clay_ElementId element) const;
     std::vector<View::Key> focusable(Clay_ElementId element, const Area &a);
@@ -505,6 +507,7 @@ private:
     View::Cursor cursor = View::Cursor::arrow, cursorShown = View::Cursor::arrow; // wanted this frame, and set
     std::vector<uint32_t> windowOrder;  // windows back to front, by element
     std::vector<uint32_t> windowsNow;   // those declared this frame
+    std::vector<std::pair<uint32_t, uint64_t>> windowDialogs; // this frame's open ones: element, and its dialog's node
     uint32_t windowUnder = 0;           // the frontmost window under the pointer, from the last frame's layout
     float windowGrabX = 0, windowGrabY = 0; // from the pointer to what's dragged (a header or a grip), points
     bool pressFocused = false;   // this frame's press focused a control

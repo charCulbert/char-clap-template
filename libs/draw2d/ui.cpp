@@ -185,6 +185,7 @@ void Ui::begin(float width, float height, float scale)
     // outside it don't take the pointer.
     std::erase_if(windowOrder, [&](uint32_t w) { return std::find(windowsNow.begin(), windowsNow.end(), w) == windowsNow.end(); });
     windowsNow.clear();
+    windowDialogs.clear();
     windowUnder = 0;
     for (auto w = windowOrder.rbegin(); w != windowOrder.rend() && !windowUnder; ++w)
         if (inside({*w, 0, 0, {}}, mouse.x, mouse.y)) windowUnder = *w;
@@ -237,6 +238,7 @@ bool Ui::record()
             draw.line(r.x + r.w, r.y, r.x, r.y + r.h, 1.4f * s, theme.text);
         }
     });
+    focusOwner();
     finishDescribing();
     // Tab goes in layout order too, not the order controls were declared in
     // (a knob Clay places is drawn after the controls declared beside it).
