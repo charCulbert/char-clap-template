@@ -99,10 +99,10 @@ struct DrawerOptions
     // open, the arrow turned to close it. The panel is opaque and fills that
     // box along the edge; what's in it scrolls (the wheel turns a knob or
     // readout in it only while that's focused), and a control the keys
-    // focus is scrolled into view. The title is the tab's name to screen readers and
-    // its tooltip. Escape, with focus on the tab or in the panel, closes it
-    // and focuses the tab (unless something in it uses it first: a text
-    // edit, a value being typed, an open menu, a drag).
+    // focus is scrolled into view. The title is the tab's name to screen
+    // readers and its tooltip. Escape, with focus on the tab or in the
+    // panel, closes it and focuses the tab (unless something in it uses it
+    // first: a text edit, a value being typed, an open menu, a drag).
     bool overlay = false;
 };
 
@@ -242,8 +242,8 @@ public:
     // named for its parameter; focused, the arrows step it (an item at a
     // time), Page Up and Down step further, Home and End go to the ends,
     // and Delete or Backspace reset it (Escape only cancels a drag).
-    // widthPoints 0: as wide as
-    // its text; else the value is right-aligned in that width.
+    // widthPoints 0: as wide as its text; else the value is right-aligned in
+    // that width.
     void readout(Params &params, Param *p, const char *label, const char *format, bool log = false, float widthPoints = 0);
     void readout(Params &params, Param *p, const char *label, const char *const *items, int count, float widthPoints = 0);
     // A header that opens and closes the section under it: declare the

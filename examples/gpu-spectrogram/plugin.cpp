@@ -1,8 +1,8 @@
 // GPU Spectrogram: passes stereo audio through and shows a scrolling
 // spectrogram of it, as Listener's, drawn with libs/draw2d's views
 // (ui/SpectrogramView.cpp): no drawing code of its own. Holding a key of its
-// piano strip mixes a quiet sine at that pitch into the output (a plugin has
-// no output of its own), which the spectrogram never sees.
+// piano strip mixes a quiet sine at that pitch into the plugin's output (a
+// plugin has no audio device of its own), which the spectrogram never sees.
 //
 // This file is the whole CLAP plugin: its descriptor, audio ports, state, the
 // clap.webview and clap.gui extensions its interface uses, and the audio
@@ -10,9 +10,9 @@
 // reusable parts: the message codec and file loader (core/), and the presenter
 // that shows a gpu::View in the host's window (gpu/).
 //
-// Its settings, Listener's spectrogram's with the key tone and the
-// interface's settings drawer, change only the analysis and how it looks and
-// sounds while you look, so they are saved with the plugin's state, not CLAP parameters:
+// Its settings (Listener's spectrogram's, the key tone, and the interface's
+// settings drawer) change only the analysis and what the interface shows and
+// plays, so they are saved with the plugin's state, not CLAP parameters:
 // hosts don't list or automate them. The interface edits them with the same
 // messages it would use for parameters.
 #include "clap/clap.h"
@@ -269,7 +269,7 @@ static const clap_plugin_webview_t extensionWebview = {
 };
 
 // clap.gui: size policy is ours; creating and embedding the view is gpu::Gui's.
-// The limits are in points; the minimum leaves the plot room beside the settings drawer.
+// The limits are in points; the minimum leaves room for the plot beside the open settings drawer.
 #define GUI_MIN_WIDTH (420)
 #define GUI_MIN_HEIGHT (270)
 #define GUI_MAX_WIDTH (2000)

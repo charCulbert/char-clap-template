@@ -105,8 +105,8 @@ public:
     }
     bool key(Key key, unsigned modifiers) override { return ui.key(key, modifiers); }
     // Space pauses and resumes the display, as Listener's, unless the focused
-    // control takes it (a button, toggle, drawer header or list presses or
-    // opens with it): Ui::text has it first. It arrives as typed text.
+    // control takes it (a button, toggle, the drawer's tab or a list
+    // presses or opens with it): Ui::text has it first. It arrives as typed text.
     bool text(const char *utf8) override
     {
         if (ui.text(utf8)) return true;

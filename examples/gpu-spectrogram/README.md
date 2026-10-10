@@ -15,8 +15,7 @@ parts, with no drawing code of its own; for a drawing of your own, see
   pushes both channels into a buffer; the main thread sets up the transform
   and reads the buffer a hop at a time.
 - `chardsp_AnalysisBuffer.h`, `chardsp_Spectrum.h`, `chardsp_ConstantQ.h`,
-  `chardsp_ConstantQSpectrogram.h`: copies of chardsp's (branch `spectral`,
-  commit 0adab39), with only their include of Signalsmith's FFT changed to
+  `chardsp_ConstantQSpectrogram.h`: copies of chardsp's (commit 0adab39), with only their include of Signalsmith's FFT changed to
   this example's `dsp/fft.h`. The buffer brings the audio from the audio
   thread; Spectrum is the windowed FFT (the short-time Fourier transform, as
   Listener's); ConstantQ and ConstantQSpectrogram are the constant-Q
@@ -75,10 +74,10 @@ the defaults (the block holds 24 periods of 55 Hz). A lower floor, down to
 A0 (27.5 Hz), resolves the bass's lowest notes at a cost: the block, and so
 the delay, doubles below about 35 Hz at 24 bands an octave (683 ms). The
 display's upper limit goes down to 100 Hz so the plot can zoom in on them;
-the range stays an octave at least. The CQT runs from 44.1
-to 96 kHz, as Listener's; at other sample rates the plugin shows the FFT and
-the panel says so. A4 tuning also sets the piano strip's keys and the pitch
-names with the FFT.
+the range stays an octave at least. The CQT runs from 44.1 to 96 kHz, as
+Listener's; at other sample rates the plugin shows the FFT and the panel says
+so. A4 tuning also sets the piano strip's keys and the pitch names with the
+FFT.
 
 The settings are in a drawer. The tab on the window's right edge (named
 **Settings** for screen readers, and in its tooltip) slides its panel out
@@ -86,9 +85,9 @@ over the plot, which keeps its size, so the time axis and scrolling stay as
 they are. The panel is opaque, with one setting a row, 24 points apart; at
 the default window size (720 by 480 points) every setting fits, and in a
 smaller window the panel scrolls. There the wheel scrolls the panel and turns
-a readout only while it's focused. The tab then rides on
-the panel's left edge and closes it again; so does Escape from anywhere in
-the panel, and focus goes back to the tab. Tab goes from the tab into the
+a readout only while it's focused. The tab then rides on the panel's left
+edge and closes it again; so does Escape from anywhere in the panel, and
+focus goes back to the tab. Tab goes from the tab into the
 panel, which scrolls to show the setting focused. Drag the panel's left
 edge (or focus the edge and use the arrows) to resize it, from 240 to 480
 points. Whether it is open and its width are saved with the plugin's state.
@@ -114,8 +113,8 @@ readers hear "Display paused" and "Display resumed".
 
 Hold a key of the piano strip to hear a quiet sine (−18 dBFS) at its pitch,
 drag to another key to change note, and let go to stop; a line marks the
-exact pitch across the plot while it's held. The plugin has no output of its
-own, so the tone is mixed into its audio output, fading in and out over a
+exact pitch across the plot while it's held. A plugin has no audio device of
+its own, so the tone is mixed into the plugin's output, fading in and out over a
 few milliseconds. The analysis takes its input before the tone is added, so
 the spectrogram never shows it. Turn **Key tone** off to keep the guide line
 without the sound. To screen readers the strip is one picture.

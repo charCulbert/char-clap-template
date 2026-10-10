@@ -2261,8 +2261,8 @@ static void readouts()
     CHECK(ui.key(View::Key::up, 0)); // focused by the click: the arrows step it
     draw();
     CHECK(std::abs(a->value - 0.51) < 1e-9);
-    // Delete resets it; Escape isn't its (it closes what it's in) but in a
-    // drag, where it cancels the drag.
+    // Delete resets it. Escape is left to what it's in (a menu, a drawer),
+    // except during a drag, which it cancels.
     CHECK(!ui.key(View::Key::escape, 0) && ui.key(View::Key::deleteForward, 0));
     draw();
     CHECK(std::abs(a->value - 0.5) < 1e-9);
@@ -2317,7 +2317,7 @@ static void spectrogramMarks()
     using S = gpu::Spectrogram::Scale;
     const std::vector<float> wide = marks(20, 24000, S::log, 430, 28);
     CHECK((wide == std::vector<float>{20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000}));
-    const std::vector<float> bass = marks(30, 100, S::log, 430, 28); // was "50" alone
+    const std::vector<float> bass = marks(30, 100, S::log, 430, 28); // every 10 Hz
     CHECK((bass == std::vector<float>{30, 40, 50, 60, 70, 80, 90, 100}));
     const std::vector<float> narrow = marks(40, 46, S::log, 430, 28);
     CHECK(narrow.size() >= 6 && narrow.front() == 40 && narrow.back() == 46); // a hertz apart
