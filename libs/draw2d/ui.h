@@ -182,9 +182,10 @@ public:
         View::Key key = View::Key::enter; // with altKey
     };
     Tabs tabs(const char *const *items, int count, int &selected, int index = 0);
-    // The same three for a parameter, sending its gesture (begin, change, end)
-    // when clicked. A toggle is on in the upper half of the range; a segmented
-    // control or dropdown's item i is the value min + i.
+    // A toggle, segmented control and dropdown for a parameter, sending its
+    // gesture (begin, change, end) when clicked. A toggle is on in the upper
+    // half of the range; a segmented control or dropdown's item i is the
+    // value min + i.
     bool toggle(Params &params, Param *p, const char *label);
     bool segmented(Params &params, Param *p, const char *const *items, int count);
     bool dropdown(Params &params, Param *p, const char *const *items, int count);

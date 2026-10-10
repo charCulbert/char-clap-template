@@ -21,8 +21,6 @@ void Ui::drawGrip()
         draw.line(width - 3 * s - d * s, height - 3 * s, width - 3 * s, height - 3 * s - d * s, 1.2f * s, color);
 }
 
-// A header that opens and closes the section under it (compost's drawer,
-// ImGui's collapsing header). Declare the section only while it returns true.
 // The handle between two areas (a split's divider, a drawer's edge), as
 // the WAI-ARIA window splitter: dragged, or focused and moved with the
 // arrows (16 points; Shift 1), Home and End for the limits, Enter to
@@ -282,6 +280,8 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
     return open;
 }
 
+// A header that opens and closes the section under it (compost's drawer,
+// ImGui's collapsing header). Declare the section only while it returns true.
 bool Ui::drawer(const char *title, bool &open, int index)
 {
     // Its id from its title, as a window's: two drawers need no index to
