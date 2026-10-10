@@ -13,6 +13,12 @@ parts, with no drawing code of its own; for a drawing of your own, see
   Listener's, in dB relative to a full-scale sine. The audio thread only
   copies both channels into a ring; the main thread sets up the FFT and
   window and reads the ring.
+- `chardsp_ConstantQ.h`: the constant-Q transform (`ConstantQStream`), a
+  copy of chardsp's (chardsp main, commit 4761447) with only its include of
+  Signalsmith's FFT changed to this example's `dsp/fft.h`. It follows
+  [CiCueTea](https://github.com/jdsierral/CiCueTea) (MIT, Juan Sierra);
+  `licenses/CiCueTea.txt` is its licence, which ships with the plugin's
+  other third-party licences. Its ring works as the STFT's.
 - `ui/SpectrogramView.cpp`: the interface, a `gpu::View`: a
   `gpu::Spectrogram` (`draw2d/views.h`) fills the window, frequencies up its
   left edge and seconds along the bottom drawn over it, a Pause toggle in its
@@ -49,10 +55,22 @@ automating them.
 | A4 tuning | 400 to 480 Hz | 440 Hz |
 | CQT frequency limits | lower 55 to 220 Hz, upper 1 kHz to 0.4 × the sample rate | 55 Hz to 16 kHz |
 | CQT update rate | 15, 30 or 60 a second | 30 |
+| CQT reading | Mean, Peak or Centre | Mean |
 
-The CQT settings show only while CQT is the transform. They are kept in the
-state, but the analysis is the FFT's until a constant-Q transform is wired
-in. A4 tuning also sets the piano strip's keys and the pitch names.
+With CQT as the transform the spectrogram shows a constant-Q transform:
+bands spaced by pitch, A4 tuning × 2^(k / bands per octave), so the low end
+has resolution without an enormous FFT. Its settings show in place of the
+FFT size, hop and window. The plot's frequency range stops at its bands, and
+the cursor readout, peak snap, piano strip and key tone all go by the same
+bands and tuning. A band's level over each update is its power over that
+time (Mean), its loudest moment (Peak, which shows a click at its own level
+but reads noise higher in the high bands), or its value at the update's
+middle (Centre, as Listener reads it). The panel shows the delay from a
+sound to its column: half the transform's block, about 341 ms at 48 kHz with
+the defaults (the block holds 24 periods of 55 Hz). The CQT runs from 44.1
+to 96 kHz, as Listener's; at other sample rates the plugin shows the FFT and
+the panel says so. A4 tuning also sets the piano strip's keys and the pitch
+names with the FFT.
 
 The settings are in a drawer. The tab on the window's right edge (named
 **Settings** for screen readers, and in its tooltip) slides its panel out

@@ -27,6 +27,7 @@
 #include <string.h>
 #include <string>
 #include <vector>
+#include "chardsp_ConstantQ.h"
 #include "chardsp_Stft.h"
 #include "core/messages.h"
 #include "core/resources.h"
@@ -54,9 +55,8 @@ enum SettingId
     S_PALETTE,           // gpu::Spectrogram::Palette: system, bone, inferno, viridis, magma
     S_SCROLL_RATE,       // points a second, whatever the hop
     S_PIANO, S_PEAK_SNAP, S_CURSOR, // on or off: the piano strip, and the readout under the pointer
-    // The transform, and Listener's constant-Q settings: kept and shown, but
-    // the analysis is the FFT's until a CQT is wired in.
-    S_TRANSFORM,   // 0 FFT, 1 CQT
+    // The transform, and Listener's constant-Q settings (chardsp::ConstantQStream).
+    S_TRANSFORM,   // 0 FFT, 1 CQT (from 44.1 to 96 kHz; the FFT elsewhere)
     S_CQT_BANDS,   // bands per octave: 0, 1, 2 for 12, 24, 36
     S_TUNING,      // A4, Hz: the CQT's bands, and the piano strip's keys and their tone
     S_CQT_LOW, S_CQT_HIGH, // the CQT's frequency limits, Hz (the interface stops the upper at 0.4 x the sample rate)
@@ -64,6 +64,7 @@ enum SettingId
     S_KEY_TONE,    // on or off: holding a piano key plays its pitch
     // The interface's settings drawer: open or closed, and its width in points.
     S_DRAWER, S_DRAWER_WIDTH,
+    S_CQT_READING, // how a band's level over a hop becomes one value: 0 mean, 1 peak, 2 centre
     S_COUNT
 };
 static const Setting settings[S_COUNT] = {
@@ -91,7 +92,11 @@ static const Setting settings[S_COUNT] = {
     {"Key tone", 0, 1, 1},
     {"Settings drawer", 0, 1, 0},
     {"Settings drawer width", 240, 480, 300},
+    {"CQT reading", 0, 2, 0},
 };
+
+// The CQT runs only from 44.1 to 96 kHz, as Listener's; elsewhere the FFT does.
+static bool cqtSupported(float sampleRate) { return sampleRate >= 44100 && sampleRate <= 96000; }
 
 // The key tone: a sine at -18 dBFS, faded in and out over two of its cycles
 // (3 to 20 ms, as Listener's) so it starts and stops without a click.
@@ -106,9 +111,18 @@ struct MyPlugin
     float sampleRate;
     double settingValues[S_COUNT]; // main thread only
 
-    // The analysis: the audio thread fills its ring; the main thread sets it
-    // up, takes its columns and sends them to the interface (see on_main_thread).
+    // The analysis: the audio thread fills both rings; the main thread sets
+    // up the one chosen, takes its columns and sends them to the interface
+    // (see on_main_thread). The CQT's ring is made once, for its largest
+    // block (36 bands an octave from 55 Hz at 96 kHz), before anything pushes.
     chardsp::Stft stft;
+    chardsp::ConstantQStream<float> cqt;
+    std::vector<float> cqtLast; // main thread: each band's last level, for smoothing
+    // Main thread: what the CQT was last set up with, and whether that worked.
+    chardsp::ConstantQDesign cqtDesign;
+    int cqtHop = 0, cqtChannel = 0;
+    chardsp::ConstantQReading cqtReading = chardsp::ConstantQReading::mean;
+    bool cqtConfigured = false, cqtReady = false;
     std::atomic<bool> columnsPending;
     uint32_t framesSinceColumns = 0; // audio thread only
 
@@ -379,6 +393,8 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //                 {type: "values", values: [value per setting id]}
 //                 {type: "column", rate, seconds, db: [FFT size / 2 bins, bin k at k * rate / FFT size Hz]}
 //                     seconds: the audio since the last column, so the interface scrolls in time
+//                 {type: "column", rate, seconds, db, hz: [each band's centre], delay}   the CQT's
+//                     delay: seconds from a sound to its column's centre (half the block)
 static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
 {
     const auto type = message["type"].text();
@@ -444,6 +460,7 @@ static const clap_plugin_t pluginClass = {
         plugin->gui.init(_plugin, plugin->host);
         for (uint32_t i = 0; i < S_COUNT; i++)
             plugin->settingValues[i] = settings[i].defaultValue;
+        plugin->cqt.prepare(chardsp::ConstantQ<float>::minimumBlockSize(96000, 36, 55));
         return true;
     },
 
@@ -484,8 +501,10 @@ static const clap_plugin_t pluginClass = {
         // thread to send the columns that are ready. (Counting samples needs no clock.)
         // This is the analysis's tap: the input, taken before the key tone is
         // mixed into the output below, so the spectrogram never shows the tone
-        // (when the host gives one buffer for both, it isn't in it yet).
+        // (when the host gives one buffer for both, it isn't in it yet). Both
+        // analyses get it, so switching between them needs nothing from here.
         plugin->stft.push(input[0], input[1], frameCount);
+        plugin->cqt.push(input[0], input[1], frameCount);
         plugin->framesSinceColumns += frameCount;
         if (plugin->framesSinceColumns >= plugin->sampleRate / 60)
         {
@@ -541,8 +560,60 @@ static const clap_plugin_t pluginClass = {
         if (!plugin->columnsPending.exchange(false, std::memory_order_acq_rel) || !plugin->uiReady)
             return;
         // The analysis runs here, on the main thread, never the audio thread:
-        // new settings set up a new FFT and window first.
+        // new settings set up a new transform first.
         const double *v = plugin->settingValues;
+        const float rate = plugin->sampleRate;
+        std::vector<float> column;
+        uint32_t advanced = 0;
+        if (v[S_TRANSFORM] >= 0.5 && cqtSupported(rate))
+        {
+            static const int bands[] = {12, 24, 36}, columnsPerSecond[] = {15, 30, 60};
+            static const chardsp::ConstantQReading readings[] = {chardsp::ConstantQReading::mean, chardsp::ConstantQReading::peak,
+                                                                 chardsp::ConstantQReading::centre};
+            chardsp::ConstantQDesign design;
+            design.sampleRate = rate;
+            design.bandsPerOctave = bands[std::clamp((int)std::lround(v[S_CQT_BANDS]), 0, 2)];
+            design.referenceFrequency = v[S_TUNING];
+            design.minFrequency = v[S_CQT_LOW];
+            design.maxFrequency = std::max(design.minFrequency, std::min(v[S_CQT_HIGH], 0.4 * rate));
+            const int hop = (int)std::lround(rate / columnsPerSecond[std::clamp((int)std::lround(v[S_CQT_RATE]), 0, 2)]);
+            const auto reading = readings[std::clamp((int)std::lround(v[S_CQT_READING]), 0, 2)];
+            // configure() starts afresh from the newest samples: only when something changed.
+            const int channel = (int)std::lround(v[S_CHANNEL]);
+            if (!(design == plugin->cqtDesign) || hop != plugin->cqtHop || reading != plugin->cqtReading || channel != plugin->cqtChannel
+                || !plugin->cqtConfigured)
+            {
+                plugin->cqtDesign = design, plugin->cqtHop = hop, plugin->cqtReading = reading, plugin->cqtChannel = channel;
+                plugin->cqtReady = plugin->cqt.configure(design, hop, reading, (chardsp::ConstantQChannel)channel);
+                plugin->cqtConfigured = true;
+                plugin->cqtLast.clear();
+            }
+            if (plugin->cqtReady)
+            {
+                const auto &transform = plugin->cqt.getTransform();
+                const auto &centres = transform.getFrequencies();
+                const core::Value::Array hz(centres.begin(), centres.end());
+                const double delay = 0.5 * transform.getBlockSize() / rate;
+                const float smoothing = (float)v[S_SMOOTHING];
+                column.resize(centres.size());
+                // At most 8 columns a call, as the FFT's.
+                for (int sent = 0; sent < 8 && plugin->cqt.next(column.data(), advanced); sent++)
+                {
+                    // Time smoothing as the FFT's: each band keeps that much of its last value (in dB).
+                    if (plugin->cqtLast.size() != column.size())
+                        plugin->cqtLast = column;
+                    for (size_t b = 0; b < column.size(); b++)
+                        column[b] = plugin->cqtLast[b] = smoothing * plugin->cqtLast[b] + (1 - smoothing) * column[b];
+                    plugin->gui.send(core::Value::Map{{"type", "column"}, {"rate", (double)rate}, {"seconds", advanced / (double)rate},
+                                                      {"db", core::Value::Array(column.begin(), column.end())}, {"hz", hz},
+                                                      {"delay", delay}});
+                }
+                return;
+            }
+            // Settings it can't make bands of: the FFT's, as outside 44.1 to 96 kHz.
+        }
+        else
+            plugin->cqtConfigured = false; // the next CQT starts afresh
         chardsp::Stft::Settings analysis;
         analysis.size = 1 << (int)std::lround(v[S_FFT_SIZE]);
         analysis.hop = std::min((int)std::lround(v[S_HOP_SIZE]), analysis.size);
@@ -550,14 +621,12 @@ static const clap_plugin_t pluginClass = {
         analysis.channel = (chardsp::Stft::Channel)std::lround(v[S_CHANNEL]);
         analysis.smoothing = (float)v[S_SMOOTHING];
         plugin->stft.configure(analysis);
-        std::vector<float> column;
-        uint32_t advanced = 0;
         // At most 8 columns a call (Stft::next skips older ones), each sent
         // with how much audio it moves on: about 1.5 a call at 48 kHz with a
         // hop of 512.
         for (int sent = 0; sent < 8 && plugin->stft.next(column, advanced); sent++)
-            plugin->gui.send(core::Value::Map{{"type", "column"}, {"rate", (double)plugin->sampleRate},
-                                              {"seconds", advanced / (double)plugin->sampleRate},
+            plugin->gui.send(core::Value::Map{{"type", "column"}, {"rate", (double)rate},
+                                              {"seconds", advanced / (double)rate},
                                               {"db", core::Value::Array(column.begin(), column.end())}});
     },
 };

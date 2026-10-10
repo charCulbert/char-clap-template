@@ -23,12 +23,16 @@ namespace {
 
 // The plugin's settings, in its order (plugin.cpp's SettingId).
 enum Setting { fftSize, hopSize, window, channel, smoothing, low, high, floorLevel, ceiling, frequencyScale, palette, scrollRate, piano,
-               peakSnap, cursor, transform, cqtBands, tuning, cqtLow, cqtHigh, cqtRate, keyTone, drawer, drawerWidth, settingCount };
+               peakSnap, cursor, transform, cqtBands, tuning, cqtLow, cqtHigh, cqtRate, keyTone, drawer, drawerWidth, cqtReading,
+               settingCount };
 const char *const settingNames[settingCount] = {"FFT size", "Hop size", "Window", "Channel", "Smoothing", "Low frequency",
                                                 "High frequency", "Floor", "Ceiling", "Scale", "Palette", "Scroll rate",
                                                 "Piano", "Peak snap", "Cursor", "Transform", "CQT bands per octave", "A4 tuning",
                                                 "CQT low frequency", "CQT high frequency", "CQT update rate", "Key tone",
-                                                "Settings drawer", "Settings drawer width"};
+                                                "Settings drawer", "Settings drawer width", "CQT reading"};
+
+// The CQT runs only from 44.1 to 96 kHz (plugin.cpp's cqtSupported).
+bool cqtSupported(float sampleRate) { return sampleRate >= 44100 && sampleRate <= 96000; }
 
 bool blackKey(int note)
 {
@@ -69,8 +73,19 @@ public:
         const float rate = float(message["rate"].number(48000));
         if (!db || db->empty()) return;
         binRate = rate;
+        // The CQT's columns bring their bands' centres and its delay; the FFT's
+        // bins are evenly spaced.
+        auto *centres = std::get_if<core::Value::Array>(&message["hz"].data);
+        cqtShown = centres && centres->size() == db->size();
+        delay = float(message["delay"].number(0));
         if (paused) return; // the analysis runs on; the picture holds still
-        if (hz.size() != db->size() || rate != hzRate) // bin k is at k * rate / FFT size; the FFT size is twice the bins
+        if (cqtShown)
+        {
+            hz.resize(centres->size());
+            for (size_t k = 0; k < hz.size(); ++k) hz[k] = float((*centres)[k].number(0));
+            hzRate = 0;
+        }
+        else if (hz.size() != db->size() || rate != hzRate) // bin k is at k * rate / FFT size; the FFT size is twice the bins
         {
             hz.resize(db->size());
             for (size_t k = 0; k < hz.size(); ++k) hz[k] = float(k) * rate / float(2 * hz.size());
@@ -121,6 +136,11 @@ public:
         gpu::Spectrogram::Options o = spectrogram.settings();
         o.minFrequency = float(p[low]->value);
         o.maxFrequency = float(p[high]->value);
+        if (cqtShown && !hz.empty()) // no further than its bands go, as Listener's
+        {
+            o.minFrequency = std::clamp(o.minFrequency, hz.front(), hz.back());
+            o.maxFrequency = std::clamp(o.maxFrequency, o.minFrequency, hz.back());
+        }
         o.minDecibels = float(p[floorLevel]->value);
         o.maxDecibels = float(p[ceiling]->value);
         o.scale = gpu::Spectrogram::Scale(std::lround(p[frequencyScale]->value));
@@ -213,14 +233,20 @@ private:
         static const char *const menu[] = {"Reset to Default"};
         // Each: its setting, label, and a format (with log dragging) or items.
         struct Readout { Setting setting; const char *label, *format; bool log; const char *const *items; int count; };
+        static const char *const readings[] = {"Mean", "Peak", "Centre"};
         static const Readout analysis[] = {
             {transform, "Transform", nullptr, false, transforms, 2}, {fftSize, "FFT", nullptr, false, fftSizes, 7},
             {hopSize, "Hop", "%.0f", true}, {window, "Window", nullptr, false, windows, 4},
             {channel, "Channel", nullptr, false, channels, 3}, {smoothing, "Smooth", "%.2f"},
         };
+        static const Readout analysisCqt[] = { // the FFT's own settings left out
+            {transform, "Transform", nullptr, false, transforms, 2}, {channel, "Channel", nullptr, false, channels, 3},
+            {smoothing, "Smooth", "%.2f"},
+        };
         static const Readout cqt[] = {
             {cqtBands, "Bands/oct", nullptr, false, bands, 3}, {tuning, "A4", "%.1f Hz"}, {cqtLow, "CQT low", "%.0f Hz", true},
             {cqtHigh, "CQT high", "%.0f Hz", true}, {cqtRate, "Updates", nullptr, false, rates, 3},
+            {cqtReading, "Reading", nullptr, false, readings, 3},
         };
         static const Readout display[] = {
             {frequencyScale, "Scale", nullptr, false, scales, 3}, {low, "Low", "%.0f Hz"}, {high, "High", "%.0f Hz", true},
@@ -246,8 +272,27 @@ private:
         };
         CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
         {
-            group("Analysis", analysis, int(std::size(analysis)));
-            if (p[transform]->value >= 0.5) group("CQT", cqt, int(std::size(cqt)));
+            // CQT chosen: the CQT's settings in place of the FFT's, unless the
+            // sample rate leaves the FFT running.
+            const bool wantsCqt = p[transform]->value >= 0.5, runsCqt = wantsCqt && cqtSupported(binRate);
+            if (runsCqt) group("Analysis", analysisCqt, int(std::size(analysisCqt)));
+            else group("Analysis", analysis, int(std::size(analysis)));
+            if (wantsCqt)
+            {
+                group("CQT", cqt, int(std::size(cqt)));
+                // What it costs in time, as Listener says it; or why it isn't running.
+                char text[96];
+                if (!runsCqt) std::snprintf(text, sizeof text, "Needs 44.1 to 96 kHz: showing the FFT");
+                else if (!cqtShown) std::snprintf(text, sizeof text, "Can't make bands of these: showing the FFT");
+                else std::snprintf(text, sizeof text, "Delay %.0f ms", delay * 1000);
+                // (Text the page shows reaches screen readers by itself.)
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(24)}, .padding = {4, 4, 0, 0},
+                                               .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
+                {
+                    CLAY_TEXT(ui.layout.text(text), CLAY_TEXT_CONFIG({.textColor = gpu::clayColor(ui.theme.text),
+                                                                       .fontSize = uint16_t(ui.theme.textSize)}));
+                }
+            }
             group("Display", display, int(std::size(display)));
         }
     }
@@ -415,7 +460,9 @@ private:
 
     gpu::Spectrogram spectrogram;
     std::vector<float> hz, column; // the bins' frequencies, and the column being added
-    float binRate = 48000, hzRate = 0; // the sample rate, and the one hz was made for
+    float binRate = 48000, hzRate = 0; // the sample rate, and the one hz was made for (0: the CQT's bands)
+    bool cqtShown = false; // the last column was the CQT's
+    float delay = 0;       // its delay, seconds
     bool paused = false;
     int heldNote = -1; // the piano key held, or -1
     gpu::Params params; // the plugin's settings (not CLAP parameters; see plugin.cpp)
