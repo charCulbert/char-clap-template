@@ -342,6 +342,7 @@ The dependencies are all permissively licensed: CLAP SDK and clap-wrapper
 (MIT), CHOC (ISC), Dawn (BSD 3-Clause), AccessKit (MIT or Apache-2.0, with a BSD 3-Clause
 notice from Chromium), stb_truetype, stb_image and stb_textedit (MIT or public
 domain), Clay (zlib), nanosvg (zlib), Dear ImGui (MIT), Signalsmith DSP (MIT),
+Signalsmith Basics (MIT; GPU Analyzer's analysis follows its analyser),
 CiCueTea (MIT; GPU Spectrogram's constant-Q transform follows it),
 Emscripten's runtime and emdawnwebgpu in a GPU WCLAP's page (MIT or NCSA;
 BSD 3-Clause; plus musl and libc++), and the Inter and IBM Plex Mono fonts (SIL Open

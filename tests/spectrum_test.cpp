@@ -1,6 +1,6 @@
 // The spectrum: sines read their level wherever they fall, the display has
 // no needles between bands, and it reacts in tens of milliseconds.
-#include "../examples/gpu-analyzer/chardsp_Spectrum.h"
+#include "../examples/gpu-analyzer/AnalyzerSpectrum.h"
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -13,7 +13,7 @@ const double pi = 3.14159265358979;
 
 static int bandOf(double hz)
 {
-    using S = chardsp::Spectrum;
+    using S = AnalyzerSpectrum;
     return int((S::scale(hz) - S::scale(minHz)) / (S::scale(maxHz) - S::scale(minHz)) * bandCount);
 }
 
@@ -22,7 +22,7 @@ static int bandOf(double hz)
 static std::vector<double> run(const std::function<float(int)> &signal, float seconds,
                                const std::function<void(double, const std::vector<double> &)> &each = {})
 {
-    auto spectrum = std::make_unique<chardsp::Spectrum>();
+    auto spectrum = std::make_unique<AnalyzerSpectrum>();
     std::vector<double> bands;
     float block[512];
     int sinceUpdate = 0;

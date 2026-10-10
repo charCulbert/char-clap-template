@@ -23,7 +23,7 @@
 #include <string.h>
 #include <string>
 #include <vector>
-#include "chardsp_Spectrum.h"
+#include "AnalyzerSpectrum.h"
 #include "core/messages.h"
 #include "core/resources.h"
 #include "gpu/gui.h"
@@ -51,7 +51,7 @@ struct MyPlugin
 
     // The spectrum: the audio thread fills it; the main thread analyzes it and
     // sends the bands to the interface (see on_main_thread).
-    chardsp::Spectrum spectrum;
+    AnalyzerSpectrum spectrum;
     std::atomic<bool> spectrumPending;
     uint32_t framesSinceSpectrum = 0; // audio thread only
 

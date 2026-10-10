@@ -9,16 +9,20 @@ parts, with no drawing code of its own; for a drawing of your own, see
 - `plugin.cpp`: the whole CLAP plugin: audio ports, state, the hand-off of
   the analysis to the interface, and the `clap.gui` and `clap.webview` extensions.
 - `signalsmith-dsp.cmake`: pins Signalsmith Audio's DSP headers, for their FFT.
-- `chardsp_Stft.h`: the analysis, a short-time Fourier transform as
-  Listener's, in dB relative to a full-scale sine. The audio thread only
-  copies both channels into a ring; the main thread sets up the FFT and
-  window and reads the ring.
-- `chardsp_ConstantQ.h`: the constant-Q transform (`ConstantQStream`), a
-  copy of chardsp's (chardsp main, commit 4761447) with only its include of
-  Signalsmith's FFT changed to this example's `dsp/fft.h`. It follows
-  [CiCueTea](https://github.com/jdsierral/CiCueTea) (MIT, Juan Sierra);
-  `licenses/CiCueTea.txt` is its licence, which ships with the plugin's
-  other third-party licences. Its ring works as the STFT's.
+- `SpectrogramAnalysis.h`: the analysis, made of chardsp's parts: the
+  channel (left, right or their mix), levels in dB relative to a full-scale
+  sine, and time smoothing, over either transform. The audio thread only
+  pushes both channels into a buffer; the main thread sets up the transform
+  and reads the buffer a hop at a time.
+- `chardsp_AnalysisBuffer.h`, `chardsp_Spectrum.h`, `chardsp_ConstantQ.h`,
+  `chardsp_ConstantQSpectrogram.h`: copies of chardsp's (branch `spectral`,
+  commit 0adab39), with only their include of Signalsmith's FFT changed to
+  this example's `dsp/fft.h`. The buffer brings the audio from the audio
+  thread; Spectrum is the windowed FFT (the short-time Fourier transform, as
+  Listener's); ConstantQ and ConstantQSpectrogram are the constant-Q
+  transform, which follows [CiCueTea](https://github.com/jdsierral/CiCueTea)
+  (MIT, Juan Sierra): `licenses/CiCueTea.txt` is its licence, which ships
+  with the plugin's other third-party licences.
 - `ui/SpectrogramView.cpp`: the interface, a `gpu::View`: a
   `gpu::Spectrogram` (`draw2d/views.h`) fills the window, frequencies up its
   left edge and seconds along the bottom drawn over it, a Pause toggle in its

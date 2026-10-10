@@ -27,8 +27,7 @@
 #include <string.h>
 #include <string>
 #include <vector>
-#include "chardsp_ConstantQ.h"
-#include "chardsp_Stft.h"
+#include "SpectrogramAnalysis.h"
 #include "core/messages.h"
 #include "core/resources.h"
 #include "gpu/gui.h"
@@ -42,11 +41,11 @@ struct Setting
 };
 enum SettingId
 {
-    // The analysis (chardsp::Stft), which the plugin does.
+    // The analysis (SpectrogramAnalysis.h), which the plugin does.
     S_FFT_SIZE,  // log2 of the FFT size: 8 to 14 is 256 to 16384 samples
     S_HOP_SIZE,  // samples, up to the FFT size
-    S_WINDOW,    // chardsp::Stft::Window: rectangular, Hann, Hamming, Blackman
-    S_CHANNEL,   // chardsp::Stft::Channel: mix, left, right
+    S_WINDOW,    // chardsp::SpectrumWindow: rectangular, Hann, Hamming, Blackman
+    S_CHANNEL,   // SpectrogramAnalysis::Channel: mix, left, right
     S_SMOOTHING, // each bin's last value kept, 0 (off) to 0.9
     // How it's shown, which only the interface uses.
     S_LOW, S_HIGH,       // the frequency range, Hz (the interface stops at Nyquist); the upper from 100 Hz, to zoom in on the bass
@@ -55,7 +54,7 @@ enum SettingId
     S_PALETTE,           // gpu::Spectrogram::Palette: system, bone, inferno, viridis, magma
     S_SCROLL_RATE,       // points a second, whatever the hop
     S_PIANO, S_PEAK_SNAP, S_CURSOR, // on or off: the piano strip, and the readout under the pointer
-    // The transform, and Listener's constant-Q settings (chardsp::ConstantQStream).
+    // The transform, and Listener's constant-Q settings (chardsp::ConstantQSpectrogram).
     S_TRANSFORM,   // 0 FFT, 1 CQT (from 44.1 to 96 kHz; the FFT elsewhere)
     S_CQT_BANDS,   // bands per octave: 0, 1, 2 for 12, 24, 36
     S_TUNING,      // A4, Hz: the CQT's bands, and the piano strip's keys and their tone
@@ -111,19 +110,14 @@ struct MyPlugin
     float sampleRate;
     double settingValues[S_COUNT]; // main thread only
 
-    // The analysis: the audio thread fills both rings; the main thread sets
-    // up the one chosen, takes its columns and sends them to the interface
-    // (see on_main_thread). The CQT's ring is made once, for its largest
-    // block (36 bands an octave from 27.5 Hz at 96 kHz: 131072 samples),
-    // before anything pushes: two blocks of both channels, 2 MB.
-    chardsp::Stft stft;
-    chardsp::ConstantQStream<float> cqt;
-    std::vector<float> cqtLast; // main thread: each band's last level, for smoothing
-    // Main thread: what the CQT was last set up with, and whether that worked.
-    chardsp::ConstantQDesign cqtDesign;
-    int cqtHop = 0, cqtChannel = 0;
-    chardsp::ConstantQReading cqtReading = chardsp::ConstantQReading::mean;
-    bool cqtConfigured = false, cqtReady = false;
+    // The analysis: the audio thread fills its buffer; the main thread sets
+    // up the transform chosen, takes its columns and sends them to the
+    // interface (see on_main_thread). The buffer is made once, for the
+    // largest block, before anything pushes: 2 MB.
+    SpectrogramAnalysis analysis;
+    // Main thread: CQT settings it made no bands of, so the FFT runs until they change.
+    SpectrogramAnalysis::Cqt cqtFailed;
+    bool cqtFailedSet = false;
     std::atomic<bool> columnsPending;
     uint32_t framesSinceColumns = 0; // audio thread only
 
@@ -461,7 +455,7 @@ static const clap_plugin_t pluginClass = {
         plugin->gui.init(_plugin, plugin->host);
         for (uint32_t i = 0; i < S_COUNT; i++)
             plugin->settingValues[i] = settings[i].defaultValue;
-        plugin->cqt.prepare(chardsp::ConstantQ<float>::minimumBlockSize(96000, 36, 27.5));
+        plugin->analysis.prepare();
         return true;
     },
 
@@ -502,10 +496,8 @@ static const clap_plugin_t pluginClass = {
         // thread to send the columns that are ready. (Counting samples needs no clock.)
         // This is the analysis's tap: the input, taken before the key tone is
         // mixed into the output below, so the spectrogram never shows the tone
-        // (when the host gives one buffer for both, it isn't in it yet). Both
-        // analyses get it, so switching between them needs nothing from here.
-        plugin->stft.push(input[0], input[1], frameCount);
-        plugin->cqt.push(input[0], input[1], frameCount);
+        // (when the host gives one buffer for both, it isn't in it yet).
+        plugin->analysis.push(input[0], input[1], frameCount);
         plugin->framesSinceColumns += frameCount;
         if (plugin->framesSinceColumns >= plugin->sampleRate / 60)
         {
@@ -566,66 +558,54 @@ static const clap_plugin_t pluginClass = {
         const float rate = plugin->sampleRate;
         std::vector<float> column;
         uint32_t advanced = 0;
+        const auto channel = (SpectrogramAnalysis::Channel)std::clamp((int)std::lround(v[S_CHANNEL]), 0, 2);
+        const float smoothing = (float)v[S_SMOOTHING];
         if (v[S_TRANSFORM] >= 0.5 && cqtSupported(rate))
         {
             static const int bands[] = {12, 24, 36}, columnsPerSecond[] = {15, 30, 60};
             static const chardsp::ConstantQReading readings[] = {chardsp::ConstantQReading::mean, chardsp::ConstantQReading::peak,
                                                                  chardsp::ConstantQReading::centre};
-            chardsp::ConstantQDesign design;
-            design.sampleRate = rate;
-            design.bandsPerOctave = bands[std::clamp((int)std::lround(v[S_CQT_BANDS]), 0, 2)];
-            design.referenceFrequency = v[S_TUNING];
-            design.minFrequency = v[S_CQT_LOW];
-            design.maxFrequency = std::max(design.minFrequency, std::min(v[S_CQT_HIGH], 0.4 * rate));
-            const int hop = (int)std::lround(rate / columnsPerSecond[std::clamp((int)std::lround(v[S_CQT_RATE]), 0, 2)]);
-            const auto reading = readings[std::clamp((int)std::lround(v[S_CQT_READING]), 0, 2)];
-            // configure() starts afresh from the newest samples: only when something changed.
-            const int channel = (int)std::lround(v[S_CHANNEL]);
-            if (!(design == plugin->cqtDesign) || hop != plugin->cqtHop || reading != plugin->cqtReading || channel != plugin->cqtChannel
-                || !plugin->cqtConfigured)
+            SpectrogramAnalysis::Cqt cqt;
+            cqt.design.sampleRate = rate;
+            cqt.design.bandsPerOctave = bands[std::clamp((int)std::lround(v[S_CQT_BANDS]), 0, 2)];
+            cqt.design.referenceFrequency = v[S_TUNING];
+            cqt.design.minFrequency = v[S_CQT_LOW];
+            cqt.design.maxFrequency = std::max(cqt.design.minFrequency, std::min(v[S_CQT_HIGH], 0.4 * rate));
+            cqt.hop = (int)std::lround(rate / columnsPerSecond[std::clamp((int)std::lround(v[S_CQT_RATE]), 0, 2)]);
+            cqt.reading = readings[std::clamp((int)std::lround(v[S_CQT_READING]), 0, 2)];
+            cqt.channel = channel;
+            cqt.smoothing = smoothing;
+            // Settings it makes no bands of leave the FFT running, as outside 44.1 to 96 kHz.
+            if (!(plugin->cqtFailedSet && cqt == plugin->cqtFailed))
             {
-                plugin->cqtDesign = design, plugin->cqtHop = hop, plugin->cqtReading = reading, plugin->cqtChannel = channel;
-                plugin->cqtReady = plugin->cqt.configure(design, hop, reading, (chardsp::ConstantQChannel)channel);
-                plugin->cqtConfigured = true;
-                plugin->cqtLast.clear();
-            }
-            if (plugin->cqtReady)
-            {
-                const auto &transform = plugin->cqt.getTransform();
-                const auto &centres = transform.getFrequencies();
-                const core::Value::Array hz(centres.begin(), centres.end());
-                const double delay = 0.5 * transform.getBlockSize() / rate;
-                const float smoothing = (float)v[S_SMOOTHING];
-                column.resize(centres.size());
-                // At most 8 columns a call, as the FFT's.
-                for (int sent = 0; sent < 8 && plugin->cqt.next(column.data(), advanced); sent++)
+                if (plugin->analysis.configure(cqt))
                 {
-                    // Time smoothing as the FFT's: each band keeps that much of its last value (in dB).
-                    if (plugin->cqtLast.size() != column.size())
-                        plugin->cqtLast = column;
-                    for (size_t b = 0; b < column.size(); b++)
-                        column[b] = plugin->cqtLast[b] = smoothing * plugin->cqtLast[b] + (1 - smoothing) * column[b];
-                    plugin->gui.send(core::Value::Map{{"type", "column"}, {"rate", (double)rate}, {"seconds", advanced / (double)rate},
-                                                      {"db", core::Value::Array(column.begin(), column.end())}, {"hz", hz},
-                                                      {"delay", delay}});
+                    plugin->cqtFailedSet = false;
+                    const auto &transform = plugin->analysis.cqtTransform();
+                    const auto &centres = transform.getFrequencies();
+                    const core::Value::Array hz(centres.begin(), centres.end());
+                    const double delay = 0.5 * transform.getBlockSize() / rate;
+                    // At most 8 columns a call, as the FFT's.
+                    for (int sent = 0; sent < 8 && plugin->analysis.next(column, advanced); sent++)
+                        plugin->gui.send(core::Value::Map{{"type", "column"}, {"rate", (double)rate}, {"seconds", advanced / (double)rate},
+                                                          {"db", core::Value::Array(column.begin(), column.end())}, {"hz", hz},
+                                                          {"delay", delay}});
+                    return;
                 }
-                return;
+                plugin->cqtFailed = cqt, plugin->cqtFailedSet = true;
             }
-            // Settings it can't make bands of: the FFT's, as outside 44.1 to 96 kHz.
         }
-        else
-            plugin->cqtConfigured = false; // the next CQT starts afresh
-        chardsp::Stft::Settings analysis;
-        analysis.size = 1 << (int)std::lround(v[S_FFT_SIZE]);
-        analysis.hop = std::min((int)std::lround(v[S_HOP_SIZE]), analysis.size);
-        analysis.window = (chardsp::Stft::Window)std::lround(v[S_WINDOW]);
-        analysis.channel = (chardsp::Stft::Channel)std::lround(v[S_CHANNEL]);
-        analysis.smoothing = (float)v[S_SMOOTHING];
-        plugin->stft.configure(analysis);
-        // At most 8 columns a call (Stft::next skips older ones), each sent
+        SpectrogramAnalysis::Fft fft;
+        fft.size = 1 << (int)std::lround(v[S_FFT_SIZE]);
+        fft.hop = std::min((int)std::lround(v[S_HOP_SIZE]), fft.size);
+        fft.window = (chardsp::SpectrumWindow)std::clamp((int)std::lround(v[S_WINDOW]), 0, 3);
+        fft.channel = channel;
+        fft.smoothing = smoothing;
+        plugin->analysis.configure(fft);
+        // At most 8 columns a call (the analysis skips older ones), each sent
         // with how much audio it moves on: about 1.5 a call at 48 kHz with a
         // hop of 512.
-        for (int sent = 0; sent < 8 && plugin->stft.next(column, advanced); sent++)
+        for (int sent = 0; sent < 8 && plugin->analysis.next(column, advanced); sent++)
             plugin->gui.send(core::Value::Map{{"type", "column"}, {"rate", (double)rate},
                                               {"seconds", advanced / (double)rate},
                                               {"db", core::Value::Array(column.begin(), column.end())}});

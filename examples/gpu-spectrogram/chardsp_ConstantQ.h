@@ -26,11 +26,10 @@
 #pragma once
 
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 #include <complex>
+#include <limits>
 #include <cstdint>
-#include <memory>
 #include <type_traits>
 #include <vector>
 
@@ -88,15 +87,20 @@ enum class ConstantQReading
 //
 // The bands, weights and coefficients are those of CiCueTea's NsgfCqtSparse
 // built with minFrequency / 2^(1 / bandsPerOctave) and
-// maxFrequency · 2^(1 / bandsPerOctave) (Listener's way of using it), less its
-// two edge bands, which are low- and high-pass rather than constant-Q.
+// maxFrequency · 2^(1 / bandsPerOctave), less its two edge bands, which are
+// low- and high-pass rather than constant-Q.
 //
 // process() takes one real FFT of a block; everything after reads that
 // spectrum. A coefficient at any time is a weighted sum over the band's bins,
-// so one value per band (as Listener reads them, at the block's centre) costs
-// far less than CiCueTea's inverse FFT per band. Like CiCueTea's, the
-// transform treats the block as periodic: a whole file analysed as one block
-// wants silence padded at both ends.
+// so one value per band (at the block's centre, say) costs far less than
+// CiCueTea's inverse FFT per band. If real-time speed is ever
+// needed, a multirate design like librosa's (the rate halved each octave down,
+// so each octave takes a small FFT) could cut the cost several times, with the
+// resampler's quality limiting precision.
+//
+// Like CiCueTea's, the transform treats the block as periodic: a whole file
+// analysed as one block wants silence padded at both ends. getSignalColumns()
+// analyses a signal of any length in overlapping blocks instead.
 //
 // prepare() allocates; the rest does not.
 template <typename SampleType>
@@ -107,8 +111,13 @@ public:
                    || std::is_same_v<SampleType, double>,
                    "ConstantQ supports float or double");
 
-    // Listener's block: the shortest power of two holding bandsPerOctave
-    // periods of minFrequency, enough for the lowest band's atom.
+    // The default block: the shortest power of two holding bandsPerOctave
+    // periods of minFrequency, enough for the lowest band's atom. Only just:
+    // it's about four of that atom's spreads long, so the atom's tails past
+    // two spreads either side of the middle (still an eighth of its peak) wrap
+    // round onto the block's other end, where a sine that doesn't fit the
+    // block a whole number of times meets them out of phase. The lowest bands
+    // then read up to 0.75 dB low; in twice the block, within 0.001 dB.
     static int minimumBlockSize (double sampleRate, double bandsPerOctave,
                                  double minFrequency) noexcept
     {
@@ -231,6 +240,8 @@ public:
         spectrum.assign (static_cast<size_t> (size / 2 + 1), {});
         scratch.assign (static_cast<size_t> (longest), {});
         envelope.assign (static_cast<size_t> (longest), {});
+        padded.assign (static_cast<size_t> (size), SampleType {});
+        measureReaches();
         return true;
     }
 
@@ -240,11 +251,24 @@ public:
     int getNumBands() const noexcept { return static_cast<int> (bands.size()); }
 
     // How far a band's atom spreads in time: the standard deviation of its
-    // magnitude, in samples. A coefficient depends on the samples within
-    // about six of these of its time.
+    // magnitude near its centre, in samples. With a few bands per octave or
+    // more, a coefficient depends on the samples within about six of these of
+    // its time.
     double getSpread (int bandIndex) const noexcept
     {
         return bands[static_cast<size_t> (bandIndex)].spread;
+    }
+
+    // How far a band's atom reaches in time, measured, and at least six
+    // spreads: the samples further than this from a coefficient's time move
+    // it by at most 5e-6 of full scale between them. Past six spreads what's
+    // left is mostly the faint ripple of the weights CiCueTea leaves out; a
+    // broad band whose weights are cut off at DC or Nyquist reaches far
+    // further: infinite, when they're cut off well above CiCueTea's
+    // threshold, as their tails then fall only as 1 / time.
+    double getReach (int bandIndex) const noexcept
+    {
+        return bands[static_cast<size_t> (bandIndex)].reach;
     }
 
     // Each band's centre in Hz, low to high.
@@ -280,7 +304,7 @@ public:
             sum (band, start, step));
     }
 
-    // The band's magnitude at the block's centre: the value Listener reads.
+    // The band's magnitude at the block's centre.
     SampleType getCentreMagnitude (int bandIndex) const noexcept
     {
         // At the centre, bin j turns by (-1)^j.
@@ -353,9 +377,10 @@ public:
         auto last = static_cast<int> (std::ceil (
             std::min (to, static_cast<double> (size)) / spacing)) - 1;
 
+        // No coefficient on the grid in the stretch: the one at its middle.
         if (first > last)
-            first = last = static_cast<int> (std::lround (middle / spacing))
-                         % length;
+            return static_cast<SampleType> (
+                std::abs (getCoefficient (bandIndex, middle)));
 
         const int count = last - first + 1;
         double peak = 0.0, power = 0.0;
@@ -404,22 +429,38 @@ public:
     }
 
     // One band over a run of columns `spacing` samples apart, the first
-    // centred `firstTime` samples into the block: one inverse FFT, then each
-    // column read from the coefficients within half a spacing of its time
-    // (centre: the one nearest). For analysing a long block at any time
-    // resolution.
+    // centred `firstTime` samples into the block: each column read from the
+    // coefficients within half a spacing of its time (centre: the one
+    // nearest), on a grid at least as fine as the columns, so neighbouring
+    // columns never share one. One inverse FFT for the lot, or, for a grid
+    // finer than prepare() made room for, a sum per coefficient read. For
+    // analysing a long block at any time resolution.
     void getColumns (int bandIndex, ConstantQReading reading,
                      double firstTime, double spacing, int numColumns,
                      SampleType* magnitudes) noexcept
     {
         const auto& band = bands[static_cast<size_t> (bandIndex)];
-        const int length = band.readingLength;
-        inverse (band, length);
+        const int length = std::min (size, std::max (band.readingLength,
+            nextPowerOfTwo (static_cast<int64_t> (std::min (
+                static_cast<double> (size),
+                std::ceil (size / std::max (spacing, 1.0)))))));
+        const bool inverted = length <= static_cast<int> (envelope.size());
+
+        if (inverted)
+            inverse (band, length);
+
         const double step = static_cast<double> (size) / length;
         const auto at = [&] (int64_t n) {
             n %= length;
-            return std::abs (std::complex<double> (envelope[static_cast<size_t> (
-                n < 0 ? n + length : n)]));
+            n += n < 0 ? length : 0;
+
+            if (inverted)
+                return std::abs (std::complex<double> (
+                    envelope[static_cast<size_t> (n)]));
+
+            return std::abs (sum (band, std::polar (1.0, twoPi * static_cast<double> (
+                    (static_cast<int64_t> (band.first) * n) % length) / length),
+                std::polar (1.0, twoPi * static_cast<double> (n) / length)));
         };
 
         for (int c = 0; c < numColumns; ++c)
@@ -449,6 +490,82 @@ public:
         }
     }
 
+    // getColumns() over a signal of any length, as from one block holding all
+    // of it with silence either side: numColumns columns `spacing` samples
+    // apart, the first centred on the signal's first sample, every band's
+    // into magnitudes[band · numColumns + column]. Overlapping blocks of
+    // getBlockSize() each give the columns their edges can't reach (the
+    // furthest getReach() in), so memory doesn't grow with the signal. Each
+    // column is within 1e-5 of full scale of the one block's whatever the
+    // signal, and nearer 1e-7 for music or noise.
+    //
+    // False, doing nothing, if the block is too short to give any; eight
+    // times minimumBlockSize() gives about 60% of each. A design whose top
+    // band's weights are cut off at Nyquist (or bottom band's at DC), as with
+    // a band or so per octave reaching high, has atoms no block holds.
+    bool getSignalColumns (const SampleType* signal, int64_t length,
+                           ConstantQReading reading, double spacing,
+                           int64_t numColumns, SampleType* magnitudes) noexcept
+    {
+        if (! isValid() || ! (spacing > 0.0) || numColumns < 1)
+            return false;
+
+        // Blocks start on every band's coefficient grid, so each reads the
+        // same coefficients the one block would.
+        int64_t grid = 1;
+
+        for (const auto& band : bands)
+            grid = std::max (grid, static_cast<int64_t> (size / std::min (size,
+                std::max (band.readingLength, nextPowerOfTwo (static_cast<int64_t> (
+                    std::min (static_cast<double> (size),
+                              std::ceil (size / std::max (spacing, 1.0)))))))));
+
+        double reach = 0.0;
+
+        for (const auto& band : bands)
+            reach = std::max (reach, band.reach);
+
+        const double margin = reach + spacing + grid;
+
+        if (static_cast<double> (size) < 2.0 * margin + grid)
+            return false;
+
+        for (int64_t column = 0; column < numColumns;)
+        {
+            const double time = column * spacing;
+            auto start = static_cast<int64_t> (std::floor ((time - margin) / grid))
+                       * grid;
+            const auto end = std::min (numColumns, static_cast<int64_t> (
+                std::floor ((static_cast<double> (start + size) - margin)
+                            / spacing)) + 1);
+
+            if (start >= 0 && start + size <= length)
+            {
+                process (signal + start);
+            }
+            else
+            {
+                for (int i = 0; i < size; ++i)
+                {
+                    const auto at = start + i;
+                    padded[static_cast<size_t> (i)] = at >= 0 && at < length
+                        ? signal[at] : SampleType {};
+                }
+
+                process (padded.data());
+            }
+
+            for (int b = 0; b < getNumBands(); ++b)
+                getColumns (b, reading, time - static_cast<double> (start),
+                            spacing, static_cast<int> (end - column),
+                            magnitudes + b * numColumns + column);
+
+            column = end;
+        }
+
+        return true;
+    }
+
 private:
     static constexpr double threshold = 1.0e-6; // CiCueTea's
     static constexpr double twoPi = 6.283185307179586476925286766559;
@@ -460,8 +577,61 @@ private:
         int length = 0; // coefficients: count rounded up to a power of two
         int readingLength = 0; // coefficients for readings
         double spread = 0.0; // samples
+        double reach = 0.0; // samples
         size_t offset = 0; // into weights
     };
+
+    static constexpr double reachTolerance = 5.0e-6;
+
+    // Each band's reach, from its atom (the coefficients of an impulse) in
+    // double: the time either side past which the atom's magnitudes, summed
+    // over the samples there, stay within reachTolerance (a sum over the
+    // reading grid, which samples the atom finely enough).
+    void measureReaches()
+    {
+        signalsmith::fft::FFT<double> inverseFFT (4);
+        std::vector<std::complex<double>> in, out;
+
+        for (auto& band : bands)
+        {
+            const int length = band.readingLength;
+            const double step = static_cast<double> (size) / length;
+            inverseFFT.setSize (static_cast<size_t> (length));
+            in.assign (static_cast<size_t> (length), {});
+            out.resize (static_cast<size_t> (length));
+
+            for (int m = 0; m < band.count; ++m)
+                in[static_cast<size_t> (m)] = weights[band.offset
+                                                      + static_cast<size_t> (m)];
+
+            inverseFFT.ifft (in.data(), out.data());
+            double tail = 0.0;
+            int k = length / 2;
+
+            for (; k > 0; --k)
+            {
+                double here = std::abs (out[static_cast<size_t> (k)]);
+
+                if (k != length - k)
+                    here += std::abs (out[static_cast<size_t> (length - k)]);
+
+                if (tail + here * step > reachTolerance)
+                    break;
+
+                tail += here * step;
+            }
+
+            band.reach = std::max (6.0 * band.spread, (k + 1) * step);
+
+            // Weights cut off well above the threshold (by DC or Nyquist)
+            // leave a tail falling only as 1 / time, past any block's reach.
+            const double edge = 10.0 * threshold * 2.0 / size;
+
+            if (weights[band.offset] > edge
+                || weights[band.offset + static_cast<size_t> (band.count) - 1] > edge)
+                band.reach = std::numeric_limits<double>::infinity();
+        }
+    }
 
     static int nextPowerOfTwo (int64_t value) noexcept
     {
@@ -538,273 +708,9 @@ private:
     std::vector<double> frequencies;
     std::vector<SampleType> weights;
     std::vector<std::complex<SampleType>> spectrum, scratch, envelope;
+    std::vector<SampleType> padded; // getSignalColumns()' edge blocks
     signalsmith::fft::RealFFT<SampleType> transform;
     std::vector<signalsmith::fft::FFT<SampleType>> inverses;
-};
-
-enum class ConstantQChannel
-{
-    mix,
-    left,
-    right
-};
-
-// A ConstantQ over a live stereo signal, as Listener's spectrogram: a column
-// of levels in dB per band (-160 at least) every `hop` samples, from the newest
-// block, each band read over the hop centred on the block's middle.
-//
-// ConstantQReading::centre reads only the middle, as Listener does, and
-// matches it: one coefficient per band per hop. A high band's coefficients
-// change far faster than that, so a click between two middles goes unseen and
-// close tones in one band alias to a slow flicker. peak and mean read every
-// coefficient in the hop instead. mean, the default, is the band's power over
-// the hop: steady tones read as in centre, noise reads the same in every band
-// whatever the hop, and a click reads its energy spread over the hop. peak
-// shows a click at its own level, but reads noise higher in the bands with
-// more coefficients per hop (the high ones).
-//
-// For peak and mean, the bands' coefficients over the hop only depend on the
-// samples within six of their atom's spreads, so bands are grouped by how many
-// samples that is, rounded up to a power of two, and each group analyses only
-// those: the same bands, sampled on the coarser bins of a shorter block.
-//
-// prepare() allocates the ring, holding two of the largest block, while
-// nothing pushes. push() runs on the audio thread and only copies both
-// channels into the ring. configure() and next() run on another thread (the
-// analysis), which sets the transform up and reads the ring; configure()
-// allocates, next() does not.
-template <typename SampleType>
-class ConstantQStream
-{
-public:
-    static_assert (std::is_same_v<SampleType, float>
-                   || std::is_same_v<SampleType, double>,
-                   "ConstantQStream supports float or double");
-
-    void prepare (int maxBlockSize)
-    {
-        int capacity = 8;
-
-        while (capacity < 2 * maxBlockSize && capacity < (1 << 30))
-            capacity *= 2;
-
-        ringSize = static_cast<uint32_t> (capacity);
-        leftRing.reset (new std::atomic<SampleType>[ringSize]());
-        rightRing.reset (new std::atomic<SampleType>[ringSize]());
-        writeIndex.store (0, std::memory_order_release);
-        analysed = 0;
-    }
-
-    // False, analysing nothing, when the design isn't valid or its block is
-    // over half the ring. Anything changed starts afresh from the newest
-    // samples.
-    bool configure (const ConstantQDesign& newDesign, int newHop,
-                    ConstantQReading newReading = ConstantQReading::mean,
-                    ConstantQChannel newChannel = ConstantQChannel::mix)
-    {
-        newHop = std::max (1, newHop);
-        const bool rebuild = newDesign != design || ! transform.isValid();
-
-        if (rebuild)
-        {
-            design = newDesign;
-            transform.prepare (design);
-            block.assign (static_cast<size_t> (transform.getBlockSize()),
-                          SampleType {});
-            magnitudes.assign (static_cast<size_t> (transform.getNumBands()),
-                               SampleType {});
-        }
-
-        if (rebuild || newHop != hop)
-        {
-            hop = newHop;
-            group();
-        }
-
-        reading = newReading;
-        channel = newChannel;
-        analysed = writeIndex.load (std::memory_order_acquire);
-        const auto blockSize = static_cast<uint32_t> (transform.getBlockSize());
-        ready = transform.isValid() && blockSize * 2 <= ringSize
-             && static_cast<uint32_t> (hop) <= ringSize - blockSize;
-        return ready;
-    }
-
-    // The bands, with the whole block.
-    const ConstantQ<SampleType>& getTransform() const noexcept
-    {
-        return transform;
-    }
-
-    int getHop() const noexcept { return hop; }
-
-    // Audio thread: never blocks or allocates.
-    void push (const SampleType* left, const SampleType* right,
-               uint32_t frames) noexcept
-    {
-        if (ringSize == 0)
-            return;
-
-        uint32_t index = writeIndex.load (std::memory_order_relaxed);
-
-        for (uint32_t i = 0; i < frames; ++i, ++index)
-        {
-            leftRing[index % ringSize].store (left[i],
-                                              std::memory_order_relaxed);
-            rightRing[index % ringSize].store (right[i],
-                                               std::memory_order_relaxed);
-        }
-
-        writeIndex.store (index, std::memory_order_release);
-    }
-
-    // The next column into `decibels` (a value per band), if a hop's worth of
-    // samples has arrived since the last, and in `advanced` the samples since
-    // the last column. With more than `keep` columns waiting, or any the ring
-    // has already overwritten, it skips to the newest few.
-    bool next (SampleType* decibels, uint32_t& advanced,
-               uint32_t keep = 8) noexcept
-    {
-        if (! ready)
-            return false;
-
-        const auto size = static_cast<uint32_t> (transform.getBlockSize());
-        const auto step = static_cast<uint32_t> (hop);
-        const uint32_t end = writeIndex.load (std::memory_order_acquire);
-
-        if (end < size)
-            return false;
-
-        uint32_t before = analysed;
-
-        if (end - analysed > ringSize - size) // fell behind the ring
-            analysed = end - step, before = analysed - step;
-
-        const uint32_t waiting = (end - analysed) / step;
-
-        if (waiting == 0)
-            return false;
-
-        if (waiting > keep)
-            analysed += (waiting - keep) * step;
-
-        analysed += step;
-        advanced = analysed - before;
-
-        for (uint32_t i = 0; i < size; ++i)
-        {
-            const uint32_t at = (analysed - size + i) % ringSize;
-            const auto left = leftRing[at].load (std::memory_order_relaxed);
-            const auto right = rightRing[at].load (std::memory_order_relaxed);
-            block[i] = channel == ConstantQChannel::left ? left
-                : channel == ConstantQChannel::right ? right
-                : static_cast<SampleType> (0.5) * (left + right);
-        }
-
-        if (reading == ConstantQReading::centre)
-        {
-            transform.process (block.data());
-
-            for (int b = 0; b < transform.getNumBands(); ++b)
-                magnitudes[static_cast<size_t> (b)] =
-                    transform.getCentreMagnitude (b);
-        }
-        else
-        {
-            const double middle = 0.5 * size;
-            bool whole = false;
-
-            for (auto& g : groups)
-            {
-                if (g.transform.isValid())
-                {
-                    const auto length = static_cast<uint32_t> (
-                        g.transform.getBlockSize());
-                    g.transform.process (block.data() + (size - length) / 2);
-                    g.transform.getMagnitudes (
-                        reading, 0.5 * length - 0.5 * hop,
-                        0.5 * length + 0.5 * hop, magnitudes.data() + g.first);
-                    continue;
-                }
-
-                if (! whole)
-                    transform.process (block.data()), whole = true;
-
-                for (int b = g.first; b < g.end; ++b)
-                    magnitudes[static_cast<size_t> (b)] = transform.getMagnitude (
-                        b, reading, middle - 0.5 * hop, middle + 0.5 * hop);
-            }
-        }
-
-        for (size_t b = 0; b < magnitudes.size(); ++b)
-            decibels[b] = static_cast<SampleType> (std::max (-160.0,
-                20.0 * std::log10 (std::max (
-                    1.0e-8, static_cast<double> (magnitudes[b])))));
-
-        return true;
-    }
-
-private:
-    struct Group
-    {
-        int first = 0, end = 0; // bands
-        int length = 0; // samples
-        ConstantQ<SampleType> transform; // when not valid, the whole block's
-    };
-
-    // Each band's coefficients across the hop need the samples within six of
-    // its atom's spreads either side.
-    void group()
-    {
-        groups.clear();
-        const int size = transform.getBlockSize();
-        int previous = -1;
-
-        for (int b = 0; b < transform.getNumBands(); ++b)
-        {
-            int length = 4;
-
-            while (length < hop + 12.0 * transform.getSpread (b) && length < size)
-                length *= 2;
-
-            if (length != previous)
-            {
-                groups.emplace_back();
-                groups.back().first = b;
-                groups.back().length = previous = length;
-            }
-
-            groups.back().end = b + 1;
-        }
-
-        const auto& frequencies = transform.getFrequencies();
-
-        for (auto& g : groups)
-        {
-            auto part = design;
-            part.minFrequency = frequencies[static_cast<size_t> (g.first)];
-            part.maxFrequency = frequencies[static_cast<size_t> (g.end - 1)];
-            part.blockSize = g.length;
-
-            // Too long, or bands it can't resolve: the whole block's.
-            if (part.blockSize >= size || ! g.transform.prepare (part)
-                || g.transform.getNumBands() != g.end - g.first)
-                g.transform = ConstantQ<SampleType>();
-        }
-    }
-
-    ConstantQ<SampleType> transform;
-    std::vector<Group> groups;
-    ConstantQDesign design;
-    int hop = 0;
-    ConstantQReading reading = ConstantQReading::mean;
-    ConstantQChannel channel = ConstantQChannel::mix;
-    bool ready = false;
-    std::vector<SampleType> block, magnitudes;
-    uint32_t ringSize = 0;
-    uint32_t analysed = 0; // the sample the last column ended at
-    std::unique_ptr<std::atomic<SampleType>[]> leftRing, rightRing;
-    std::atomic<uint32_t> writeIndex { 0 };
 };
 
 } // namespace chardsp

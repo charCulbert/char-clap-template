@@ -1,5 +1,5 @@
-# Signalsmith Audio's DSP library (MIT, header-only), for its FFT: the spectrum
-# analysis (chardsp_Spectrum.h) includes "dsp/fft.h". Used by this example's
+# Signalsmith Audio's DSP library (MIT, header-only), for its FFT: the analysis
+# (chardsp_Spectrum.h and chardsp_ConstantQ.h) includes "dsp/fft.h". Used by this example's
 # CMakeLists.txt and by the repository's tests.
 include_guard(DIRECTORY)
 include(FetchContent)
