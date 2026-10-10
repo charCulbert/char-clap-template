@@ -1,6 +1,7 @@
 #include "params.h"
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace gpu {
 
@@ -9,11 +10,33 @@ bool Params::receive(const core::Value &message)
     const auto type = message["type"].text();
     if (type == "params")
     {
-        params.clear();
+        // Updated in place, by id (the plugin sends the list again when the
+        // view is prepared again): the Param pointers a view holds, a control
+        // mid-drag for one, stay good and its gesture goes on. One no longer
+        // listed has its gesture ended and isn't found again.
+        std::vector<bool> listed(params.size());
         if (auto list = std::get_if<core::Value::Array>(&message["params"].data))
-            for (const auto &p : *list)
-                params.push_back({int(p["id"].number(-1)), std::string(p["name"].text()), p["min"].number(),
-                                  p["max"].number(1), p["default"].number(), p["default"].number()});
+            for (const auto &entry : *list)
+            {
+                const int id = int(entry["id"].number(-1));
+                auto p = std::find_if(params.begin(), params.end(), [&](const Param &q) { return q.id == id; });
+                if (p == params.end())
+                {
+                    params.push_back(Param{.id = id});
+                    listed.push_back(false);
+                    p = std::prev(params.end());
+                }
+                listed[size_t(p - params.begin())] = true;
+                p->name = entry["name"].text();
+                p->min = entry["min"].number(), p->max = entry["max"].number(1), p->defaultValue = entry["default"].number();
+                if (!p->dragging) p->value = p->defaultValue;
+            }
+        for (size_t i = 0; i < params.size(); ++i)
+            if (!listed[i])
+            {
+                if (params[i].gestures) params[i].gestures = 1, end(params[i]);
+                params[i].name.clear();
+            }
         return true;
     }
     if (type == "values")
