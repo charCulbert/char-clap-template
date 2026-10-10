@@ -13,10 +13,12 @@ parts, with no drawing code of its own; for a drawing of your own, see
   Listener's, in dB relative to a full-scale sine. The audio thread only
   copies both channels into a ring; the main thread sets up the FFT and
   window and reads the ring.
-- `ui/SpectrogramView.cpp`: the interface, a `gpu::View`, laid out as
-  char-spectrum's: a `gpu::Spectrogram` (`draw2d/views.h`) fills the window,
-  frequencies up its left edge and seconds along the bottom drawn over it,
-  and the settings as readouts (`Ui::readout`) in the top right corner.
+- `ui/SpectrogramView.cpp`: the interface, a `gpu::View`: a
+  `gpu::Spectrogram` (`draw2d/views.h`) fills the window, frequencies up its
+  left edge and seconds along the bottom drawn over it, with a Pause toggle
+  and the settings drawer's header (`Ui::drawer`) in its top right corner.
+  Open, the drawer docks to the right edge with the settings as readouts
+  (`Ui::readout`).
 - `resources/`: the files the plugin ships (its font, IBM Plex Mono). Add images, sounds or
   anything else here and read them with `core::readResource("/path")` (on the
   main thread), or `gpu::loadAsset` in the view.
@@ -41,8 +43,22 @@ automating them.
 | Scale | linear, log or mel | log |
 | Palette | System, Bone, Inferno, Viridis or Magma | System |
 | Scroll rate | 25 to 200 points a second, whatever the hop | 100 |
-| Piano strip, peak snap, cursor readout | on or off | on |
+| Piano strip, key tone, peak snap, cursor readout | on or off | on |
+| Transform | FFT or CQT | FFT |
+| CQT bands per octave | 12, 24 or 36 | 24 |
+| A4 tuning | 400 to 480 Hz | 440 Hz |
+| CQT frequency limits | lower 55 to 220 Hz, upper 1 kHz to 0.4 × the sample rate | 55 Hz to 16 kHz |
+| CQT update rate | 15, 30 or 60 a second | 30 |
 
+The CQT settings show only while CQT is the transform. They are kept in the
+state, but the analysis is the FFT's until a constant-Q transform is wired
+in. A4 tuning also sets the piano strip's keys and the pitch names.
+
+The settings are in a drawer: the **Settings** header in the top right
+corner opens it, docked to the window's right edge beside the plot, and
+closes it. Drag its left edge (or focus the edge and use the arrows) to make
+it wider; the readouts fill as many columns as fit. Whether it is open and
+its width are saved with the plugin's state.
 Drag a readout up or down (Shift for fine) or scroll over it to change it;
 double-click it, or choose Reset to Default from its context menu, to reset
 it; click one with a list of values (FFT size, Window, Channel, Scale,
@@ -54,6 +70,20 @@ Hovering over the spectrogram shows the frequency, the nearest pitch in cents
 and the level under the pointer. Peak snap follows the nearest peak in that
 column within 10 points (keeping one it follows within 18), as Listener's;
 hold Command to bypass it.
+
+Space, or the **Pause** toggle, freezes the display; the analysis keeps
+running. The colours, level and frequency ranges and the scale still apply to
+the frozen picture, and resuming starts a fresh history. Space goes to a
+focused button, toggle or drawer header first, which it presses. Screen
+readers hear "Display paused" and "Display resumed".
+
+Hold a key of the piano strip to hear a quiet sine (−18 dBFS) at its pitch,
+drag to another key to change note, and let go to stop; a line marks the
+exact pitch across the plot while it's held. The plugin has no output of its
+own, so the tone is mixed into its audio output, fading in and out over a
+few milliseconds. The analysis takes its input before the tone is added, so
+the spectrogram never shows it. Turn **Key tone** off to keep the guide line
+without the sound. To screen readers the strip is one picture.
 
 A short hop with a large FFT is more work than the main thread can do in
 real time: the plugin analyses at most 8 columns each time it runs (60 times

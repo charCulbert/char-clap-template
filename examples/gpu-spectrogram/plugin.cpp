@@ -1,6 +1,8 @@
-// GPU Spectrogram: passes stereo audio through unchanged and shows a scrolling
+// GPU Spectrogram: passes stereo audio through and shows a scrolling
 // spectrogram of it, as Listener's, drawn with libs/draw2d's views
-// (ui/SpectrogramView.cpp): no drawing code of its own.
+// (ui/SpectrogramView.cpp): no drawing code of its own. Holding a key of its
+// piano strip mixes a quiet sine at that pitch into the output (a plugin has
+// no output of its own), which the spectrogram never sees.
 //
 // This file is the whole CLAP plugin: its descriptor, audio ports, state, the
 // clap.webview and clap.gui extensions its interface uses, and the audio
@@ -8,8 +10,9 @@
 // reusable parts: the message codec and file loader (core/), and the presenter
 // that shows a gpu::View in the host's window (gpu/).
 //
-// Its settings, Listener's spectrogram's, change only the analysis and how it
-// looks, so they are saved with the plugin's state, not CLAP parameters:
+// Its settings, Listener's spectrogram's with the key tone and the
+// interface's settings drawer, change only the analysis and how it looks and
+// sounds while you look, so they are saved with the plugin's state, not CLAP parameters:
 // hosts don't list or automate them. The interface edits them with the same
 // messages it would use for parameters.
 #include "clap/clap.h"
@@ -51,6 +54,16 @@ enum SettingId
     S_PALETTE,           // gpu::Spectrogram::Palette: system, bone, inferno, viridis, magma
     S_SCROLL_RATE,       // points a second, whatever the hop
     S_PIANO, S_PEAK_SNAP, S_CURSOR, // on or off: the piano strip, and the readout under the pointer
+    // The transform, and Listener's constant-Q settings: kept and shown, but
+    // the analysis is the FFT's until a CQT is wired in.
+    S_TRANSFORM,   // 0 FFT, 1 CQT
+    S_CQT_BANDS,   // bands per octave: 0, 1, 2 for 12, 24, 36
+    S_TUNING,      // A4, Hz: the CQT's bands, and the piano strip's keys and their tone
+    S_CQT_LOW, S_CQT_HIGH, // the CQT's frequency limits, Hz (the interface stops the upper at 0.4 x the sample rate)
+    S_CQT_RATE,    // columns a second: 0, 1, 2 for 15, 30, 60
+    S_KEY_TONE,    // on or off: holding a piano key plays its pitch
+    // The interface's settings drawer: open or closed, and its width in points.
+    S_DRAWER, S_DRAWER_WIDTH,
     S_COUNT
 };
 static const Setting settings[S_COUNT] = {
@@ -69,7 +82,21 @@ static const Setting settings[S_COUNT] = {
     {"Piano", 0, 1, 1},
     {"Peak snap", 0, 1, 1},
     {"Cursor", 0, 1, 1},
+    {"Transform", 0, 1, 0},
+    {"CQT bands per octave", 0, 2, 1},
+    {"A4 tuning", 400, 480, 440},
+    {"CQT low frequency", 55, 220, 55},
+    {"CQT high frequency", 1000, 38400, 16000},
+    {"CQT update rate", 0, 2, 1},
+    {"Key tone", 0, 1, 1},
+    {"Settings drawer", 0, 1, 0},
+    {"Settings drawer width", 140, 900, 280},
 };
+
+// The key tone: a sine at -18 dBFS, faded in and out over two of its cycles
+// (3 to 20 ms, as Listener's) so it starts and stops without a click.
+static const float toneLevel = 0.125893f; // 10^(-18/20)
+static float toneFade(float hz) { return std::clamp(2 / hz, 0.003f, 0.02f); }
 
 struct MyPlugin
 {
@@ -85,6 +112,13 @@ struct MyPlugin
     std::atomic<bool> columnsPending;
     uint32_t framesSinceColumns = 0; // audio thread only
 
+    // The key tone. The main thread sets toneHz, 0 for none (see PluginSetTone);
+    // the audio thread reads it and keeps the rest.
+    float toneHeld = 0; // main thread: the pitch the interface holds, Hz
+    std::atomic<float> toneHz{0};
+    double tonePhase = 0;                  // audio thread only: radians
+    float toneGain = 0, toneFrequency = 0; // audio thread only: 0..1 of toneLevel, and the pitch sounding
+
     gpu::Gui gui;
     float guiWidth = 720, guiHeight = 420; // points, so the window keeps its size across scales
     bool uiReady = false; // the interface has said "ready" and not been closed since
@@ -92,6 +126,7 @@ struct MyPlugin
 
 static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message);
 static void PluginSendValues(MyPlugin *plugin);
+static void PluginSetTone(MyPlugin *plugin);
 
 static const char *const pluginFeatures[] = {
     CLAP_PLUGIN_FEATURE_AUDIO_EFFECT,
@@ -173,6 +208,7 @@ static const clap_plugin_state_t extensionState = {
             plugin->settingValues[i] = value < settings[i].min ? settings[i].min : value > settings[i].max ? settings[i].max : value;
         }
         PluginSendValues(plugin);
+        PluginSetTone(plugin);
         return true;
     },
 };
@@ -219,7 +255,7 @@ static const clap_plugin_webview_t extensionWebview = {
 };
 
 // clap.gui: size policy is ours; creating and embedding the view is gpu::Gui's.
-// The limits are in points; the minimum keeps the settings' readouts clear of each other.
+// The limits are in points; the minimum leaves the plot room beside the settings drawer.
 #define GUI_MIN_WIDTH (420)
 #define GUI_MIN_HEIGHT (270)
 #define GUI_MAX_WIDTH (2000)
@@ -268,6 +304,8 @@ static const clap_plugin_gui_t extensionGui = {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
         plugin->gui.destroy();
         plugin->uiReady = false;
+        plugin->toneHeld = 0; // no interface holds a key now
+        PluginSetTone(plugin);
     },
 
     .set_scale = [](const clap_plugin_t *_plugin, double scale) -> bool
@@ -331,6 +369,7 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //   UI -> plugin  {type: "ready"}
 //                 {type: "change", id, value}     a setting changed
 //                 {type: "begin" | "end", id}     a drag starts or ends (unused here)
+//                 {type: "tone", hz}              a piano key held at hz, or 0 when let go
 //   plugin -> UI  {type: "params", params: [{id, name, min, max, default}]}  the settings
 //                 {type: "values", values: [value per setting id]}
 //                 {type: "column", rate, seconds, db: [FFT size / 2 bins, bin k at k * rate / FFT size Hz]}
@@ -349,6 +388,12 @@ static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
         plugin->uiReady = true;
         return true;
     }
+    if (type == "tone")
+    {
+        plugin->toneHeld = (float)message["hz"].number(0);
+        PluginSetTone(plugin);
+        return true;
+    }
 
     const double id = message["id"].number(-1);
     if (!(id >= 0 && id < S_COUNT))
@@ -360,8 +405,19 @@ static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
         plugin->settingValues[(int)id] = value < setting.min ? setting.min : value > setting.max ? setting.max : value;
         if (plugin->hostState)
             plugin->hostState->mark_dirty(plugin->host); // the project has unsaved changes
+        if (id == S_KEY_TONE)
+            PluginSetTone(plugin);
     }
     return type == "change" || type == "begin" || type == "end";
+}
+
+// Main thread: tells the audio thread the pitch to play, if any: the key
+// held, while Key tone is on, and only below Nyquist (with room for the fade).
+static void PluginSetTone(MyPlugin *plugin)
+{
+    const float hz = plugin->toneHeld;
+    const bool play = plugin->settingValues[S_KEY_TONE] >= 0.5 && hz >= 10 && hz < plugin->sampleRate * 0.45f;
+    plugin->toneHz.store(play ? hz : 0, std::memory_order_relaxed);
 }
 
 static void PluginSendValues(MyPlugin *plugin)
@@ -395,7 +451,10 @@ static const clap_plugin_t pluginClass = {
 
     .activate = [](const clap_plugin *_plugin, double sampleRate, uint32_t minimumFramesCount, uint32_t maximumFramesCount) -> bool
     {
-        ((MyPlugin *)_plugin->plugin_data)->sampleRate = (float)sampleRate;
+        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        plugin->sampleRate = (float)sampleRate;
+        plugin->tonePhase = 0, plugin->toneGain = 0, plugin->toneFrequency = 0;
+        PluginSetTone(plugin); // its limit is the sample rate's
         return true;
     },
 
@@ -418,6 +477,9 @@ static const clap_plugin_t pluginClass = {
 
         // Hand it to the analysis, and every 1/60 s of audio ask the main
         // thread to send the columns that are ready. (Counting samples needs no clock.)
+        // This is the analysis's tap: the input, taken before the key tone is
+        // mixed into the output below, so the spectrogram never shows the tone
+        // (when the host gives one buffer for both, it isn't in it yet).
         plugin->stft.push(input[0], input[1], frameCount);
         plugin->framesSinceColumns += frameCount;
         if (plugin->framesSinceColumns >= plugin->sampleRate / 60)
@@ -425,6 +487,29 @@ static const clap_plugin_t pluginClass = {
             plugin->framesSinceColumns = 0;
             if (!plugin->columnsPending.exchange(true, std::memory_order_acq_rel))
                 plugin->host->request_callback(plugin->host);
+        }
+
+        // The key tone, mixed into the output: it fades in to the pitch held,
+        // follows it from key to key (the phase carries on, so no click), and
+        // fades out at the last pitch when let go.
+        const float target = plugin->toneHz.load(std::memory_order_relaxed);
+        if (target > 0 || plugin->toneGain > 0)
+        {
+            if (target > 0)
+                plugin->toneFrequency = target;
+            const float step = 1 / (toneFade(plugin->toneFrequency) * plugin->sampleRate);
+            const double twoPi = 6.283185307179586;
+            const double advance = twoPi * plugin->toneFrequency / plugin->sampleRate;
+            for (uint32_t i = 0; i < frameCount; i++)
+            {
+                plugin->toneGain = target > 0 ? std::min(1.0f, plugin->toneGain + step) : std::max(0.0f, plugin->toneGain - step);
+                const float sample = toneLevel * plugin->toneGain * (float)std::sin(plugin->tonePhase);
+                output[0][i] += sample;
+                output[1][i] += sample;
+                plugin->tonePhase += advance;
+                if (plugin->tonePhase >= twoPi)
+                    plugin->tonePhase -= twoPi;
+            }
         }
         return CLAP_PROCESS_CONTINUE;
     },
