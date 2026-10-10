@@ -246,7 +246,12 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
     uniformSize[0] = uniformSize[1] = -1;
     fonts.clear();
     glyphs.clear();
-    penX = penY = 4, rowHeight = 0;
+    penX = penY = 4, rowHeight = 0, atlasFull = false;
+    // Everything made on the device before (a lost one) is made again on this
+    // one: the buffers flush grows, and the line bind group that names them.
+    instances = lineStyles = linePoints = fillBuffer = {};
+    capacity = styleCapacity = pointCapacity = fillCapacity = 0;
+    lineBindGroup = {};
 
     wgpu::TextureDescriptor textureDescriptor;
     textureDescriptor.size = {atlasSize, atlasSize, 1};

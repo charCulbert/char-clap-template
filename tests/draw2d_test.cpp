@@ -378,6 +378,26 @@ int main(int argc, char **argv)
         CHECK(ink > 20 && !draw.atlasRefilling());
     }
 
+    // A lost device: prepared again on a new one, shapes, lines and fills
+    // all draw there, with nothing left over from the old device.
+    {
+        Draw2D moved;
+        CHECK(moved.prepare(gpu.device, format, font));
+        const float square[] = {40, 40, 56, 40, 56, 56, 40, 56};
+        auto scene = [&] {
+            moved.rect(8, 8, 16, 16, 0, green);
+            moved.line(0, 32, 64, 32, 4, red);
+            moved.fill(square, 4, blue);
+        };
+        gpu.render(moved, scene);
+        Gpu next;
+        CHECK(next.create());
+        CHECK(moved.prepare(next.device, format, font));
+        px = next.render(moved, scene);
+        CHECK(is(px, 16, 16, green) && is(px, 4, 32, red) && is(px, 48, 48, blue));
+        CHECK(*next.context.errors == 0);
+    }
+
     CHECK(*gpu.context.errors == 0); // no WebGPU validation errors along the way
     if (failures) std::fprintf(stderr, "%d failed\n", failures);
     return failures ? 1 : 0;
