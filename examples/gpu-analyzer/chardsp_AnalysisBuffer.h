@@ -170,8 +170,9 @@ public:
     // hop's end. Any from before the first push read as silence. False when
     // the writer overwrote the oldest of them before the copy finished: the
     // copy is then torn, and the hop is to be dropped. A read that succeeds
-    // means every earlier read of the hop did too, so with several channels
-    // the last read's answer is the hop's.
+    // means every earlier read of the hop that was no longer did too, so
+    // reading every channel the same length (or the longest read last), the
+    // last read's answer is the hop's.
     bool read (int channel, int numSamples,
                SampleType* destination) const noexcept
     {

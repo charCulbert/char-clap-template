@@ -50,11 +50,16 @@ inline bool operator!= (const SpectrumDesign& a,
 // sample, which the FFT sees first ("zero phase"), so a steady sine's
 // neighbouring bins agree in phase and interpolate cleanly.
 //
-// Magnitudes are amplitudes: a sine of amplitude A on a bin's centre at least
-// two window bins (fftSize / size bins each) from DC and Nyquist reads A
-// there whatever the window, and a constant reads its value at DC. Nearer
-// the ends a sine's image across them overlaps it: with Blackman or
-// Blackman-Harris, one window bin from DC reads up to 2 dB off, by phase.
+// Magnitudes are scaled by the window's coherent gain (2 / Σw), so that a
+// sine of amplitude A that fits the block a whole number of times, at least
+// two cycles from DC and Nyquist, reads A at its bin: exactly with a periodic
+// window, and within 0.04 dB with a symmetric one (least so in short blocks),
+// as tested from 16 to 1024 samples. A sine that doesn't fit the block whole
+// reads lower by the window's scalloping, and its image across DC or Nyquist
+// adds to or takes from it by phase: most in short blocks, near the ends and
+// with the rectangular window (a 17-sample block can read 6% either way).
+// Nearer the ends than two cycles, Blackman and Blackman-Harris read up to
+// 2 dB off by phase. A constant reads its value at DC.
 //
 // prepare() allocates; the rest does not.
 template <typename SampleType>
@@ -65,8 +70,8 @@ public:
                    || std::is_same_v<SampleType, double>,
                    "Spectrum supports float or double");
 
-    // False, analysing nothing, for a size under 4 or an fftSize that isn't
-    // a power of two at least as long.
+    // False, analysing nothing and with no bins, for a size under 4 or an
+    // fftSize that isn't a power of two at least as long.
     bool prepare (const SpectrumDesign& newDesign)
     {
         design = newDesign;
@@ -80,6 +85,7 @@ public:
             || (length & (length - 1)) != 0)
         {
             window.clear();
+            bins.clear();
             return false;
         }
 

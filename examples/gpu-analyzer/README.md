@@ -14,9 +14,9 @@ WebGPU by our own drawing code.
   lows, short for the highs) with a Blackman-Harris window, so tones draw as
   rounded peaks and the highs still react quickly.
 - `chardsp_AnalysisBuffer.h`, `chardsp_Spectrum.h`: copies of chardsp's
-  (commit 0adab39), with only the include of Signalsmith's
-  FFT changed to this example's `dsp/fft.h`. The buffer brings both channels
-  from the audio thread; the spectrum is each window's FFT.
+  (commit 87bfc1e), with only the include of Signalsmith's FFT changed to this
+  example's `dsp/fft.h`. The buffer brings both channels from the audio
+  thread; the spectrum is each window's FFT.
 - `ui/AnalyzerView.cpp`: the interface, a `gpu::View`: one fragment shader for
   the spectrum, and knobs and labels from `libs/draw2d`, laid out with Clay.
 - The display matches FabFilter Pro-Q's: a logarithmic frequency axis

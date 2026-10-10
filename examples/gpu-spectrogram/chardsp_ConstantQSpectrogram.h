@@ -79,8 +79,11 @@ public:
     int getBlockSize() const noexcept { return transform.getBlockSize(); }
     int getHop() const noexcept { return hop; }
 
-    // The column for the hop that `block` (getBlockSize() samples) ends with,
-    // into `decibels` (a value per band).
+    // The column for `block` (getBlockSize() samples) into `decibels` (a value
+    // per band). It is centred on the block's middle, getBlockSize() / 2
+    // samples in, so for a block ending at position P its time is
+    // P - getBlockSize() / 2: centre reads there, and peak and mean read the
+    // hop around it, from getHop() / 2 before to getHop() / 2 after.
     void process (const SampleType* block, SampleType* decibels) noexcept
     {
         if (! transform.isValid())

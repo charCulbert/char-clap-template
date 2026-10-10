@@ -15,13 +15,14 @@ parts, with no drawing code of its own; for a drawing of your own, see
   pushes both channels into a buffer; the main thread sets up the transform
   and reads the buffer a hop at a time.
 - `chardsp_AnalysisBuffer.h`, `chardsp_Spectrum.h`, `chardsp_ConstantQ.h`,
-  `chardsp_ConstantQSpectrogram.h`: copies of chardsp's (commit 0adab39), with only their include of Signalsmith's FFT changed to
-  this example's `dsp/fft.h`. The buffer brings the audio from the audio
-  thread; Spectrum is the windowed FFT (the short-time Fourier transform, as
-  Listener's); ConstantQ and ConstantQSpectrogram are the constant-Q
-  transform, which follows [CiCueTea](https://github.com/jdsierral/CiCueTea)
-  (MIT, Juan Sierra): `licenses/CiCueTea.txt` is its licence, which ships
-  with the plugin's other third-party licences.
+  `chardsp_ConstantQSpectrogram.h`: copies of chardsp's (commit 87bfc1e), with
+  only their include of Signalsmith's FFT changed to this example's
+  `dsp/fft.h`. The buffer brings the audio from the audio thread; Spectrum is
+  the windowed FFT (the short-time Fourier transform, as Listener's);
+  ConstantQ and ConstantQSpectrogram are the constant-Q transform, which
+  follows [CiCueTea](https://github.com/jdsierral/CiCueTea) (MIT, Juan
+  Sierra): `licenses/CiCueTea.txt` is its licence, which ships with the
+  plugin's other third-party licences.
 - `ui/SpectrogramView.cpp`: the interface, a `gpu::View`: a
   `gpu::Spectrogram` (`draw2d/views.h`) fills the window, frequencies up its
   left edge and seconds along the bottom drawn over it, a Pause toggle in its
