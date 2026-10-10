@@ -47,7 +47,7 @@ const void *Ui::controlId(const Param &p, float x, float y)
 }
 
 bool Ui::control(Params &params, Param &p, const void *me, float x, float y, float w, float h, bool vertical, float travel, bool log,
-                 bool typable, bool absolute)
+                 bool typable, bool absolute, float ends)
 {
     order.push_back(me);
     const bool fine = mouse.modifiers & View::shift;
@@ -105,7 +105,7 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
     if (slow && !grabRelative) grabRelative = true, grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = slow;
     if (!grabRelative) // absolute: the value under the pointer
     {
-        const double u = std::clamp(vertical ? (y + h - mouse.y) / h : (mouse.x - x) / w, 0.0f, 1.0f);
+        const double u = std::clamp(vertical ? (y + h - ends - mouse.y) / (h - 2 * ends) : (mouse.x - x - ends) / (w - 2 * ends), 0.0f, 1.0f);
         const double value = fromUnit(p, u, log);
         if (value != p.value) params.change(p, value);
     }
@@ -286,7 +286,7 @@ Ui::Tabs Ui::tabs(const char *const *items, int count, int &selected, int index)
     for (int i = 0; i < count; ++i)
     {
         const Area a = element(id("Tab", index * 64 + i), eachPress);
-        if (a.pressed && selected != i) selected = i, result.changed = true;
+        if (a.clicked && selected != i) selected = i, result.changed = true; // let go on it, as segmented's (WCAG 2.5.2)
         if (a.held) result.held = i, result.x = a.x, result.y = a.y, result.released = a.released;
         // Under the pointer now (Clay's hover trails it by a frame): the last frame's box.
         if (const Clay_ElementData d = Clay_GetElementData(id("Tab", index * 64 + i)); d.found)
@@ -315,8 +315,9 @@ Ui::Tabs Ui::tabs(const char *const *items, int count, int &selected, int index)
             }
             // The arrows wrap, as APG's tabs do.
             int next = selected;
-            if (key == View::Key::right) next = (selected + 1) % count;
-            else if (key == View::Key::left) next = (selected + count - 1) % count;
+            if (count < 1) break; // no tabs: nothing to choose
+            if (key == View::Key::right) next = ((selected + 1) % count + count) % count;
+            else if (key == View::Key::left) next = ((selected - 1) % count + count) % count;
             else if (key == View::Key::home) next = 0;
             else if (key == View::Key::end) next = count - 1;
             if (next != selected) selected = next, result.changed = true;
@@ -356,7 +357,9 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
     const Clay_ElementId did = id("Dropdown", index), menu = id("DropdownMenu", index);
     const bool open = openMenu == menu.id;
     const Area a = element(did, eachPress);
-    auto openAt = [&](int option) { openMenu = menu.id, menuFor = 0, highlight = std::clamp(option, 0, count - 1); };
+    auto openAt = [&](int option) {
+        if (count > 0) openMenu = menu.id, menuFor = 0, highlight = std::clamp(option, 0, count - 1); // (none: nothing to open)
+    };
     auto choose = [&] {
         if (highlight >= 0 && highlight < count && highlight != selected) selected = highlight, changed = true;
         openMenu = 0;
@@ -407,10 +410,8 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
     }
     const size_t combo = described.size(); // an index: its options are described after it
     Described &d = describe(reinterpret_cast<const void *>(uintptr_t(did.id)), Accessible::Role::comboBox, nullptr);
-    d.element = did.id, d.node.value = items[std::clamp(selected, 0, count - 1)], d.node.expanded = openMenu == menu.id;
+    d.element = did.id, d.node.value = selected >= 0 && selected < count ? items[selected] : "", d.node.expanded = openMenu == menu.id;
     d.node.actions |= Accessible::click | Accessible::expand | Accessible::collapse;
-    // A press anywhere else closes it.
-    if (open && mouse.pressed && !Clay_PointerOver(menu) && !Clay_PointerOver(did)) openMenu = 0;
     const bool hot = Clay_PointerOver(did);
     // The menu opens below, or above where there's no room below (sizes from
     // the last frame, in points).
@@ -720,7 +721,7 @@ void Ui::vslider(Params &params, Param *p, Rect box, const char *format, bool lo
     const float top = box.y + 1.6f * size, bottom = box.y + box.h - 1.6f * size, thumb = 1.125f * size;
     const void *me = controlId(*p, box.x, box.y);
     const bool dragging = control(params, *p, me, box.x, top - thumb / 2, box.w, bottom - top + thumb, true, bottom - top, log, false,
-                                  sliderDrag == Drag::absolute);
+                                  sliderDrag == Drag::absolute, thumb / 2);
     const bool hot = dragging || (!active && over(box.x, top, box.w, bottom - top));
     const float u = float(toUnit(*p, p->value, log)), y = bottom - (bottom - top) * u;
     if (focusShown(me)) draw.rect(box.x, box.y, box.w, box.h, theme.radius * s, {0, 0, 0, 0}, 1 * s, theme.accent);
@@ -831,7 +832,7 @@ void Ui::imageKnob(Params &params, Param *p, int image, int frames, Rect r, bool
     if (!p || frames < 1) return;
     const void *me = controlId(*p, r.x, r.y);
     const bool dragging = control(params, *p, me, r.x, r.y, r.w, r.h, true, 200 * s, log);
-    describeParam(me, params, *p, plainNumber(p->value).c_str(), r);
+    describeParam(me, params, *p, plainNumber(p->value).c_str(), r).node.orientation = 2; // dragged up and down, as a knob
     const int frame = int(std::lround(toUnit(*p, p->value, log) * (frames - 1)));
     const float step = 1.0f / float(frames), a = frame * step, b = a + step;
     draw.image(image, r.x, r.y, r.w, r.h, {}, {1, 1, 1, 1}, across ? Draw2D::Source{a, 0, b, 1} : Draw2D::Source{0, a, 1, b});

@@ -158,10 +158,15 @@ public:
     // CLAY({...}) blocks. Each returns true when the user changed something.
     bool button(const char *label, int index = 0);
     bool toggle(const char *label, bool &on, int index = 0);
+    // One of count items, as WAI-ARIA's radio group: a click (let go on it,
+    // as WCAG 2.5.2 has it) chooses one; focused, the arrows move the choice
+    // at once, wrapping at the ends.
     bool segmented(const char *const *items, int count, int &selected, int index = 0);
     bool dropdown(const char *const *items, int count, int &selected, int index = 0);
-    // Tabs, as ARIA's tab list: one shown at a time. A press or the arrows,
-    // Home and End choose one. Also says, for a dock moving them: the tab held
+    // Tabs, as ARIA's tab list: one shown at a time. A click chooses one, as
+    // a segmented control's; focused, the arrows (wrapping), Home and End
+    // choose at once (APG's automatic activation). Also says, for a dock
+    // moving them: the tab held
     // down (and where the pointer is), and a key pressed with Alt on the
     // focused list (Alt and the arrows, Alt and Enter).
     struct Tabs
@@ -407,8 +412,10 @@ private:
     // Handles all input for the control with rectangle x,y,w,h. Returns true
     // while that control is being dragged.
     static const void *controlId(const Param &p, float x, float y);
+    // ends: how far inside the box the track's ends are (half a thumb that
+    // overhangs them), for an absolute drag to put the value under the pointer.
     bool control(Params &params, Param &p, const void *me, float x, float y, float w, float h, bool vertical, float travel, bool log,
-                 bool typable = false, bool absolute = false);
+                 bool typable = false, bool absolute = false, float ends = 0);
     void typeInto(const void *me, const void *entry, const Param &p);
     // A whole edit: begin, change and end at once (wheel, keys, double-click).
     void set(Params &params, Param &p, double value);

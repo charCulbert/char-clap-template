@@ -378,6 +378,15 @@ int main(int argc, char **argv)
         CHECK(ink > 20 && !draw.atlasRefilling());
     }
 
+    // A meter: filled from the bottom to its level, its track above, a line at the peak.
+    {
+        Ui ui;
+        CHECK(ui.draw.prepare(gpu.device, format, font));
+        ui.theme.track = blue, ui.theme.accent = green, ui.theme.text = white;
+        px = gpu.render(ui.draw, [&] { ui.meter(0.5f, 1 - 16.5f / 64, {0, 0, 64, 64}); });
+        CHECK(is(px, 32, 48, green) && is(px, 32, 24, blue) && is(px, 32, 16, white) && is(px, 32, 8, blue));
+    }
+
     // A lost device: prepared again on a new one, shapes, lines and fills
     // all draw there, with nothing left over from the old device.
     {

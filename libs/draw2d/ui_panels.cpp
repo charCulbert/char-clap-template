@@ -5,7 +5,7 @@ namespace gpu {
 
 void Ui::resizeGrip(float width, float height)
 {
-    grip = {width, height}; // drawn in end(), on top of the layout
+    grip = {0, 0, width, height}; // drawn in end(), on top of the layout
 }
 
 void Ui::drawGrip()
@@ -284,7 +284,9 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
 
 bool Ui::drawer(const char *title, bool &open, int index)
 {
-    const Clay_ElementId did = id("Drawer", index);
+    // Its id from its title, as a window's: two drawers need no index to
+    // differ. (Not the title's own id: a docked drawer's box has that.)
+    const Clay_ElementId did = id("DrawerHeader", id(title, index).id);
     const Area a = element(did, eachPress);
     bool toggled = a.clicked;
     for (View::Key key : focusable(did, a)) toggled |= key == View::Key::enter;

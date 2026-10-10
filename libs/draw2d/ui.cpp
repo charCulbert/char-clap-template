@@ -198,9 +198,9 @@ void Ui::begin(float width, float height, float scale)
     said.clear();
     layout.begin(draw, width, height, scale);
     overPopup = openMenu && Clay_PointerOver({openMenu, 0, 0, {}});
-    // A press outside an open context menu closes it and goes no further, as
-    // a system menu's does.
-    const bool closing = menuFor && (mouse.pressed || mouse.secondary) && !overPopup;
+    // A press outside an open context menu or dropdown closes it and goes no
+    // further, as a system menu's does (on the dropdown itself, too).
+    const bool closing = openMenu && (mouse.pressed || mouse.secondary) && !overPopup;
     if (closing) closeMenu(), mouse.pressed = mouse.doubleClicked = mouse.secondary = false;
     // The windows still open; the frontmost one under the pointer: controls
     // outside it don't take the pointer.

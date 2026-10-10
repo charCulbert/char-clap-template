@@ -204,6 +204,16 @@ static void keyboardFocus()
     CHECK(shape == 0);
 }
 
+static std::vector<std::string> sent;
+static void setUpParams(gpu::Params &params)
+{
+    params.send = [](const core::Value &m) { sent.push_back(std::string(m["type"].text())); };
+    core::Value::Array list;
+    for (int i = 0; i < 2; ++i)
+        list.push_back(core::Value::Map{{"id", double(i)}, {"name", i ? "B" : "A"}, {"min", 0.0}, {"max", 1.0}, {"default", 0.5}});
+    params.receive(core::Value::Map{{"type", "params"}, {"params", list}});
+}
+
 static void dropdownSelectsAndBlocks()
 {
     Ui ui;
@@ -228,16 +238,124 @@ static void dropdownSelectsAndBlocks()
     clickAt(ui, item, draw);
     CHECK(selected == 2);
     CHECK(underPresses == pressesOpening);
+    // Open, a press outside it closes it and goes no further (as a context
+    // menu's): the area under it doesn't get it.
+    auto expanded = [&] {
+        for (const gpu::Accessible &n : ui.accessibility()->nodes)
+            if (n.role == gpu::Accessible::Role::comboBox) return n.expanded == 1;
+        return false;
+    };
+    clickAt(ui, box("Dropdown"), draw);
+    CHECK(expanded());
+    const int before = underPresses;
+    clickAt(ui, {300, 250, 10, 10}, draw);
+    CHECK(underPresses == before && !expanded() && selected == 2);
+    clickAt(ui, {200, 250, 10, 10}, draw); // closed: the next one does (not where the last was: a double-click)
+    CHECK(underPresses == before + 1);
 }
 
-static std::vector<std::string> sent;
-static void setUpParams(gpu::Params &params)
+// A dropdown, tabs and a segmented control with no items: drawn empty, and
+// their keys do nothing (no out-of-range item, no division by zero).
+static void noItems()
 {
-    params.send = [](const core::Value &m) { sent.push_back(std::string(m["type"].text())); };
-    core::Value::Array list;
-    for (int i = 0; i < 2; ++i)
-        list.push_back(core::Value::Map{{"id", double(i)}, {"name", i ? "B" : "A"}, {"min", 0.0}, {"max", 1.0}, {"default", 0.5}});
-    params.receive(core::Value::Map{{"type", "params"}, {"params", list}});
+    Ui ui;
+    int choice = 0, tab = 0, segment = 0;
+    auto draw = [&] {
+        frame(ui, [&] {
+            ui.dropdown(nullptr, 0, choice);
+            ui.tabs(nullptr, 0, tab);
+            ui.segmented(nullptr, 0, segment);
+        });
+    };
+    draw();
+    for (int i = 0; i < 3; ++i)
+    {
+        ui.key(View::Key::tab, 0);
+        draw();
+        for (View::Key key : {View::Key::down, View::Key::up, View::Key::left, View::Key::right, View::Key::home, View::Key::end,
+                              View::Key::enter})
+            ui.key(key, 0);
+        ui.text("a");
+        ui.text(" ");
+        draw();
+    }
+    clickAt(ui, box("Dropdown"), draw);
+    CHECK(choice == 0 && tab == 0 && segment == 0 && box("DropdownMenu").height == 0);
+}
+
+// Sliders drag absolute (the value goes under the pointer, an upright one's
+// over its track, not past it) or relative; a filmstrip knob drags as a
+// knob; the resize grip resizes.
+static void slidersAndGrip()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A"), *b = params.find("B");
+    float resizedW = 0, resizedH = 0;
+    ui.resizeTo = [&](float w, float h) { resizedW = w, resizedH = h; };
+    auto draw = [&] {
+        ui.begin(400, 300, 1);
+        ui.vslider(params, a, gpu::Rect{0, 0, 60, 200}, "%.2f");
+        ui.slider(params, b, gpu::Rect{100, 0, 200, 40}, "%.2f");
+        ui.imageKnob(params, b, 0, 64, gpu::Rect{100, 100, 64, 64});
+        ui.resizeGrip(400, 300);
+        ui.end(wgpu::RenderPassEncoder{});
+    };
+    auto drag = [&](float x0, float y0, float x1, float y1) {
+        pointer(ui, View::Pointer::down, x0, y0), draw();
+        pointer(ui, View::Pointer::move, x1, y1), draw();
+        pointer(ui, View::Pointer::up, x1, y1), draw();
+    };
+    a->value = 0.25;
+    draw();
+    // The upright slider's track: 1.6 lines in from each end (13-point text).
+    const float top = 1.6f * 13, bottom = 200 - 1.6f * 13, thumbY = bottom - 0.25f * (bottom - top);
+    pointer(ui, View::Pointer::down, 30, thumbY); // on its thumb: it stays put
+    draw();
+    CHECK(std::abs(a->value - 0.25) < 1e-3);
+    pointer(ui, View::Pointer::move, 30, top);
+    draw();
+    CHECK(std::abs(a->value - 1) < 1e-6);
+    pointer(ui, View::Pointer::up, 30, top);
+    draw();
+    // Absolute, the default: a press puts the value where it is.
+    drag(250, 30, 250, 30);
+    CHECK(std::abs(b->value - 0.75) < 1e-6);
+    // Relative: the value moves by how far the pointer goes, from where it was.
+    ui.sliderDrag = Ui::Drag::relative;
+    drag(150, 30, 170, 30);
+    CHECK(std::abs(b->value - 0.85) < 1e-6);
+    ui.sliderDrag = Ui::Drag::absolute;
+    // The filmstrip knob: up 100 pixels over 200 of travel, half the range;
+    // to screen readers an upright slider, as a knob.
+    drag(132, 132, 132, 132 - 30);
+    CHECK(std::abs(b->value - 1) < 1e-6);
+    drag(140, 140, 140, 140 + 100); // (not where the last press was: that would be a double-click)
+    CHECK(std::abs(b->value - 0.5) < 1e-6);
+    int upright = 0;
+    for (const gpu::Accessible &n : ui.accessibility()->nodes) upright += n.role == gpu::Accessible::Role::slider && n.orientation == 2;
+    CHECK(upright == 2); // the upright slider and the filmstrip knob
+    // The grip, in the corner: dragged, it asks for the size under the pointer
+    // (less where in the grip it was held).
+    drag(395, 295, 495, 345);
+    CHECK(resizedW == 500 && resizedH == 350);
+}
+
+// Laid out, a slider grows to its row's width and drags over it.
+static void laidOutSlider()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A");
+    auto draw = [&] { frame(ui, [&] { ui.slider(params, a, "%.2f"); }); };
+    draw();
+    draw();
+    const Clay_BoundingBox b = box("Slider", int(a->id));
+    CHECK(b.width == 380 && b.height > 0);
+    clickAt(ui, {b.x + b.width / 10, b.y + b.height - 6, 0, 0}, draw); // in the track, a tenth of the way along
+    CHECK(std::abs(a->value - 0.1) < 1e-3);
 }
 
 // A toggle and segmented control of parameters send a whole gesture per
@@ -759,7 +877,7 @@ static void windowInScope()
     CHECK(hasChild(ui, "Scoped", "Inside") && hasChild(ui, "Scoped", "Close Scoped"));
 }
 
-// Tabs: a press shows one; focused, the arrows wrap, Home and End go to the
+// Tabs: a click shows one; focused, the arrows wrap, Home and End go to the
 // ends, and a key with Alt is the caller's; screen readers get a tab list.
 static void tabStrip()
 {
@@ -770,7 +888,20 @@ static void tabStrip()
     auto draw = [&] { frame(ui, [&] { last = ui.tabs(names, 3, shown); }); };
     draw();
     draw();
-    clickAt(ui, box("Tab", 1), draw);
+    const Clay_BoundingBox second = box("Tab", 1);
+    pointer(ui, View::Pointer::down, second.x + 5, second.y + 5);
+    draw();
+    CHECK(shown == 0); // not on the press: on letting go over it
+    pointer(ui, View::Pointer::up, second.x + 5, second.y + 5);
+    draw();
+    CHECK(shown == 1);
+    const Clay_BoundingBox third = box("Tab", 2);
+    pointer(ui, View::Pointer::down, third.x + 5, third.y + 5);
+    draw();
+    pointer(ui, View::Pointer::move, 300, 250); // let go elsewhere: nothing chosen
+    draw();
+    pointer(ui, View::Pointer::up, 300, 250);
+    draw();
     CHECK(shown == 1);
     auto press = [&](View::Key key, unsigned modifiers = 0) { ui.key(key, modifiers); draw(); };
     press(View::Key::right);
@@ -1144,7 +1275,7 @@ static void dockedDrawers()
             {
                 ui.drawer("Top", topOpen, top, [] {}, {.min = 40, .max = 100});
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) {}
-                ui.drawer("Bottom", bottomOpen, bottom, [] {}, {.edge = gpu::DrawerOptions::Edge::bottom, .min = 40, .max = 100}, 1);
+                ui.drawer("Bottom", bottomOpen, bottom, [] {}, {.edge = gpu::DrawerOptions::Edge::bottom, .min = 40, .max = 100}); // no index needed
             }
         });
     };
@@ -1161,7 +1292,7 @@ static void dockedDrawers()
     };
     drag("Top", 0, 20); // down: the top drawer grows
     CHECK(std::abs(top - 80) < 0.5f);
-    drag("Bottom", 1, -20); // up: the bottom drawer grows
+    drag("Bottom", 0, -20); // up: the bottom drawer grows
     CHECK(std::abs(bottom - 80) < 0.5f);
     drag("Top", 0, 500); // no further than its max
     CHECK(top == 100);
@@ -1169,8 +1300,8 @@ static void dockedDrawers()
     for (const gpu::Accessible &n : ui.accessibility()->nodes)
         named |= n.role == gpu::Accessible::Role::splitter && n.name == "Resize Top" && n.max == 100;
     CHECK(named);
-    clickAt(ui, box("Drawer", 0), draw); // its header closes it
-    CHECK(!topOpen);
+    clickAt(ui, box("DrawerHeader", Clay_GetElementIdWithIndex(CLAY_STRING("Top"), 0).id), draw); // its header closes it
+    CHECK(!topOpen && bottomOpen);
 }
 
 // The same drag at 2 pixels a point (a Retina or 2x desktop).
@@ -2376,6 +2507,9 @@ int main()
     toggleAndSegmented();
     quickClicksCount();
     dropdownSelectsAndBlocks();
+    noItems();
+    slidersAndGrip();
+    laidOutSlider();
     contextMenus();
     keyboardFocus();
     knobDragAndKeys();
