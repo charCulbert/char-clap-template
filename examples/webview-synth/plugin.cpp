@@ -61,7 +61,7 @@ struct MyPlugin
     // The page. It edits parameters from the main thread through
     // mainParameters/mainChanged, plus these gesture flags.
     webview::Gui gui;
-    uint32_t guiWidth = 420, guiHeight = 180;
+    double guiWidth = 420, guiHeight = 180; // points, exactly as set_size gave them, so get_size agrees
     std::atomic<bool> gestureBegin[P_COUNT], gestureEnd[P_COUNT];
     std::atomic<bool> uiDirty; // set when the host changes a parameter
 };
@@ -324,7 +324,7 @@ static double PluginPixelsPerPoint(const MyPlugin *plugin)
     return plugin->guiSizesInPoints ? 1 : plugin->gui.pixelsPerPoint();
 }
 
-static uint32_t PluginToHost(const MyPlugin *plugin, uint32_t points)
+static uint32_t PluginToHost(const MyPlugin *plugin, double points)
 {
     return (uint32_t)lround(points * PluginPixelsPerPoint(plugin));
 }
@@ -394,8 +394,8 @@ static const clap_plugin_gui_t extensionGui = {
         if (allowedWidth != width || allowedHeight != height)
             return false;
         const double scale = PluginPixelsPerPoint(plugin);
-        plugin->guiWidth = (uint32_t)lround(width / scale);
-        plugin->guiHeight = (uint32_t)lround(height / scale);
+        plugin->guiWidth = width / scale;
+        plugin->guiHeight = height / scale;
         plugin->gui.setSize(width, height);
         return true;
     },
@@ -456,8 +456,10 @@ static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
         uint32_t width = (uint32_t)fmax(1, message["width"].number(0) * perPixel);
         uint32_t height = (uint32_t)fmax(1, message["height"].number(0) * perPixel);
         extensionGui.adjust_size(&plugin->plugin, &width, &height);
-        if (plugin->hostGui && (width != PluginToHost(plugin, plugin->guiWidth) || height != PluginToHost(plugin, plugin->guiHeight)))
-            plugin->hostGui->request_resize(plugin->host, width, height);
+        // A host that agrees needn't call set_size afterwards: take the size then.
+        if (plugin->hostGui && (width != PluginToHost(plugin, plugin->guiWidth) || height != PluginToHost(plugin, plugin->guiHeight)) &&
+            plugin->hostGui->request_resize(plugin->host, width, height))
+            extensionGui.set_size(&plugin->plugin, width, height);
         return true;
     }
 
@@ -507,7 +509,7 @@ static double PluginGetValue(MyPlugin *plugin, uint32_t i)
 
 static void PluginNoteOn(MyPlugin *plugin, int32_t noteID, int16_t channel, int16_t key)
 {
-    Voice voice = {noteID, channel, key, 0.0f, 440.0f * powf(2.0f, (key - 57) / 12.0f) / plugin->sampleRate, 0.0f, false};
+    Voice voice = {noteID, channel, key, 0.0f, 440.0f * powf(2.0f, (key - 69) / 12.0f) / plugin->sampleRate, 0.0f, false};
     plugin->voices.push_back(voice); // reserved in activate, so no allocation here
 }
 
@@ -552,7 +554,11 @@ static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *even
             if (valueEvent->param_id >= P_COUNT)
                 return;
             uint32_t i = (uint32_t)valueEvent->param_id;
-            plugin->parameters[i].store(valueEvent->value, std::memory_order_relaxed);
+            // Kept in range, whatever the host sends (get_info only reads a table).
+            clap_param_info_t information = {};
+            extensionParams.get_info(&plugin->plugin, i, &information);
+            const double value = valueEvent->value == valueEvent->value ? valueEvent->value : information.default_value; // NaN: the default
+            plugin->parameters[i].store((float)fmin(fmax(value, information.min_value), information.max_value), std::memory_order_relaxed);
             plugin->changed[i].store(true, std::memory_order_release);
 
             // Tell the UI on the main thread (see on_main_thread).

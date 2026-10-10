@@ -156,8 +156,9 @@ bool Gui::create(const char *api, bool floating)
             const float perUnit = scale() / pixelsPerPoint();
             uint32_t newWidth = uint32_t(std::max(1.0f, w / perUnit)), newHeight = uint32_t(std::max(1.0f, h / perUnit));
             pluginGui->adjust_size(plugin, &newWidth, &newHeight);
-            if (newWidth != width || newHeight != height)
-                hostGui->request_resize(host, newWidth, newHeight); // the host then calls set_size
+            // A host that agrees needn't call set_size afterwards: the plugin's own set_size takes it.
+            if ((newWidth != width || newHeight != height) && hostGui->request_resize(host, newWidth, newHeight))
+                pluginGui->set_size(plugin, newWidth, newHeight);
         };
     return true;
 }
@@ -310,7 +311,7 @@ void Gui::frame()
     {
         uint32_t wide = uint32_t(std::lround(width * newScale / shownScale)), tall = uint32_t(std::lround(height * newScale / shownScale));
         pluginGui->adjust_size(plugin, &wide, &tall);
-        hostGui->request_resize(host, wide, tall);
+        if (hostGui->request_resize(host, wide, tall)) pluginGui->set_size(plugin, wide, tall);
     }
     shownScale = newScale;
     const auto now = std::chrono::steady_clock::now();

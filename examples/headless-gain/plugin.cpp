@@ -252,7 +252,11 @@ static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *even
             if (valueEvent->param_id >= P_COUNT)
                 return;
             uint32_t i = (uint32_t)valueEvent->param_id;
-            plugin->parameters[i].store(valueEvent->value, std::memory_order_relaxed);
+            // Kept in range, whatever the host sends (get_info only reads a table).
+            clap_param_info_t information = {};
+            extensionParams.get_info(&plugin->plugin, i, &information);
+            const double value = valueEvent->value == valueEvent->value ? valueEvent->value : information.default_value; // NaN: the default
+            plugin->parameters[i].store((float)fmin(fmax(value, information.min_value), information.max_value), std::memory_order_relaxed);
             plugin->changed[i].store(true, std::memory_order_release);
         }
     }

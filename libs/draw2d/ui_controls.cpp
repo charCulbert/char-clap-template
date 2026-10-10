@@ -954,10 +954,6 @@ Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(in
         if (isBlack(n)) drawKey(n);
     // To screen readers, a picture of a keyboard: playing it is the mouse's
     // job, or MIDI's, not something to walk key by key.
-    auto noteName = [](int n) {
-        static const char *const names[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-        return std::string(names[((n % 12) + 12) % 12]) + std::to_string(n / 12 - 1);
-    };
     const std::string range = noteName(lowest) + " to " + noteName(highest);
     accessible(Accessible::Role::image, "Piano", nullptr, r, range.c_str());
     return notes;

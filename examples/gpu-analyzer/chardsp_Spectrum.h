@@ -38,12 +38,16 @@ struct Spectrum
     {
         uint32_t index = writeIndex.load (std::memory_order_relaxed);
         for (uint32_t i = 0; i < frames; ++i, ++index)
-            ring[index % ringSize].store (0.5f * (left[i] + right[i]), std::memory_order_relaxed);
+        {
+            // A NaN or infinity would stay in the resonators for good: read as silence.
+            const float sample = 0.5f * (left[i] + right[i]);
+            ring[index % ringSize].store (std::isfinite (sample) ? sample : 0.0f, std::memory_order_relaxed);
+        }
         writeIndex.store (index, std::memory_order_release);
     }
 
     // Other thread: `bandCount` display bands in dB from minHz to maxHz, evenly
-    // spaced evenly on a logarithmic frequency scale (see scale()).
+    // spaced on a logarithmic frequency scale (see scale()).
     // Returns false until the short window's worth of samples has arrived; the
     // longer windows start from silence and fill in over their length.
     bool analyze (float sampleRate, float minHz, float maxHz, int bandCount, std::vector<double>& display)
