@@ -26,7 +26,8 @@
 // keyboard focus, and Tab moves it on. A focused knob or slider steps with
 // the arrows (Shift for fine), Page Up/Down and Home/End; Enter presses a
 // button or toggle; the arrows move a segmented control; Enter opens and
-// closes a dropdown and the arrows choose in it.
+// closes a dropdown and the arrows choose in it. A control given a
+// contextMenu opens it on a secondary click, the Menu key or Shift+F10.
 namespace gpu {
 
 // The default look follows Slide: flat greys, hairlines, one warm accent, in
@@ -190,6 +191,19 @@ public:
     void dragSource(Clay_ElementId id, const std::function<std::vector<std::string>()> &make);
     // Shows text near the control declared just before, after a moment's hover.
     void tooltip(const char *text);
+    // A context menu for the control declared just before, as the WAI-ARIA
+    // menu: a secondary click on the control opens it at the pointer; the
+    // Menu key or Shift+F10 while the control has focus, or a screen reader's
+    // showMenu, opens it below the control with its first item highlighted.
+    // Focus is in the menu: Up and Down (wrapping), Home, End and a letter
+    // move the highlight, Enter or Space choose; Escape, Tab, or a press
+    // outside it (which goes no further) close it, and focus goes back to the
+    // control. A nullptr item is a separator. Returns the index of the item
+    // chosen, the frame it's chosen, else -1.
+    int contextMenu(const char *const *items, int count);
+    // The same for an element of your own, such as a paint() box; for keys,
+    // a control drawn inside it must have focus.
+    int contextMenu(Clay_ElementId element, const char *const *items, int count);
     // Drag up or down to change, Shift for fine; double-click to type a value.
     void numberBox(Params &params, Param *p, const char *format, bool log = false, float widthPoints = 64);
     // A header that opens and closes the section under it: declare the
@@ -398,6 +412,7 @@ private:
         uint32_t element;
         std::string label, description;
         bool hidden = false, everything = false, fromTooltip = false;
+        bool menu = false; // it has a context menu: screen readers can open it
     };
     std::vector<Said> said;
     std::string announcement;
@@ -436,6 +451,7 @@ private:
         float scroll = 0; // the wheel as the system scrolls content (natural scrolling flips it)
         unsigned modifiers = 0;
         bool down = false, pressed = false, released = false, doubleClicked = false, moved = false;
+        bool secondary = false; // the secondary button was pressed: a context menu opens
     } mouse;
     std::chrono::steady_clock::time_point lastPress;
     float lastPressX = -1e9f, lastPressY = -1e9f;
@@ -482,9 +498,21 @@ private:
     std::vector<Edit> edits;                          // this frame's, for the text field
     std::vector<const void *> order;                  // controls in drawing order, for Tab
 
-    uint32_t openMenu = 0;      // the open dropdown's menu (a Clay id), or 0
+    uint32_t openMenu = 0;      // the open dropdown's or context menu's menu (a Clay id), or 0
     bool menuSeen = false;      // the open menu was declared this frame
     bool overPopup = false;     // the pointer is over the open menu, so not over what is under it
+    // The open context menu: the element it's for (0 for a dropdown's menu),
+    // the control focus goes back to, and where it opens (pixels: the
+    // pointer, or the control's box; below it, or above where there's no room).
+    uint32_t menuFor = 0;
+    const void *menuReturn = nullptr;
+    Rect menuAt{};
+    bool focusHasMenu = false;  // the focused control has a context menu: the Menu key is the view's
+    void closeMenu();
+    bool controlIn(const void *control, Clay_ElementId element) const;
+    // The popup list of a dropdown or a context menu (see ui_controls.cpp).
+    int popup(Clay_ElementId menu, const char *itemName, int itemBase, const char *const *items, int count, int marked,
+              Clay_FloatingElementConfig floating, float minWidth);
     uint32_t lastElement = 0;   // the control declared last, for tooltip
     uint32_t hovered = 0;       // the control under the pointer, and since when
     std::chrono::steady_clock::time_point hoveredSince;

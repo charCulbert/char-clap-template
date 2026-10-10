@@ -1807,6 +1807,153 @@ static void fileDrags()
     draw();
 }
 
+// A context menu, as the WAI-ARIA menu: a secondary click or the Menu key
+// opens it, focus goes into it and back, and nothing under it is touched.
+static void contextMenus()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams(params); // A and B: 0..1
+    gpu::Param *a = params.find("A");
+    static const char *const items[] = {"Reset", "Copy", nullptr, "Cut"}; // a separator before Cut
+    static const char *const plotItems[] = {"Clear"};
+    std::vector<int> chosen, plotChosen;
+    int clicks = 0;
+    bool on = false;
+    auto draw = [&] {
+        frame(ui, [&] {
+            ui.knob(params, a, "%.2f");
+            if (const int i = ui.contextMenu(items, 4); i >= 0) chosen.push_back(i);
+            if (ui.button("Go")) ++clicks;
+            ui.toggle("Sync", on);
+            // A custom-painted box of the caller's, given a menu by its id.
+            void *plot = ui.paint([](gpu::Rect) {});
+            CLAY({.id = ui.id("Plot"), .layout = {.sizing = {CLAY_SIZING_FIXED(60), CLAY_SIZING_FIXED(60)}}, .custom = {.customData = plot}}) {}
+            if (const int i = ui.contextMenu(ui.id("Plot"), plotItems, 1); i >= 0) plotChosen.push_back(i);
+        });
+    };
+    auto secondary = [&](Clay_BoundingBox b) {
+        const float x = b.x + b.width / 2, y = b.y + b.height / 2;
+        pointer(ui, View::Pointer::move, x, y);
+        draw();
+        ui.pointer({View::Pointer::down, x, y, 0, 0, false, 1});
+        draw();
+        ui.pointer({View::Pointer::up, x, y, 0, 0, false, 1});
+        draw();
+    };
+    const gpu::Accessibility *tree = ui.accessibility();
+    auto find = [&](const char *name, gpu::Accessible::Role role) -> const gpu::Accessible * {
+        for (const gpu::Accessible &n : tree->nodes)
+            if (n.name == name && n.role == role) return &n;
+        return nullptr;
+    };
+    using Role = gpu::Accessible::Role;
+    auto open = [&] { // (Clay keeps a box after its element is gone: ask the tree)
+        return std::any_of(tree->nodes.begin(), tree->nodes.end(), [](const gpu::Accessible &n) { return n.role == Role::menu; });
+    };
+    draw();
+    draw();
+    // Screen readers can open it from the knob, and the plot; not from the button.
+    const gpu::Accessible *knob = find("A", Role::slider);
+    CHECK(knob && knob->actions & gpu::Accessible::showMenu);
+    CHECK(!(find("Go", Role::button)->actions & gpu::Accessible::showMenu));
+    const uint64_t knobId = knob->id;
+
+    // A secondary click opens it at the pointer, without touching the knob.
+    a->value = 0.8;
+    sent.clear();
+    const Clay_BoundingBox k = box("Knob", a->id);
+    secondary(k);
+    CHECK(open() && sent.empty() && a->value == 0.8);
+    CHECK(std::abs(box("ContextMenuItem", 0).x - (k.x + k.width / 2 + 1)) < 1.5f); // its border's inside the pointer
+    const gpu::Accessible *menu = find("A", Role::menu); // named for its control
+    CHECK(menu && menu->children.size() == 3); // the separator isn't an item
+    CHECK(tree->focus == menu->id);            // focus is in it, nothing highlighted yet
+    // Its first item, clicked: chosen once, and focus goes back to the knob.
+    clickAt(ui, box("ContextMenuItem", 0), draw);
+    CHECK(chosen.size() == 1 && chosen[0] == 0 && !open());
+    draw();
+    CHECK(chosen.size() == 1 && tree->focus == knobId);
+
+    // The Menu key on the focused knob opens it below, on the first item;
+    // the arrows wrap and skip the separator, Home, End and letters move.
+    CHECK(ui.key(View::Key::contextMenu, 0));
+    draw();
+    CHECK(open() && tree->focus == find("Reset", Role::menuItem)->id);
+    auto highlighted = [&] {
+        for (const gpu::Accessible &n : tree->nodes)
+            if (n.id == tree->focus) return n.name;
+        return std::string();
+    };
+    const std::pair<View::Key, const char *> steps[] = {{View::Key::down, "Copy"}, {View::Key::down, "Cut"}, {View::Key::down, "Reset"},
+                                                        {View::Key::up, "Cut"}, {View::Key::home, "Reset"}, {View::Key::end, "Cut"}};
+    for (auto [key, name] : steps)
+    {
+        CHECK(ui.key(key, 0));
+        draw();
+        CHECK(highlighted() == name);
+    }
+    CHECK(ui.text("c"));
+    draw();
+    CHECK(highlighted() == "Copy");
+    CHECK(ui.text("c"));
+    draw();
+    CHECK(highlighted() == "Cut");
+    CHECK(ui.key(View::Key::enter, 0));
+    draw();
+    CHECK(chosen.size() == 2 && chosen[1] == 3 && !open());
+    draw();
+    CHECK(chosen.size() == 2 && tree->focus == knobId);
+    // Space chooses too.
+    ui.key(View::Key::contextMenu, View::shift); // Shift+F10 comes the same way
+    draw();
+    CHECK(ui.text(" "));
+    draw();
+    CHECK(chosen.size() == 3 && chosen[2] == 0);
+
+    // Escape closes it and focus goes back to the knob, which Escape would
+    // otherwise reset; Tab closes it too, not moving on.
+    ui.key(View::Key::contextMenu, 0);
+    draw();
+    CHECK(ui.key(View::Key::escape, 0));
+    draw();
+    CHECK(!open() && tree->focus == knobId && a->value == 0.8);
+    ui.key(View::Key::contextMenu, 0);
+    draw();
+    CHECK(ui.key(View::Key::tab, 0));
+    draw();
+    CHECK(!open() && tree->focus == knobId && chosen.size() == 3);
+
+    // A press outside closes it without acting, and doesn't reach the button under it.
+    secondary(k);
+    CHECK(open());
+    clickAt(ui, box("Go"), draw);
+    CHECK(!open() && clicks == 0 && chosen.size() == 3);
+    clickAt(ui, box("Go"), draw);
+    CHECK(clicks == 1);
+    // A control without a menu leaves the Menu key to the host.
+    ui.accessAction(find("Sync", Role::checkBox)->id, gpu::Accessible::focus, 0);
+    draw();
+    CHECK(!ui.key(View::Key::contextMenu, 0));
+
+    // A screen reader's showMenu opens it, as the Menu key does.
+    ui.accessAction(knobId, gpu::Accessible::showMenu, 0);
+    draw();
+    CHECK(open() && tree->focus == find("Reset", Role::menuItem)->id);
+    ui.accessAction(knobId, gpu::Accessible::showMenu, 0); // again (a page hears the key and the reader's request): it stays
+    draw();
+    CHECK(open() && tree->focus == find("Reset", Role::menuItem)->id);
+    ui.accessAction(find("Copy", Role::menuItem)->id, gpu::Accessible::click, 0);
+    draw();
+    CHECK(chosen.size() == 4 && chosen[3] == 1 && !open());
+
+    // The caller's own box: a secondary click on it opens its menu.
+    secondary(box("Plot"));
+    CHECK(open() && find("Clear", Role::menuItem));
+    clickAt(ui, box("ContextMenuItem", 0), draw);
+    CHECK(plotChosen.size() == 1 && chosen.size() == 4);
+}
+
 int main()
 {
     layoutSizes();
@@ -1814,6 +1961,7 @@ int main()
     toggleAndSegmented();
     quickClicksCount();
     dropdownSelectsAndBlocks();
+    contextMenus();
     keyboardFocus();
     knobDragAndKeys();
     screenReader();

@@ -13,10 +13,12 @@ namespace gpu {
 struct Accessible
 {
     enum class Role { window, group, button, checkBox, radioGroup, radioButton, comboBox, slider, spinButton,
-                      textInput, label, image, listBox, option, splitter, dialog, tabList, tab, tabPanel };
+                      textInput, label, image, listBox, option, splitter, dialog, tabList, tab, tabPanel,
+                      menu, menuItem };
     // label: text to read (a caption), its words in value; tab: one of a tab list's, selected when it's shown
-    // What a screen reader may ask of it: bits.
-    enum Action : unsigned { focus = 1, click = 2, increment = 4, decrement = 8, setValue = 16, expand = 32, collapse = 64 };
+    // What a screen reader may ask of it: bits. showMenu opens its context menu.
+    enum Action : unsigned { focus = 1, click = 2, increment = 4, decrement = 8, setValue = 16, expand = 32, collapse = 64,
+                             showMenu = 128 };
 
     uint64_t id = 0; // the same element keeps its id from frame to frame
     Role role = Role::group;

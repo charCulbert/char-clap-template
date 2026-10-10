@@ -77,6 +77,8 @@ const char *ariaRole(gpu::Accessible::Role role)
     case Role::tabList: return "tablist";
     case Role::tab: return "tab";
     case Role::tabPanel: return "tabpanel";
+    case Role::menu: return "menu";
+    case Role::menuItem: return "menuitem";
     }
     return "group";
 }
@@ -138,6 +140,12 @@ EM_JS(void, accessUpdate, (const char *json, float ratio), {
             if (node.actions & 2) send(id, 2);
             else if (node.actions & (32 | 64)) send(id, node.expanded ? 64 : 32);
         });
+        // A screen reader's context-menu command (a right-click on it): its own menu, not the browser's.
+        e.addEventListener('contextmenu', event => {
+            if (!e.node || !(e.node.actions & 128)) return;
+            event.preventDefault();
+            send(id, 128);
+        });
         // A screen reader moving focus: the View's focus follows.
         e.addEventListener('focus', () => { if (!access.syncing && id !== access.focus) send(id, 1); });
         access.elements.set(id, e);
@@ -169,7 +177,7 @@ EM_JS(void, accessUpdate, (const char *json, float ratio), {
         set(e, 'aria-selected', ['option', 'tab'].includes(node.role) ? String(node.selected) : null);
         const expandable = node.role === 'combobox' || (node.actions & (32 | 64));
         set(e, 'aria-expanded', expandable ? String(node.expanded) : null);
-        set(e, 'aria-haspopup', node.role === 'combobox' ? 'listbox' : null);
+        set(e, 'aria-haspopup', node.role === 'combobox' ? 'listbox' : node.actions & 128 ? 'menu' : null);
         set(e, 'aria-activedescendant', node.active ? 'access-' + node.active : null);
         set(e, 'tabindex', node.actions ? '-1' : null); // focusable from script; Tab goes through the View
         if (words && e.textContent !== node.value) e.textContent = node.value;
@@ -267,7 +275,8 @@ bool key(int, const EmscriptenKeyboardEvent *event, void *)
     static const std::pair<const char *, Key> keys[] = {
         {"ArrowLeft", Key::left}, {"ArrowRight", Key::right}, {"ArrowUp", Key::up}, {"ArrowDown", Key::down},
         {"PageUp", Key::pageUp}, {"PageDown", Key::pageDown}, {"Home", Key::home}, {"End", Key::end}, {"Tab", Key::tab},
-        {"Enter", Key::enter}, {"Escape", Key::escape}, {"Backspace", Key::backspace}, {"Delete", Key::deleteForward}};
+        {"Enter", Key::enter}, {"Escape", Key::escape}, {"Backspace", Key::backspace}, {"Delete", Key::deleteForward},
+        {"ContextMenu", Key::contextMenu}};
     if (!ready) return false;
     // Ctrl or Cmd + Z, Shift+Z or Y, A, X, C, for a text field being edited.
     // Cmd+V is left to the browser, whose paste event brings the text.
@@ -279,6 +288,8 @@ bool key(int, const EmscriptenKeyboardEvent *event, void *)
         if (std::strchr("zyaxc", letter) && view->key(k, modifiers(*event))) return dirty = true;
         return false;
     }
+    if (std::strcmp(event->key, "F10") == 0 && event->shiftKey) // Shift+F10, as the Menu key
+        return view->key(Key::contextMenu, modifiers(*event)) && (dirty = true);
     for (auto [name, k] : keys)
         if (std::strcmp(event->key, name) == 0)
             return view->key(k, modifiers(*event)) && (dirty = true); // handled: the browser does nothing else with it
@@ -301,7 +312,13 @@ bool mouse(int type, const EmscriptenMouseEvent *event, void *)
         pointerX += float(event->movementX) * pixelRatio(), pointerY += float(event->movementY) * pixelRatio();
     // Handling the press stops the browser focusing this page, so do it here: keys come to the focused page.
     if (pointer == gpu::View::Pointer::down) EM_ASM(window.focus());
-    view->pointer({pointer, pointerX, pointerY, modifiers(*event)});
+    // The DOM's buttons are 0 primary, 1 middle, 2 secondary; a Mac's
+    // Ctrl+click is a secondary click too.
+    static const bool mac = EM_ASM_INT(return navigator.platform.startsWith('Mac') ? 1 : 0);
+    const int button = pointer == gpu::View::Pointer::move ? 0
+                     : event->button == 2 || (event->button == 0 && event->ctrlKey && mac) ? 1
+                     : event->button == 1 ? 2 : 0;
+    view->pointer({pointer, pointerX, pointerY, modifiers(*event), 0, false, button});
     dirty = true;
     return true;
 }
@@ -424,6 +441,9 @@ int main()
             }
             files(1, at, paths);
         });
+        // The view's context menus, not the browser's (a right-click, the Menu
+        // key or Shift+F10 also make this event): the page is the plugin's.
+        document.addEventListener('contextmenu', event => event.preventDefault());
         document.addEventListener('paste', event => {
             const text = event.clipboardData && event.clipboardData.getData('text/plain');
             if (!text) return;

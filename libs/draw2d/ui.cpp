@@ -5,6 +5,19 @@ namespace gpu {
 
 void Ui::pointer(const View::PointerEvent &event)
 {
+    // Only the primary button presses and drags. A secondary press opens a
+    // context menu where it is (contextMenu); the middle button does nothing.
+    if (event.button != 0)
+    {
+        if (event.type == View::Pointer::down && event.button == 1 && !mouse.down && !mouse.pressed)
+        {
+            mouse.x = event.x, mouse.y = event.y, mouse.modifiers = event.modifiers;
+            layout.pointer(mouse.x, mouse.y, false);
+            mouse.secondary = true;
+            focusVisible = false;
+        }
+        return;
+    }
     // A move after a press the frame hasn't seen yet waits for it, so the
     // press lands where it was made, not where a quick flick ended.
     if (event.type == View::Pointer::move && mouse.pressed)
@@ -71,7 +84,8 @@ bool Ui::key(View::Key key, unsigned modifiers)
     // Keys the focused control has no use for are the host's: Space and
     // Delete, Enter on a knob, Escape with no menu open.
     using K = View::Key;
-    const bool used = key == K::tab || (focusUses >> unsigned(key) & 1) || (key == K::escape && openMenu);
+    const bool used = key == K::tab || (focusUses >> unsigned(key) & 1) || (key == K::escape && openMenu)
+                   || (key == K::contextMenu && focusHasMenu);
     if (!editing && !used) return false;
     keys.push_back({key, modifiers});
     if (editing) edits.push_back({{}, key, modifiers});
@@ -163,6 +177,10 @@ void Ui::begin(float width, float height, float scale)
     said.clear();
     layout.begin(draw, width, height, scale);
     overPopup = openMenu && Clay_PointerOver({openMenu, 0, 0, {}});
+    // A press outside an open context menu closes it and goes no further, as
+    // a system menu's does.
+    const bool closing = menuFor && (mouse.pressed || mouse.secondary) && !overPopup;
+    if (closing) closeMenu(), mouse.pressed = mouse.doubleClicked = mouse.secondary = false;
     // The windows still open; the frontmost one under the pointer: controls
     // outside it don't take the pointer.
     std::erase_if(windowOrder, [&](uint32_t w) { return std::find(windowsNow.begin(), windowsNow.end(), w) == windowsNow.end(); });
@@ -172,8 +190,8 @@ void Ui::begin(float width, float height, float scale)
         if (inside({*w, 0, 0, {}}, mouse.x, mouse.y)) windowUnder = *w;
     menuSeen = false;
     lastElement = 0;
-    settle = mouse.pressed || mouse.released || !keys.empty() || mouse.wheel != 0;
-    focusTakesLetters = focusTakesSpace = false; // a focused dropdown, button or toggle says so again
+    settle = closing || mouse.pressed || mouse.secondary || mouse.released || !keys.empty() || mouse.wheel != 0;
+    focusTakesLetters = focusTakesSpace = focusHasMenu = false; // a focused dropdown, button or toggle says so again
     cursor = View::Cursor::arrow;                // unless a control under the pointer wants another
     tooltipWaiting = false;
 }
@@ -235,7 +253,7 @@ bool Ui::record()
     dropTargets.swap(dropTargetsNow);
     dropTargetsNow.clear();
     incoming.dropped = false; // seen by this frame's dropTarget
-    if (!menuSeen) openMenu = 0; // its dropdown is gone
+    if (!menuSeen && openMenu) menuFor ? closeMenu() : void(openMenu = 0); // its dropdown or control is gone
     for (auto [key, modifiers] : keys)
     {
         if (key != View::Key::tab || order.empty()) continue;
@@ -276,7 +294,7 @@ bool Ui::record()
     wheelUsed = false;
     // Each press, release, wheel turn and key is seen by one frame; moves
     // held back behind a press go in now, for the next.
-    mouse.pressed = mouse.released = mouse.doubleClicked = mouse.moved = false;
+    mouse.pressed = mouse.released = mouse.doubleClicked = mouse.moved = mouse.secondary = false;
     if (std::exchange(leftAfterRelease, false)) mouse.x = mouse.y = -1e9f, layout.pointer(mouse.x, mouse.y, false);
     mouse.wheel = mouse.scroll = 0;
     if (const std::optional<View::PointerEvent> move = std::exchange(heldMove, std::nullopt)) pointer(*move), settle = true;
@@ -389,6 +407,19 @@ std::vector<View::Key> Ui::focusable(Clay_ElementId element, const Area &a)
         for (auto [key, modifiers] : keys)
             if (key != View::Key::tab) mine.push_back(key);
     return mine;
+}
+
+// Whether a control (as focus knows it) is the element, or was drawn inside
+// it (a knob in its box), as the last frame had them.
+bool Ui::controlIn(const void *control, Clay_ElementId element) const
+{
+    if (!control) return false;
+    if (accessId(control) == element.id) return true;
+    for (const Accessible &n : accessTree.nodes)
+        if (n.id == accessId(control))
+            return n.role != Accessible::Role::menu && n.role != Accessible::Role::menuItem
+                && inside(element, n.x + n.width / 2, n.y + n.height / 2);
+    return false;
 }
 
 bool Ui::focusShown(Clay_ElementId element) const

@@ -4,6 +4,7 @@
 #include "native.h"
 #include "accesskit_tree.h"
 #include <optional>
+#include <utility>
 
 // The classes below are global to the host process: two plugins (or two
 // versions of one) with a GpuView each would get one of them. GPU_OBJC_PREFIX
@@ -84,6 +85,7 @@ void accessFocused(Window *window, bool focused);
 {
     NSPoint _position; // pixels; keeps moving while the pointer is locked
     NSEvent *_lastMouse; // the press or drag a drag of files out starts from
+    int _button;         // the button held: a Ctrl+click is the secondary one until it's let go
 }
 - (BOOL)isFlipped { return YES; } // top-left origin, like the shader
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
@@ -126,7 +128,8 @@ static unsigned modifiers(NSEvent *event)
          | (flags & NSEventModifierFlagOption ? gpu::View::alt : 0u) | (flags & NSEventModifierFlagCommand ? gpu::View::command : 0u);
 }
 
-- (void)send:(gpu::View::Pointer)type event:(NSEvent *)event
+- (void)send:(gpu::View::Pointer)type event:(NSEvent *)event { [self send:type event:event button:0]; }
+- (void)send:(gpu::View::Pointer)type event:(NSEvent *)event button:(int)button
 {
     if (type == gpu::View::Pointer::down || type == gpu::View::Pointer::move) _lastMouse = event;
     const CGFloat scale = self.layer.contentsScale;
@@ -141,7 +144,7 @@ static unsigned modifiers(NSEvent *event)
         const NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
         _position = NSMakePoint(p.x * scale, p.y * scale);
     }
-    if (_callbacks) _callbacks->pointer({type, float(_position.x), float(_position.y), modifiers(event)});
+    if (_callbacks) _callbacks->pointer({type, float(_position.x), float(_position.y), modifiers(event), 0, false, button});
 }
 // Files dragged in: their paths, and where they are in pixels.
 - (NSDragOperation)files:(gpu::View::FileDrag)type info:(id<NSDraggingInfo>)info
@@ -193,8 +196,19 @@ static unsigned modifiers(NSEvent *event)
 - (void)mouseDown:(NSEvent *)event
 {
     [self.window makeFirstResponder:self]; // for keys
-    [self send:gpu::View::Pointer::down event:event];
+    // Ctrl+click is the secondary click, as everywhere on macOS.
+    _button = event.modifierFlags & NSEventModifierFlagControl ? 1 : 0;
+    [self send:gpu::View::Pointer::down event:event button:_button];
 }
+// The other buttons: the secondary one opens a context menu.
+- (void)rightMouseDown:(NSEvent *)event
+{
+    [self.window makeFirstResponder:self]; // for the menu's keys
+    [self send:gpu::View::Pointer::down event:event button:1];
+}
+- (void)rightMouseUp:(NSEvent *)event { [self send:gpu::View::Pointer::up event:event button:1]; }
+- (void)otherMouseDown:(NSEvent *)event { [self send:gpu::View::Pointer::down event:event button:2]; }
+- (void)otherMouseUp:(NSEvent *)event { [self send:gpu::View::Pointer::up event:event button:2]; }
 - (void)scrollWheel:(NSEvent *)event
 {
     if (!_callbacks) return;
@@ -277,6 +291,10 @@ static unsigned modifiers(NSEvent *event)
     case 53: key = Key::escape; break;
     case 51: key = Key::backspace; break;
     case 117: key = Key::deleteForward; break;
+    case 109: // F10: with Shift, a context menu (Macs have no Menu key)
+        if (event.modifierFlags & NSEventModifierFlagShift) key = Key::contextMenu;
+        break;
+    case 110: key = Key::contextMenu; break; // the Menu key of a PC keyboard
     }
     return _callbacks && key && _callbacks->key(*key, modifiers(event));
 }
@@ -290,7 +308,7 @@ static unsigned modifiers(NSEvent *event)
 {
     if (_callbacks && !_locked) _callbacks->pointer({gpu::View::Pointer::leave, float(_position.x), float(_position.y), modifiers(event)});
 }
-- (void)mouseUp:(NSEvent *)event { [self send:gpu::View::Pointer::up event:event]; }
+- (void)mouseUp:(NSEvent *)event { [self send:gpu::View::Pointer::up event:event button:std::exchange(_button, 0)]; }
 - (NSArray *)accessibilityChildren { return self.owner ? gpu::platform::accessChildren(self.owner) : @[]; }
 - (id)accessibilityFocusedUIElement { return self.owner ? gpu::platform::accessFocus(self.owner) : nil; }
 - (id)accessibilityHitTest:(NSPoint)point { return self.owner ? gpu::platform::accessHitTest(self.owner, point) : nil; }

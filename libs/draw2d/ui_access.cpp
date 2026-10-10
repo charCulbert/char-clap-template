@@ -27,6 +27,8 @@ namespace gpu {
     case Accessible::Role::tabList: return "tab list";
     case Accessible::Role::tab: return "tab";
     case Accessible::Role::tabPanel: return "tab panel";
+    case Accessible::Role::menu: return "menu";
+    case Accessible::Role::menuItem: return "menu item";
     }
     return "control";
 }
@@ -203,8 +205,10 @@ void Ui::finishDescribing()
             const Rect at{e.node.x, e.node.y, e.node.width, e.node.height};
             const bool mine = e.node.id == uint64_t(w.element)
                            || (r && e.parent == 0 && (w.everything ? contains(*r, at) : within(e.node, *r)));
-            if (!mine || (w.everything ? false : e.node.role == Accessible::Role::label)) continue;
+            // (Not a context menu open over it: that's named for the control.)
+            if (!mine || (w.everything ? false : e.node.role == Accessible::Role::label) || e.node.role == Accessible::Role::menu) continue;
             if (w.hidden) e.hidden = true;
+            if (w.menu) e.node.actions |= Accessible::showMenu;
             if (!w.label.empty()) e.node.name = w.label;
             if (!w.description.empty() && !(w.fromTooltip && !e.node.description.empty())) e.node.description = w.description;
             if (e.node.description == e.node.name) e.node.description.clear(); // said once is enough
@@ -261,9 +265,10 @@ void Ui::finishDescribing()
                 for (const Accessible &c : tree.nodes)
                     if (c.id == child && c.checked == 1) tree.focus = c.id;
     // A focused group with a chosen part (a step sequencer's bar, a piano's
-    // key): that part has the focus, as aria-activedescendant has it.
+    // key), or a menu with a highlighted item: that has the focus, as
+    // aria-activedescendant has it.
     for (const Accessible &n : tree.nodes)
-        if (n.id == tree.focus && n.role == Accessible::Role::group && n.activeDescendant)
+        if (n.id == tree.focus && (n.role == Accessible::Role::group || n.role == Accessible::Role::menu) && n.activeDescendant)
         {
             tree.focus = n.activeDescendant;
             break;
@@ -322,6 +327,10 @@ void Ui::accessAction(uint64_t id, Accessible::Action action, double value)
         else if (d->parent && d->node.role == Accessible::Role::slider) asked.push_back({id, action, value});
         // A splitter takes it when it's next drawn, from its caller's size as it is then.
         if (d->node.role == Accessible::Role::splitter) splitterAsked = me, splitterTo = std::clamp(value, d->node.min, d->node.max);
+        break;
+    case Accessible::showMenu: // its context menu, as the Menu key opens it
+        focus = me, focusVisible = true;
+        keys.push_back({View::Key::contextMenu, 0});
         break;
     case Accessible::expand: // a dropdown or drawer, opened by its click when it's closed
     case Accessible::collapse:

@@ -11,6 +11,7 @@
 #include <imgui_impl_wgpu.h>
 #include <algorithm>
 #include <chrono>
+#include <iterator>
 #include <string>
 
 namespace {
@@ -66,8 +67,9 @@ public:
         modifiers(event.modifiers);
         if (event.type == Pointer::leave) io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); // ImGui's "no mouse"
         else io.AddMousePosEvent(event.x / scale, event.y / scale);
-        if (event.type == Pointer::down) io.AddMouseButtonEvent(0, true);
-        if (event.type == Pointer::up) io.AddMouseButtonEvent(0, false);
+        // ImGui numbers the buttons as View does: 0 primary, 1 secondary, 2 middle.
+        if (event.type == Pointer::down) io.AddMouseButtonEvent(event.button, true);
+        if (event.type == Pointer::up) io.AddMouseButtonEvent(event.button, false);
         if (event.type == Pointer::wheel) io.AddMouseWheelEvent(0, event.wheel);
         framesLeft = 4;
     }
@@ -77,7 +79,8 @@ public:
         if (!context) return false;
         static const ImGuiKey keys[] = {ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_UpArrow, ImGuiKey_DownArrow,
                                         ImGuiKey_PageUp, ImGuiKey_PageDown, ImGuiKey_Home, ImGuiKey_End, ImGuiKey_Tab,
-                                        ImGuiKey_Enter, ImGuiKey_Escape, ImGuiKey_Backspace, ImGuiKey_Delete};
+                                        ImGuiKey_Enter, ImGuiKey_Escape, ImGuiKey_Backspace, ImGuiKey_Delete, ImGuiKey_Menu};
+        if (size_t(key) >= std::size(keys)) return false; // undo and the other shortcuts: no single ImGui key
         ImGuiIO &io = io_();
         modifiers(mods);
         // Presenters report presses only; ImGui spreads the pair over frames.

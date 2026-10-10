@@ -814,6 +814,13 @@ void pumpEvents(Window *window)
             window->callbacks.pointer({event.type == ButtonPress ? View::Pointer::down : View::Pointer::up,
                                        window->x, window->y, modifiers(event.xbutton.state)});
         }
+        else if ((event.type == ButtonPress || event.type == ButtonRelease)
+                 && (event.xbutton.button == Button3 || event.xbutton.button == Button2)) // the secondary button: a context menu
+        {
+            if (!window->locked) window->x = float(event.xbutton.x), window->y = float(event.xbutton.y);
+            window->callbacks.pointer({event.type == ButtonPress ? View::Pointer::down : View::Pointer::up, window->x, window->y,
+                                       modifiers(event.xbutton.state), 0, false, event.xbutton.button == Button3 ? 1 : 2});
+        }
         else if (event.type == KeyPress)
         {
             if (shortcut(window, event.xkey)) continue;
@@ -833,6 +840,11 @@ void pumpEvents(Window *window)
             case XK_Escape: key = View::Key::escape; break;
             case XK_BackSpace: key = View::Key::backspace; break;
             case XK_Delete: key = View::Key::deleteForward; break;
+            case XK_Menu: key = View::Key::contextMenu; break;
+            case XK_F10:
+                if (!(event.xkey.state & ShiftMask)) continue;
+                key = View::Key::contextMenu; // Shift+F10
+                break;
             default:
             {
                 // Typed characters (Latin-1 without an input method, which is

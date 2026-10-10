@@ -1,7 +1,19 @@
-// Ui controls: buttons, toggles, dropdowns, tabs, knobs, sliders, pads, meters, piano, envelope, steps, tooltip.
+// Ui controls: buttons, toggles, dropdowns, context menus, tabs, knobs, sliders, pads, meters, piano, envelope, steps, tooltip.
 #include "ui_internal.h"
 
 namespace gpu {
+
+// Typing a letter in a list: the next item after `from` starting with it
+// (wrapping; separators skipped), or -1.
+static int startingWith(const char *const *items, int count, int from, char c)
+{
+    for (int k = 1; k <= count; ++k)
+    {
+        const int i = ((from + k) % count + count) % count;
+        if (items[i] && std::tolower(static_cast<unsigned char>(items[i][0])) == std::tolower(static_cast<unsigned char>(c))) return i;
+    }
+    return -1;
+}
 
 double Ui::toUnit(const Param &p, double v, bool log)
 {
@@ -343,7 +355,7 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
     const Clay_ElementId did = id("Dropdown", index), menu = id("DropdownMenu", index);
     const bool open = openMenu == menu.id;
     const Area a = element(did, eachPress);
-    auto openAt = [&](int option) { openMenu = menu.id, highlight = std::clamp(option, 0, count - 1); };
+    auto openAt = [&](int option) { openMenu = menu.id, menuFor = 0, highlight = std::clamp(option, 0, count - 1); };
     auto choose = [&] {
         if (highlight >= 0 && highlight < count && highlight != selected) selected = highlight, changed = true;
         openMenu = 0;
@@ -389,16 +401,7 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
                 openMenu == menu.id ? choose() : openAt(selected);
                 continue;
             }
-            const int from = openMenu == menu.id ? highlight : selected;
-            for (int k = 1; k <= count; ++k)
-            {
-                const int i = (from + k) % count;
-                if (std::tolower(static_cast<unsigned char>(items[i][0])) == std::tolower(static_cast<unsigned char>(c)))
-                {
-                    openAt(i);
-                    break;
-                }
-            }
+            if (const int i = startingWith(items, count, openMenu == menu.id ? highlight : selected, c); i >= 0) openAt(i);
         }
     }
     const size_t combo = described.size(); // an index: its options are described after it
@@ -435,33 +438,187 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
                 option.element = item.id, option.node.selected = i == highlight, option.node.actions |= Accessible::click;
                 if (i == highlight) described[combo].node.activeDescendant = option.node.id;
             }
-            CLAY({.id = menu, .layout = {.sizing = {.width = CLAY_SIZING_FIT(box.width)}, .padding = CLAY_PADDING_ALL(1),
-                                         .layoutDirection = CLAY_TOP_TO_BOTTOM},
-                  .backgroundColor = clayColor(theme.background), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
-                  .floating = {.offset = {0, up ? -2.0f : 2.0f}, .zIndex = 100,
-                               .attachPoints = {up ? CLAY_ATTACH_POINT_LEFT_BOTTOM : CLAY_ATTACH_POINT_LEFT_TOP,
-                                                up ? CLAY_ATTACH_POINT_LEFT_TOP : CLAY_ATTACH_POINT_LEFT_BOTTOM},
-                               .attachTo = CLAY_ATTACH_TO_PARENT},
-                  .border = {.color = clayColor(theme.edge), .width = CLAY_BORDER_OUTSIDE(1)},
-                  .userData = layout.shadow(theme.shadow, 10, 0, 3)})
-            {
-                for (int i = 0; i < count; ++i)
-                {
-                    const Clay_ElementId item = id("DropdownItem", index * 1024 + i);
-                    if (element(item, eachPress).clicked) selected = i, changed = true, openMenu = 0;
-                    const bool itemHot = Clay_PointerOver(item);
-                    if (itemHot && (mouse.moved || mouse.pressed)) highlight = i; // the pointer moves the highlight too
-                    CLAY({.id = item, .layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {7, 7, 3, 3}},
-                          .backgroundColor = clayColor(i == highlight ? theme.panel : Color{0, 0, 0, 0})})
-                    {
-                        CLAY_TEXT(layout.text(items[i]), textConfig(i == selected ? theme.accent : theme.text));
-                    }
-                }
-            }
+            const Clay_FloatingElementConfig below = {.offset = {0, up ? -2.0f : 2.0f}, .zIndex = 100,
+                                                      .attachPoints = {up ? CLAY_ATTACH_POINT_LEFT_BOTTOM : CLAY_ATTACH_POINT_LEFT_TOP,
+                                                                       up ? CLAY_ATTACH_POINT_LEFT_TOP : CLAY_ATTACH_POINT_LEFT_BOTTOM},
+                                                      .attachTo = CLAY_ATTACH_TO_PARENT};
+            if (const int i = popup(menu, "DropdownItem", index * 1024, items, count, selected, below, box.width); i >= 0)
+                selected = i, changed = true, openMenu = 0;
         }
     }
     lastElement = did.id;
     return changed;
+}
+
+// The list a dropdown or context menu shows, over everything: an item per
+// row, the highlighted one shaded and the marked one (a dropdown's choice) in
+// the accent; the pointer moves the highlight. A nullptr item is a separator.
+int Ui::popup(Clay_ElementId menu, const char *itemName, int itemBase, const char *const *items, int count, int marked,
+              Clay_FloatingElementConfig floating, float minWidth)
+{
+    int clicked = -1;
+    CLAY({.id = menu, .layout = {.sizing = {.width = CLAY_SIZING_FIT(minWidth)}, .padding = CLAY_PADDING_ALL(1),
+                                 .layoutDirection = CLAY_TOP_TO_BOTTOM},
+          .backgroundColor = clayColor(theme.background), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius), .floating = floating,
+          .border = {.color = clayColor(theme.edge), .width = CLAY_BORDER_OUTSIDE(1)},
+          .userData = layout.shadow(theme.shadow, 10, 0, 3)})
+    {
+        for (int i = 0; i < count; ++i)
+        {
+            if (!items[i])
+            {
+                CLAY({.layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {0, 0, 3, 3}}})
+                {
+                    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1)}}, .backgroundColor = clayColor(theme.edge)}) {}
+                }
+                continue;
+            }
+            const Clay_ElementId item = id(itemName, itemBase + i);
+            if (element(item, eachPress).clicked) clicked = i;
+            const bool itemHot = Clay_PointerOver(item);
+            if (itemHot && (mouse.moved || mouse.pressed)) highlight = i; // the pointer moves the highlight too
+            CLAY({.id = item, .layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {7, 7, 3, 3}},
+                  .backgroundColor = clayColor(i == highlight ? theme.panel : Color{0, 0, 0, 0})})
+            {
+                CLAY_TEXT(layout.text(items[i]), textConfig(i == marked ? theme.accent : theme.text));
+            }
+        }
+    }
+    return clicked;
+}
+
+int Ui::contextMenu(const char *const *items, int count)
+{
+    return lastElement ? contextMenu(Clay_ElementId{lastElement, 0, 0, {}}, items, count) : -1;
+}
+
+void Ui::closeMenu()
+{
+    if (menuFor && focus == reinterpret_cast<const void *>(uintptr_t(openMenu))) focus = menuReturn;
+    openMenu = menuFor = 0;
+}
+
+int Ui::contextMenu(Clay_ElementId element, const char *const *items, int count)
+{
+    if (count < 1) return -1;
+    said.push_back({element.id, {}, {}, false, false, false, true}); // a screen reader can open it (showMenu)
+    const Clay_ElementId menu = id("ContextMenu", int(element.id));
+    const void *me = reinterpret_cast<const void *>(uintptr_t(menu.id));
+    // The next item after `from` that isn't a separator, wrapping; by is 1 or -1.
+    auto next = [&](int from, int by) {
+        for (int k = 1; k <= count; ++k)
+            if (const int i = ((from + by * k) % count + count) % count; items[i]) return i;
+        return -1;
+    };
+
+    // It opens on a secondary press on the element, at the pointer, or on the
+    // Menu key (a screen reader's showMenu sends one) while a control in it
+    // has focus, below it with the first item highlighted.
+    const bool focused = controlIn(focus, element);
+    focusHasMenu |= focused;
+    bool byKey = false;
+    if (focused)
+        for (auto [key, modifiers] : keys) byKey |= key == View::Key::contextMenu;
+    const bool byPointer = !byKey && mouse.secondary && !overPopup && Clay_PointerOver(element);
+    if ((byKey || byPointer) && openMenu != menu.id)
+    {
+        // Focus goes back to the control when it closes: the one focused, or
+        // the one clicked (the element, or a control drawn in it).
+        menuReturn = focus;
+        if (byPointer)
+            for (const Accessible &n : accessTree.nodes)
+                if (n.actions & Accessible::focus && controlIn(reinterpret_cast<const void *>(uintptr_t(n.id)), element))
+                {
+                    menuReturn = reinterpret_cast<const void *>(uintptr_t(n.id));
+                    break;
+                }
+        const Clay_BoundingBox box = Clay_GetElementData(element).boundingBox;
+        menuAt = byPointer ? Rect{mouse.x, mouse.y, 0, 0} : Rect{box.x * s, box.y * s, box.width * s, box.height * s};
+        openMenu = menu.id, menuFor = element.id, focus = me, focusVisible = byKey;
+        highlight = byKey ? next(-1, 1) : -1;
+        mouse.secondary = false; // taken: not also an element around this one
+    }
+    else if (byKey) focus = me; // open already (a screen reader asked as the key came): it keeps focus
+    if (openMenu != menu.id) return -1;
+    menuSeen = true;
+    for (int i = 0; i < count; ++i) // a screen reader focused or clicked an item: the menu has focus, on it
+        if (items[i] && focus == reinterpret_cast<const void *>(uintptr_t(id("ContextMenuItem", i).id))) focus = me, highlight = i;
+    if (focus != me) // something else took focus (a screen reader moved it)
+    {
+        openMenu = menuFor = 0;
+        return -1;
+    }
+    if (mouse.pressed && overPopup) pressFocused = true; // a press in it, between items, keeps focus in it
+
+    // Keys, as the WAI-ARIA menu's: this frame's are all the menu's.
+    int chosen = -1;
+    bool close = false;
+    focusUses = keyBit(View::Key::up) | keyBit(View::Key::down) | keyBit(View::Key::home) | keyBit(View::Key::end)
+              | keyBit(View::Key::enter) | keyBit(View::Key::escape) | keyBit(View::Key::tab);
+    focusTakesDigits = false, focusTakesLetters = true; // letters jump to an item, Space chooses
+    for (auto [key, modifiers] : keys)
+        switch (key)
+        {
+        case View::Key::down: highlight = next(highlight, 1); break;
+        case View::Key::up: highlight = next(highlight < 0 ? count : highlight, -1); break;
+        case View::Key::home: highlight = next(-1, 1); break;
+        case View::Key::end: highlight = next(count, -1); break;
+        case View::Key::enter: chosen = highlight; break;
+        case View::Key::escape: case View::Key::tab: close = true; break;
+        default: break;
+        }
+    keys.clear();
+    for (char c : std::exchange(typedToFocus, {}))
+    {
+        if (c == ' ') chosen = highlight;
+        else if (const int i = startingWith(items, count, highlight, c); i >= 0) highlight = i;
+    }
+
+    if (chosen >= 0 || close) // by a key: gone before it's drawn again
+    {
+        closeMenu(), focusVisible = true;
+        focusHasMenu |= controlIn(focus, element);
+        return chosen;
+    }
+
+    // At the pointer, or below the control (points); moved in where it would
+    // leave the view, and above where there's no room below.
+    float width = 0, height = 4;
+    for (int i = 0; i < count; ++i)
+    {
+        if (items[i]) width = std::max(width, draw.measure(theme.textSize, items[i], theme.labelFont));
+        height += items[i] ? theme.textSize * 1.25f + 6 : 7;
+    }
+    width += 16;
+    const Rect at{menuAt.x / s, menuAt.y / s, menuAt.w / s, menuAt.h / s};
+    const float gap = at.h > 0 ? 2.0f : 0.0f;
+    float x = at.x, y = at.y + at.h + gap;
+    if (x + width > viewWidth) x = std::max(0.0f, at.x + at.w - width);
+    if (y + height > viewHeight && at.y - height - gap >= 0) y = at.y - height - gap;
+    const Clay_FloatingElementConfig floating = {.offset = {x, y}, .zIndex = 100, .attachTo = CLAY_ATTACH_TO_ROOT};
+    if (const int i = popup(menu, "ContextMenuItem", 0, items, count, -1, floating, 0); i >= 0)
+    {
+        closeMenu();
+        focusHasMenu |= controlIn(focus, element);
+        return i;
+    }
+
+    // For screen readers: a menu named for its control, its items in it, and
+    // the highlighted one focused (as aria-activedescendant).
+    const size_t list = described.size();
+    const char *name = "Menu";
+    for (const Accessible &n : accessTree.nodes)
+        if (n.id == accessId(menuReturn) && !n.name.empty()) name = n.name.c_str();
+    describe(me, Accessible::Role::menu, name).element = menu.id;
+    for (int i = 0; i < count; ++i)
+    {
+        if (!items[i]) continue;
+        const Clay_ElementId item = id("ContextMenuItem", i);
+        Described &d = describe(reinterpret_cast<const void *>(uintptr_t(item.id)), Accessible::Role::menuItem, items[i], accessId(me));
+        d.element = item.id, d.node.actions |= Accessible::click;
+        if (i == highlight) described[list].node.activeDescendant = d.node.id;
+    }
+    return -1;
 }
 
 void Ui::tooltip(const char *text)

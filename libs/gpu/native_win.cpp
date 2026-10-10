@@ -288,6 +288,11 @@ static bool keyFor(WPARAM virtualKey, View::Key &key)
     case VK_ESCAPE: key = View::Key::escape; return true;
     case VK_BACK: key = View::Key::backspace; return true;
     case VK_DELETE: key = View::Key::deleteForward; return true;
+    case VK_APPS: key = View::Key::contextMenu; return true;
+    case VK_F10: // Shift+F10 opens a context menu; F10 alone is the host's menu bar
+        if (GetKeyState(VK_SHIFT) >= 0) return false;
+        key = View::Key::contextMenu;
+        return true;
     }
     return false;
 }
@@ -391,10 +396,11 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
 {
     auto *window = reinterpret_cast<Window *>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (!window) return DefWindowProcW(hwnd, message, wParam, lParam);
-    auto pointer = [&](View::Pointer type, float wheel = 0) {
-        window->callbacks.pointer({type, window->x, window->y, modifiers(), wheel});
+    auto pointer = [&](View::Pointer type, int button = 0) {
+        window->callbacks.pointer({type, window->x, window->y, modifiers(), 0, false, button});
     };
-    if (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP)
+    if (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN
+        || message == WM_RBUTTONUP || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP)
     {
         if (!window->locked)
             window->x = float(short(LOWORD(lParam))), window->y = float(short(HIWORD(lParam)));
@@ -462,6 +468,16 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
         pointer(View::Pointer::up);
         ReleaseCapture();
         return 0;
+    // The other buttons: a secondary press opens a context menu. Not
+    // captured, as only the primary button drags.
+    case WM_RBUTTONDOWN: case WM_MBUTTONDOWN:
+        SetFocus(hwnd); // for the menu's keys
+        pointer(View::Pointer::down, message == WM_RBUTTONDOWN ? 1 : 2);
+        return 0;
+    case WM_RBUTTONUP: case WM_MBUTTONUP: pointer(View::Pointer::up, message == WM_RBUTTONUP ? 1 : 2); return 0;
+    // Made by DefWindowProc from a right-click or the keys above: the view
+    // has those already, and the host shouldn't show a menu of its own.
+    case WM_CONTEXTMENU: return 0;
     case WM_CAPTURECHANGED: // taken mid-drag (Alt+Tab, a host's dialog): the button-up won't come here
         if (window->pressed) window->pressed = false, pointer(View::Pointer::up);
         return 0;
@@ -473,6 +489,12 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARA
         window->callbacks.pointer({View::Pointer::wheel, float(at.x), float(at.y), modifiers(),
                                    float(GET_WHEEL_DELTA_WPARAM(wParam)) / WHEEL_DELTA});
         return 0;
+    }
+    case WM_SYSKEYDOWN: // F10 comes as a system key: Shift+F10 is the view's, the rest the system's
+    {
+        View::Key key;
+        if (wParam == VK_F10 && keyFor(wParam, key) && window->callbacks.key(key, modifiers())) return 0;
+        break;
     }
     case WM_KEYDOWN:
     {

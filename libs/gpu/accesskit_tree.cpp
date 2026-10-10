@@ -26,6 +26,8 @@ static accesskit_role role(Accessible::Role role)
     case Accessible::Role::tabList: return ACCESSKIT_ROLE_TAB_LIST;
     case Accessible::Role::tab: return ACCESSKIT_ROLE_TAB;
     case Accessible::Role::tabPanel: return ACCESSKIT_ROLE_TAB_PANEL;
+    case Accessible::Role::menu: return ACCESSKIT_ROLE_MENU;
+    case Accessible::Role::menuItem: return ACCESSKIT_ROLE_MENU_ITEM;
     }
     return ACCESSKIT_ROLE_GENERIC_CONTAINER;
 }
@@ -64,7 +66,8 @@ accesskit_tree_update *update(const Accessibility &tree)
                                  {Accessible::increment, ACCESSKIT_ACTION_INCREMENT},
                                  {Accessible::decrement, ACCESSKIT_ACTION_DECREMENT},
                                  {Accessible::setValue, ACCESSKIT_ACTION_SET_VALUE}, {Accessible::expand, ACCESSKIT_ACTION_EXPAND},
-                                 {Accessible::collapse, ACCESSKIT_ACTION_COLLAPSE}})
+                                 {Accessible::collapse, ACCESSKIT_ACTION_COLLAPSE},
+                                 {Accessible::showMenu, ACCESSKIT_ACTION_SHOW_CONTEXT_MENU}})
             if (a.actions & bit) accesskit_node_add_action(node, kind);
         for (uint64_t child : a.children) accesskit_node_push_child(node, child);
         if (a.activeDescendant) accesskit_node_set_active_descendant(node, a.activeDescendant);
@@ -87,6 +90,7 @@ bool action(accesskit_action_request *request, uint64_t &id, Accessible::Action 
     case ACCESSKIT_ACTION_DECREMENT: kind = Accessible::decrement; break;
     case ACCESSKIT_ACTION_EXPAND: kind = Accessible::expand; break;
     case ACCESSKIT_ACTION_COLLAPSE: kind = Accessible::collapse; break;
+    case ACCESSKIT_ACTION_SHOW_CONTEXT_MENU: kind = Accessible::showMenu; break;
     case ACCESSKIT_ACTION_SET_VALUE:
         kind = Accessible::setValue;
         known = request->data.has_value && request->data.value.tag == ACCESSKIT_ACTION_DATA_NUMERIC_VALUE;

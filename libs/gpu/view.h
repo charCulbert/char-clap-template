@@ -25,12 +25,18 @@ public:
         unsigned modifiers = 0; // Modifier bits
         float wheel = 0;        // for Pointer::wheel: notches, positive away from the user
         bool inverted = false;  // and the system scrolls content the other way (macOS natural scrolling)
+        // For Pointer::down and up: 0 the primary button, 1 the secondary
+        // (right, or Ctrl+click on macOS: a context menu), 2 the middle.
+        // Moves, wheel and leave are 0. A view that only knows the primary
+        // button ignores presses that aren't 0.
+        int button = 0;
     };
     // The keys controls and text fields use; other keys go back to the host.
-    // The last five are the platform's shortcuts for them (Cmd or Ctrl + Z,
-    // Shift+Z or Y, A, X, C). Paste comes as text().
+    // contextMenu is the Menu key or Shift+F10. The last five are the
+    // platform's shortcuts for them (Cmd or Ctrl + Z, Shift+Z or Y, A, X, C).
+    // Paste comes as text().
     enum class Key { left, right, up, down, pageUp, pageDown, home, end, tab, enter, escape, backspace, deleteForward,
-                     undo, redo, selectAll, cut, copy };
+                     contextMenu, undo, redo, selectAll, cut, copy };
 
     virtual ~View() = default;
     virtual void prepare(const wgpu::Device &device, wgpu::TextureFormat format) = 0;
