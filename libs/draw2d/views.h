@@ -252,6 +252,70 @@ public:
     float frequencyAt(Rect r, float y) const { return frequencyOf(1 - (y - r.y) / std::max(r.h, 1e-6f)); }
     float yAt(Rect r, float hz) const { return r.y + (1 - fractionOf(hz)) * r.h; }
 
+    // Frequencies to mark up the side of r (pixels), lowest first: round
+    // numbers, as many as fit `gap` pixels apart. Linear: a step of 1, 2 or 5
+    // times a power of ten. Log and mel, a decade at a time (they crowd
+    // differently in each): its start alone, or 1, 2 and 5 times it, or
+    // steps of 1, 0.5, 0.2, 0.1... times it (30, 40, 50 in a narrow range;
+    // 41, 42, 43 in a narrower one), the finest that fits.
+    std::vector<float> frequencyMarks(Rect r, float gap) const
+    {
+        const double low = options.minFrequency, high = std::max(options.maxFrequency, options.minFrequency + 1);
+        auto fits = [&](const std::vector<float> &marks) {
+            for (size_t i = 1; i < marks.size(); ++i)
+                if (std::abs(yAt(r, marks[i - 1]) - yAt(r, marks[i])) < gap) return false;
+            return true;
+        };
+        // Multiples of step from `from` to `to`, within the range.
+        auto multiples = [&](double step, double from, double to) {
+            std::vector<float> marks;
+            for (double k = std::ceil(std::max(from, low) / step - 1e-9); k * step <= std::min(to, high) * (1 + 1e-9); ++k)
+                marks.push_back(float(k * step));
+            return marks;
+        };
+        std::vector<float> marks;
+        if (options.scale == Scale::linear)
+        {
+            // From one step across the range, finer while they fit.
+            for (double step = std::pow(10.0, std::ceil(std::log10(high - low))), next; step > (high - low) * 1e-4; step = next)
+            {
+                std::vector<float> finer = multiples(step, low, high);
+                if (!fits(finer)) break;
+                marks = std::move(finer);
+                const double digit = step / std::pow(10.0, std::floor(std::log10(step) + 1e-9));
+                next = step * (digit > 4.5 ? 0.4 : 0.5); // 10, 5, 2, 1, 0.5, ...
+            }
+            return marks;
+        }
+        for (double decade = std::pow(10.0, std::floor(std::log10(std::max(low, 1.0)))); decade <= high; decade *= 10)
+        {
+            std::vector<float> best;
+            for (int level = 0;; ++level)
+            {
+                std::vector<float> here;
+                if (level == 0) { if (decade >= low * (1 - 1e-9)) here.push_back(float(decade)); } // the decade's start
+                else if (level == 1)
+                    for (double k : {1.0, 2.0, 5.0})
+                    {
+                        if (decade * k >= low * (1 - 1e-9) && decade * k <= high * (1 + 1e-9)) here.push_back(float(decade * k));
+                    }
+                else
+                {
+                    // Steps of 1, 0.5, 0.2, 0.1... times the decade.
+                    const int finer = level - 2;
+                    const double step = decade * std::pow(10.0, -(finer / 3)) * (finer % 3 == 0 ? 1 : finer % 3 == 1 ? 0.5 : 0.2);
+                    if (step < decade * 1e-3) break;
+                    here = multiples(step, decade, decade * 10 * (1 - 1e-9));
+                }
+                if (!fits(here)) break;
+                if (here.size() >= best.size()) best = std::move(here); // (1, 2 and 5 may show fewer than its start alone)
+            }
+            for (float f : best) // across decades: none closer than gap to the last kept
+                if (marks.empty() || std::abs(yAt(r, marks.back()) - yAt(r, f)) >= gap) marks.push_back(f);
+        }
+        return marks;
+    }
+
     // What's under a point of the last drawing (pixels): the frequency at
     // that height and the level there in the column under it. Snapping, as
     // Listener's peak snap: the nearest peak in that column within 10 points

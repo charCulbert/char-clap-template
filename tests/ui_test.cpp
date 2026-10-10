@@ -2299,6 +2299,33 @@ static void readouts()
 // A spectrogram across time: columns fill points of time at its rate, newest
 // on the right; probe reads what's under a point and snaps to a peak near it;
 // fewer columns keep the newest.
+// A spectrogram's frequency marks: round numbers, as many as fit the gap,
+// more as the range narrows; a decade's start, then 1, 2 and 5, then steps.
+static void spectrogramMarks()
+{
+    auto marks = [](float low, float high, gpu::Spectrogram::Scale scale, float height, float gap) {
+        gpu::Spectrogram::Options o;
+        o.minFrequency = low, o.maxFrequency = high, o.scale = scale;
+        gpu::Spectrogram view(o);
+        const gpu::Rect r{0, 0, 100, height};
+        std::vector<float> m = view.frequencyMarks(r, gap);
+        for (size_t i = 1; i < m.size(); ++i)
+            CHECK(m[i] > m[i - 1] && std::abs(view.yAt(r, m[i]) - view.yAt(r, m[i - 1])) >= gap); // in order, and apart
+        for (float f : m) CHECK(f >= low && f <= high);
+        return m;
+    };
+    using S = gpu::Spectrogram::Scale;
+    const std::vector<float> wide = marks(20, 24000, S::log, 430, 28);
+    CHECK((wide == std::vector<float>{20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000}));
+    const std::vector<float> bass = marks(30, 100, S::log, 430, 28); // was "50" alone
+    CHECK((bass == std::vector<float>{30, 40, 50, 60, 70, 80, 90, 100}));
+    const std::vector<float> narrow = marks(40, 46, S::log, 430, 28);
+    CHECK(narrow.size() >= 6 && narrow.front() == 40 && narrow.back() == 46); // a hertz apart
+    const std::vector<float> linear = marks(0, 1000, S::linear, 400, 18);
+    CHECK(linear.size() == 21 && linear[1] == 50); // 50 Hz is 20 pixels
+    CHECK(marks(20, 24000, S::mel, 430, 28).size() >= 5);
+}
+
 static void spectrogramTime()
 {
     Ui ui;
@@ -2675,6 +2702,7 @@ int main()
     noHoverWhileDragging();
     numberBoxLikeCompost();
     readouts();
+    spectrogramMarks();
     spectrogramTime();
     pianoNotes();
     twoPianos();

@@ -75,7 +75,7 @@ static const Setting settings[S_COUNT] = {
     {"Smoothing", 0, 0.9, 0},
     {"Low frequency", 0, 500, 20},
     {"High frequency", 100, 96000, 24000},
-    {"Floor", -160, -60, -100},
+    {"Floor", -160, -20, -100}, // the interface keeps it 10 dB under the ceiling
     {"Ceiling", -20, 12, 0},
     {"Scale", 0, 2, 1},
     {"Palette", 0, 4, 0},

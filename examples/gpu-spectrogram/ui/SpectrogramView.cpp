@@ -131,7 +131,9 @@ public:
         p[hopSize]->max = double(1 << int(std::lround(p[fftSize]->value)));
         p[high]->max = std::max(p[high]->min, double(binRate) / 2);
         p[cqtHigh]->max = std::max(p[cqtHigh]->min, double(binRate) * 0.4);
-        for (Setting s : {hopSize, high, cqtHigh}) p[s]->value = std::min(p[s]->value, p[s]->max);
+        // The floor up to -20 dB, and 10 dB under the ceiling at least.
+        p[floorLevel]->max = std::max(p[floorLevel]->min, std::min(-20.0, p[ceiling]->value - 10));
+        for (Setting s : {hopSize, high, cqtHigh, floorLevel}) p[s]->value = std::min(p[s]->value, p[s]->max);
 
         gpu::Spectrogram::Options o = spectrogram.settings();
         o.minFrequency = float(p[low]->value);
@@ -392,24 +394,13 @@ private:
     {
         const float s = ui.s, x0 = r.x + stripWidth();
         const gpu::Color tick{ui.theme.text.r, ui.theme.text.g, ui.theme.text.b, 0.7f};
-        const float lowest = spectrogram.settings().minFrequency, highest = spectrogram.settings().maxFrequency;
-        std::vector<float> marks;
-        if (spectrogram.settings().scale == gpu::Spectrogram::Scale::linear)
-        {
-            // A round step giving eight or so.
-            const float rough = (highest - lowest) / 8, power = std::pow(10.0f, std::floor(std::log10(rough)));
-            const float step = power * (rough / power < 2 ? 2 : rough / power < 5 ? 5 : 10);
-            for (float f = std::ceil(lowest / step) * step; f <= highest; f += step) marks.push_back(f);
-        }
-        else
-            for (float decade = 10; decade <= highest; decade *= 10)
-                for (float k : {1.0f, 2.0f, 5.0f})
-                    if (decade * k >= lowest && decade * k <= highest) marks.push_back(decade * k);
+        // Round frequencies, 28 points apart at least, more as the range narrows.
+        const std::vector<float> marks = spectrogram.frequencyMarks(r, 28 * s);
         float lastY = 1e9f;
         for (float f : marks)
         {
             const float y = spectrogram.yAt(r, f);
-            if (y > r.y + r.h - 22 * s || y < r.y + 8 * s || lastY - y < 18 * s) continue; // clear of the edges and each other
+            if (y > r.y + r.h - 22 * s || y < r.y + 8 * s || lastY - y < 18 * s) continue; // clear of the edges (and each other)
             char text[16];
             if (f >= 1000) std::snprintf(text, sizeof text, "%gk", f / 1000);
             else std::snprintf(text, sizeof text, "%g", f);
