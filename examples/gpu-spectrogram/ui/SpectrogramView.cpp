@@ -229,8 +229,12 @@ private:
             {peakSnap, "Snap", nullptr, false, onOff, 2}, {cursor, "Cursor", nullptr, false, onOff, 2},
         };
         const float cell = std::floor(widthPoints - 12); // one a row, its label left and value right, inside the drawer's padding
+        // Rows 24 points apart (each readout as tall: WCAG 2.5.8), under a heading per group.
         auto group = [&](const char *title, const Readout *all, int count) {
-            CLAY_TEXT(ui.layout.text(title), CLAY_TEXT_CONFIG({.textColor = gpu::clayColor(ui.theme.dim), .fontSize = 11}));
+            CLAY({.layout = {.padding = {4, 0, 2, 2}}})
+            {
+                CLAY_TEXT(ui.layout.text(title), CLAY_TEXT_CONFIG({.textColor = gpu::clayColor(ui.theme.dim), .fontSize = 11}));
+            }
             for (int i = 0; i < count; ++i)
             {
                 const Readout &r = all[i];
@@ -240,9 +244,12 @@ private:
                 if (ui.contextMenu(menu, 1) == 0) params.begin(*q), params.change(*q, q->defaultValue), params.end(*q);
             }
         };
-        group("Analysis", analysis, int(std::size(analysis)));
-        if (p[transform]->value >= 0.5) group("CQT", cqt, int(std::size(cqt)));
-        group("Display", display, int(std::size(display)));
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+        {
+            group("Analysis", analysis, int(std::size(analysis)));
+            if (p[transform]->value >= 0.5) group("CQT", cqt, int(std::size(cqt)));
+            group("Display", display, int(std::size(display)));
+        }
     }
 
     // Text on whole pixels, which keeps it sharp; y is the baseline, size in points.

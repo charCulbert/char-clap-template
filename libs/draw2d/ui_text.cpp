@@ -568,7 +568,7 @@ void Ui::readout(Params &params, Param &p, const char *label, const char *format
         numberDrag = 0, held = {};
         params.end(p);
     }
-    if (a.wheel != 0 && !a.held)
+    if (a.wheel != 0 && !a.held && (!wheelNeedsFocus || focus == me))
     {
         if (items) // an item a notch; a trackpad's small turns add up to one
         {
@@ -601,7 +601,8 @@ void Ui::readout(Params &params, Param &p, const char *label, const char *format
     // held), a faint wash under the pointer, an accent outline when focus shows.
     const bool hot = Clay_PointerOver(rid), fixed = widthPoints > 0;
     const Color wash{theme.text.r, theme.text.g, theme.text.b, hot || a.held ? 0.12f : 0};
-    CLAY({.id = rid, .layout = {.sizing = {fixed ? CLAY_SIZING_FIXED(widthPoints) : CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0)},
+    // At least 24 points tall: WCAG 2.5.8's least target.
+    CLAY({.id = rid, .layout = {.sizing = {fixed ? CLAY_SIZING_FIXED(widthPoints) : CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(24)},
                                 .padding = {4, 4, 1, 1}, .childGap = uint16_t(theme.textSize / 2),
                                 .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
           .backgroundColor = clayColor(wash), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),

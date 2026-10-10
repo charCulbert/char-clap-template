@@ -57,7 +57,10 @@ in. A4 tuning also sets the piano strip's keys and the pitch names.
 The settings are in a drawer. The tab on the window's right edge (named
 **Settings** for screen readers, and in its tooltip) slides its panel out
 over the plot, which keeps its size, so the time axis and scrolling stay as
-they are. The panel is opaque, with one setting a row. The tab then rides on
+they are. The panel is opaque, with one setting a row, 24 points apart; at
+the default window size (720 by 480 points) every setting fits, and in a
+smaller window the panel scrolls. There the wheel scrolls the panel and turns
+a readout only while it's focused. The tab then rides on
 the panel's left edge and closes it again; so does Escape from anywhere in
 the panel, and focus goes back to the tab. Tab goes from the tab into the
 panel, which scrolls to show the setting focused. Drag the panel's left

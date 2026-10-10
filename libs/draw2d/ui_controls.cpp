@@ -75,7 +75,7 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
             if (grabRelative && lockPointer) lockPointer(true);
             held = {&params, &p, nullptr, grabRelative};
         }
-        else if (mouse.wheel != 0)
+        else if (mouse.wheel != 0 && (!wheelNeedsFocus || focus == me))
             set(params, p, fromUnit(p, unit + mouse.wheel * (fine ? 0.002 : 0.02), log)), wheelUsed = true;
     }
 

@@ -1379,6 +1379,14 @@ static void overlayDrawer()
     CHECK(after.width == plot.width && after.height == plot.height); // nothing under it moved
     CHECK(panel.x + panel.width == plot.x + plot.width && panel.width == 120 + 7 && panel.height == plot.height);
     CHECK(tab().x + 24 == panel.x && tab().width == 24); // riding on its inner edge
+    // A readout in it is 24 points tall (WCAG 2.5.8), and the wheel over it
+    // scrolls the panel rather than turning it, until it's focused.
+    const Clay_BoundingBox amount = box("Readout", int(a->id));
+    CHECK(amount.height == 24);
+    const double was = a->value;
+    ui.pointer({View::Pointer::wheel, amount.x + 4, amount.y + 4, 0, 1});
+    draw();
+    CHECK(a->value == was);
     ui.key(View::Key::tab, 0); // from the tab (focused by the click) into the panel: its edge's handle,
     draw();
     ui.key(View::Key::tab, 0); // then what's in it
@@ -1394,6 +1402,10 @@ static void overlayDrawer()
     draw(); // (the tab moves out with the panel the frame after)
     CHECK(open);
     for (int i = 0; i < 3; ++i) ui.key(View::Key::tab, 0), draw(); // the handle, the toggle, the readout
+    const Clay_BoundingBox focused = box("Readout", int(a->id));
+    ui.pointer({View::Pointer::wheel, focused.x + 4, focused.y + 4, 0, 1}); // focused: the wheel turns it
+    draw();
+    CHECK(a->value != was);
     a->value = 0.8;
     CHECK(ui.key(View::Key::escape, 0)); // from a readout too: it has no other use for Escape
     draw();

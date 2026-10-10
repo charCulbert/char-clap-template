@@ -120,7 +120,7 @@ struct MyPlugin
     float toneGain = 0, toneFrequency = 0; // audio thread only: 0..1 of toneLevel, and the pitch sounding
 
     gpu::Gui gui;
-    float guiWidth = 720, guiHeight = 420; // points, so the window keeps its size across scales
+    float guiWidth = 720, guiHeight = 480; // points, so the window keeps its size across scales; 480: tall enough for every FFT setting in the drawer
     bool uiReady = false; // the interface has said "ready" and not been closed since
 };
 

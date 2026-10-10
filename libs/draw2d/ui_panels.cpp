@@ -189,7 +189,11 @@ bool Ui::drawer(const char *title, bool &open, float &size, const std::function<
                                         .layoutDirection = CLAY_TOP_TO_BOTTOM},
                   .backgroundColor = clayColor(theme.background), .clip = {.vertical = true, .childOffset = Clay_GetScrollOffset()}})
             {
+                // The wheel scrolls it, and turns only a focused control (as a
+                // page's number fields): not a value changed by scrolling past it.
+                const bool wheelBefore = std::exchange(wheelNeedsFocus, true);
                 if (open) contents();
+                wheelNeedsFocus = wheelBefore;
             }
             if (options.resizable && !handleFirst) handleBox(hid, !across);
         }

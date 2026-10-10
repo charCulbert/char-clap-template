@@ -97,7 +97,8 @@ struct DrawerOptions
     // pointing the way it opens: centred on the edge of the box the drawer is
     // declared in while closed, and riding on the panel's inner edge while
     // open, the arrow turned to close it. The panel is opaque and fills that
-    // box along the edge; what's in it scrolls, and a control the keys
+    // box along the edge; what's in it scrolls (the wheel turns a knob or
+    // readout in it only while that's focused), and a control the keys
     // focus is scrolled into view. The title is the tab's name to screen readers and
     // its tooltip. Escape, with focus on the tab or in the panel, closes it
     // and focuses the tab (unless something in it uses it first: a text
@@ -455,6 +456,7 @@ private:
     // if it's in it and focus moved with the keys, is in view.
     void scrollToFocus(Clay_ElementId container);
     const void *scrolledTo = nullptr; // the control it last scrolled to
+    bool wheelNeedsFocus = false;     // in a scrolling panel: the wheel turns a control only while it's focused
     // Open overlay drawers, as the last frame had them: their box and their
     // tab; and the one an Escape is to close (see key).
     std::vector<std::pair<uint32_t, uint32_t>> overlays, overlaysNow;
