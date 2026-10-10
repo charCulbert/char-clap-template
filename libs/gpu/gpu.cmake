@@ -159,7 +159,7 @@ function(gpu_add_page target)
     target_compile_options(${target} PRIVATE ${port})
     # FORCE_FILESYSTEM: the JS FS API, where dropped files are written.
     target_link_options(${target} PRIVATE ${port} -sALLOW_MEMORY_GROWTH -sFORCE_FILESYSTEM
-        -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_gpuReceive,_gpuPaste,_gpuAccessAction,_gpuFiles)
+        -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_gpuReceive,_gpuPaste,_gpuAccessAction,_gpuFiles,_gpuPointerLeave)
     set_target_properties(${target} PROPERTIES OUTPUT_NAME gui SUFFIX ".js"
                                                RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/page")
     if(ARG_ASSETS)

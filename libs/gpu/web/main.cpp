@@ -10,6 +10,7 @@
 #include "../context.h"
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -24,6 +25,7 @@ gpu::Context context;
 std::unique_ptr<gpu::View> view;
 bool ready = false;
 bool dirty = true; // something changed since the last frame
+bool damaged = false; // a frame was recorded but not shown: draw it even if nothing changes
 
 EM_JS(void, postToPlugin, (const unsigned char *data, int size), {
     window.parent.postMessage(HEAPU8.slice(data, data + size).buffer, '*');
@@ -100,6 +102,13 @@ void jsonString(std::ostringstream &out, const std::string &text)
     out << '"';
 }
 
+// JSON has no NaN or infinity (JSON.parse would throw on the whole tree): 0 for those.
+void jsonNumber(std::ostringstream &out, double number)
+{
+    if (std::isfinite(number)) out << number;
+    else out << 0;
+}
+
 // The mirror: one element per node, keyed by id, changed only where the
 // tree differs; positions in CSS pixels, relative to the parent's.
 EM_JS(void, accessUpdate, (const char *json, float ratio), {
@@ -133,17 +142,22 @@ EM_JS(void, accessUpdate, (const char *json, float ratio), {
         e.id = 'access-' + id;
         e.style.cssText = 'position:absolute;outline:none;overflow:hidden;white-space:nowrap';
         // A screen reader's press arrives as a click (the mouse can't: pointer-events none).
+        // Taken by the innermost element that can: not also by those around it
+        // (an option's click would then click its combo box too).
         e.addEventListener('click', event => {
             const node = e.node;
             if (!node) return;
-            event.preventDefault();
             if (node.actions & 2) send(id, 2);
             else if (node.actions & (32 | 64)) send(id, node.expanded ? 64 : 32);
+            else return; // words in a button: the button's
+            event.preventDefault();
+            event.stopPropagation();
         });
         // A screen reader's context-menu command (a right-click on it): its own menu, not the browser's.
         e.addEventListener('contextmenu', event => {
             if (!e.node || !(e.node.actions & 128)) return;
             event.preventDefault();
+            event.stopPropagation();
             send(id, 128);
         });
         // A screen reader moving focus: the View's focus follows.
@@ -211,6 +225,7 @@ void mirrorAccessibility()
     if (!tree || tree->version == accessVersion) return;
     accessVersion = tree->version;
     std::ostringstream out;
+    out.precision(17); // a value as it is, not rounded to 6 digits
     out << "{\"focus\":\"" << tree->focus << "\",\"nodes\":[";
     for (size_t i = 0; i < tree->nodes.size(); ++i)
     {
@@ -221,12 +236,14 @@ void mirrorAccessibility()
         jsonString(out, n.value);
         out << ",\"description\":";
         jsonString(out, n.description);
-        out << ",\"numeric\":" << (n.numeric ? "true" : "false") << ",\"number\":" << n.number << ",\"min\":" << n.min
-            << ",\"max\":" << n.max << ",\"checked\":" << n.checked << ",\"selected\":" << (n.selected ? "true" : "false")
+        out << ",\"numeric\":" << (n.numeric ? "true" : "false");
+        for (auto [key, number] : {std::pair{"number", n.number}, {"min", n.min}, {"max", n.max}, {"x", double(n.x)},
+                                   {"y", double(n.y)}, {"w", double(n.width)}, {"h", double(n.height)}})
+            out << ",\"" << key << "\":", jsonNumber(out, number);
+        out << ",\"checked\":" << n.checked << ",\"selected\":" << (n.selected ? "true" : "false")
             << ",\"expanded\":" << (n.expanded ? "true" : "false") << ",\"live\":" << (n.live ? "true" : "false")
-            << ",\"orientation\":" << n.orientation << ",\"actions\":" << n.actions << ",\"x\":" << n.x << ",\"y\":" << n.y
-            << ",\"w\":" << n.width << ",\"h\":" << n.height << ",\"active\":\"" << (n.activeDescendant ? std::to_string(n.activeDescendant) : "")
-            << "\",\"children\":[";
+            << ",\"orientation\":" << n.orientation << ",\"actions\":" << n.actions
+            << ",\"active\":\"" << (n.activeDescendant ? std::to_string(n.activeDescendant) : "") << "\",\"children\":[";
         for (size_t c = 0; c < n.children.size(); ++c) out << (c ? "," : "") << '"' << n.children[c] << '"';
         out << "]}";
     }
@@ -246,8 +263,12 @@ bool frame(double, void *)
         dirty = true;
     }
     if (const bool dark = prefersDark(); dark != view->darkMode) view->darkMode = dark, dirty = true;
-    if (dirty || view->animating()) context.frame(*view, pixelRatio());
-    dirty = false;
+    if (dirty || damaged || view->animating())
+    {
+        const bool redraw = damaged;
+        dirty = damaged = false; // first: the view may ask for another frame while it records this one
+        if (!context.frame(*view, pixelRatio(), redraw)) damaged = true;
+    }
     mirrorAccessibility();
     return true; // keep the requestAnimationFrame loop going
 }
@@ -303,6 +324,8 @@ bool key(int, const EmscriptenKeyboardEvent *event, void *)
 bool mouse(int type, const EmscriptenMouseEvent *event, void *)
 {
     if (!ready) return false;
+    // Back and forward (3 and 4) aren't the view's, as natively.
+    if (type != EMSCRIPTEN_EVENT_MOUSEMOVE && event->button > 2) return false;
     const auto pointer = type == EMSCRIPTEN_EVENT_MOUSEDOWN ? gpu::View::Pointer::down
                        : type == EMSCRIPTEN_EVENT_MOUSEUP   ? gpu::View::Pointer::up
                                                             : gpu::View::Pointer::move;
@@ -348,6 +371,14 @@ std::string gpu::loadAsset(const char *path)
 extern "C" EMSCRIPTEN_KEEPALIVE int gpuPaste(const char *utf8)
 {
     return ready && view->text(utf8) && (dirty = true);
+}
+
+// The pointer left the page (the host's iframe): no hover or tooltip stays behind.
+extern "C" EMSCRIPTEN_KEEPALIVE void gpuPointerLeave()
+{
+    if (!ready || pointerLocked()) return;
+    view->pointer({gpu::View::Pointer::leave, pointerX, pointerY});
+    dirty = true;
 }
 
 // A screen reader's request, from the mirror: id as decimal text.
@@ -444,6 +475,8 @@ int main()
         // The view's context menus, not the browser's (a right-click, the Menu
         // key or Shift+F10 also make this event): the page is the plugin's.
         document.addEventListener('contextmenu', event => event.preventDefault());
+        // Out of the page, to nothing in it: out of the host's iframe.
+        document.addEventListener('mouseout', event => { if (!event.relatedTarget) _gpuPointerLeave(); });
         document.addEventListener('paste', event => {
             const text = event.clipboardData && event.clipboardData.getData('text/plain');
             if (!text) return;
