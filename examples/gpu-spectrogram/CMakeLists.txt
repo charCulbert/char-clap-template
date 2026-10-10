@@ -1,4 +1,4 @@
-# GPU Spectrogram: a spectrum analyzer drawn with our own WebGPU code (libs/draw2d).
+# GPU Spectrogram: a scrolling spectrogram made only of libs/draw2d's parts.
 #
 #   cmake -B build && cmake --build build     CLAP, VST3, AU (macOS), standalone
 #   WCLAP: see README.md for the one extra flag (the WASI SDK toolchain).
