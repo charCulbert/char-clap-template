@@ -397,8 +397,8 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
     const bool fine = mouse.modifiers & View::shift, edit = editing == nid.id;
     if (a.pressed || a.doubleClicked) focus = me, pressFocused = true;
     if (focus == me)
-        focusUses = stepKeys | keyBit(View::Key::enter) | keyBit(View::Key::escape) | keyBit(View::Key::backspace)
-                  | keyBit(View::Key::deleteForward),
+        focusUses = stepKeys | keyBit(View::Key::enter) | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward)
+                  | (numberDrag == nid.id ? keyBit(View::Key::escape) : 0), // Escape cancels a drag, and only that
         focusTakesDigits = true;
     auto endDrag = [&] {
         numberDrag = 0, held = {};
@@ -438,8 +438,8 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
         endDrag();
     }
     // Keys while it has focus: arrows step (Alt a large step), Page Up and
-    // Down step large, Home and End go to the ends, Escape, Delete or
-    // Backspace reset it, Enter or a typed number edits it.
+    // Down step large, Home and End go to the ends, Delete or Backspace
+    // reset it, Enter or a typed number edits it.
     if (focus == me && !edit && !typedToFocus.empty()) startEditing(nid.id, std::exchange(typedToFocus, {})), keysToEdit();
     else if (focus == me && !edit)
     {
@@ -458,7 +458,6 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
             case View::Key::enter: startEditing(nid.id, typed, true); break;
             case View::Key::escape:
                 if (numberDrag == nid.id) params.change(*p, numberStart), endDrag(); // cancel the drag
-                else set(params, *p, p->defaultValue);
                 break;
             case View::Key::backspace: case View::Key::deleteForward: set(params, *p, p->defaultValue); break;
             default: break;
@@ -533,7 +532,9 @@ void Ui::readout(Params &params, Param &p, const char *label, const char *format
     };
     const Area a = element(rid, eachPress); // a second press too: a double-click is told by mouse.doubleClicked
     if (a.pressed) focus = me, pressFocused = true;
-    if (focus == me) focusUses = stepKeys | keyBit(View::Key::escape) | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward);
+    if (focus == me) // Escape cancels a drag, and only that
+        focusUses = stepKeys | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward)
+                  | (numberDrag == rid.id ? keyBit(View::Key::escape) : 0);
     // A drag up (or right), past a few points' dead zone, raises it: the
     // whole range in 200 points, or an item every 16; Shift slows it.
     const bool fine = mouse.modifiers & View::shift;
@@ -591,7 +592,6 @@ void Ui::readout(Params &params, Param &p, const char *label, const char *format
             case View::Key::end: set(params, p, items ? p.min + count - 1 : p.max); break;
             case View::Key::escape:
                 if (numberDrag == rid.id) params.change(p, numberStart), numberDrag = 0, held = {}, params.end(p); // cancel the drag
-                else set(params, p, p.defaultValue);
                 break;
             case View::Key::backspace: case View::Key::deleteForward: set(params, p, p.defaultValue); break;
             default: break;

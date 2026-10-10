@@ -154,7 +154,7 @@ public:
         {
             const gpu::Color &b = ui.theme.background;
             CLAY({.id = corner, .layout = {.sizing = {CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0)}, .padding = {4, 4, 4, 4}},
-                  .backgroundColor = gpu::clayColor({b.r, b.g, b.b, 0.78f}), .cornerRadius = CLAY_CORNER_RADIUS(4),
+                  .backgroundColor = gpu::clayColor(b), .cornerRadius = CLAY_CORNER_RADIUS(4), // opaque: text over the plot keeps its contrast
                   .floating = {.offset = {-8 - panelWidth, 8}, .attachPoints = {CLAY_ATTACH_POINT_RIGHT_TOP, CLAY_ATTACH_POINT_RIGHT_TOP},
                                .attachTo = CLAY_ATTACH_TO_PARENT}})
             {
@@ -182,8 +182,8 @@ private:
 
     // The settings drawer, over the plot's right edge (see record), which keeps
     // whether it's open and its width in the plugin's state. In it the
-    // settings as readouts, as many to a row as its width has room for; the
-    // CQT's only while it's the transform. Each has a context menu to reset it.
+    // settings as readouts, one a row; the CQT's only while it's the
+    // transform. Each has a context menu to reset it.
     void settingsDrawer(float widthPoints)
     {
         bool open = p[drawer]->value >= 0.5;
@@ -228,23 +228,17 @@ private:
             {scrollRate, "Scroll", "%.0f px/s"}, {piano, "Piano", nullptr, false, onOff, 2}, {keyTone, "Key tone", nullptr, false, onOff, 2},
             {peakSnap, "Snap", nullptr, false, onOff, 2}, {cursor, "Cursor", nullptr, false, onOff, 2},
         };
-        const float room = widthPoints - 12; // inside the drawer's padding
-        const int perRow = std::max(1, int(room / 126)); // 126 points: "Window Blackman" and its padding
-        const float cell = std::floor(room / float(perRow));
+        const float cell = std::floor(widthPoints - 12); // one a row, its label left and value right, inside the drawer's padding
         auto group = [&](const char *title, const Readout *all, int count) {
             CLAY_TEXT(ui.layout.text(title), CLAY_TEXT_CONFIG({.textColor = gpu::clayColor(ui.theme.dim), .fontSize = 11}));
-            for (int first = 0; first < count; first += perRow)
-                CLAY({.layout = {.sizing = {CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0)}}})
-                {
-                    for (int i = first; i < std::min(first + perRow, count); ++i)
-                    {
-                        const Readout &r = all[i];
-                        gpu::Param *q = p[r.setting];
-                        if (r.items) ui.readout(params, q, r.label, r.items, r.count, cell);
-                        else ui.readout(params, q, r.label, r.format, r.log, cell);
-                        if (ui.contextMenu(menu, 1) == 0) params.begin(*q), params.change(*q, q->defaultValue), params.end(*q);
-                    }
-                }
+            for (int i = 0; i < count; ++i)
+            {
+                const Readout &r = all[i];
+                gpu::Param *q = p[r.setting];
+                if (r.items) ui.readout(params, q, r.label, r.items, r.count, cell);
+                else ui.readout(params, q, r.label, r.format, r.log, cell);
+                if (ui.contextMenu(menu, 1) == 0) params.begin(*q), params.change(*q, q->defaultValue), params.end(*q);
+            }
         };
         group("Analysis", analysis, int(std::size(analysis)));
         if (p[transform]->value >= 0.5) group("CQT", cqt, int(std::size(cqt)));

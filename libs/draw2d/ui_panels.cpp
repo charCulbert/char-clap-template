@@ -181,9 +181,13 @@ bool Ui::drawer(const char *title, bool &open, float &size, const std::function<
               .floating = {.zIndex = 9, .attachPoints = {edgePoint, edgePoint}, .attachTo = CLAY_ATTACH_TO_PARENT}})
         {
             if (options.resizable && handleFirst) handleBox(hid, !across);
-            CLAY({.layout = {.sizing = {across ? fixed : grow, across ? grow : fixed}, .padding = CLAY_PADDING_ALL(6), .childGap = 6,
-                             .layoutDirection = CLAY_TOP_TO_BOTTOM},
-                  .backgroundColor = clayColor(theme.background), .clip = {.vertical = true}})
+            // What's in it scrolls (the wheel over it, where no control takes
+            // the wheel), and a control focused from the keys is scrolled into view.
+            const Clay_ElementId bid = id("DrawerBody", xid.id);
+            scrollToFocus(bid);
+            CLAY({.id = bid, .layout = {.sizing = {across ? fixed : grow, across ? grow : fixed}, .padding = CLAY_PADDING_ALL(6), .childGap = 6,
+                                        .layoutDirection = CLAY_TOP_TO_BOTTOM},
+                  .backgroundColor = clayColor(theme.background), .clip = {.vertical = true, .childOffset = Clay_GetScrollOffset()}})
             {
                 if (open) contents();
             }
@@ -210,6 +214,29 @@ bool Ui::drawer(const char *title, bool &open, float &size, const std::function<
         if (open && options.resizable && !handleFirst) handleBox(hid, !across);
     }
     return open;
+}
+
+void Ui::scrollToFocus(Clay_ElementId container)
+{
+    // Only when the keys moved it (the pointer can see where it is), and once
+    // for each control focused, so the wheel can scroll it away again.
+    if (!focusVisible || !focus || focus == scrolledTo) return;
+    const Clay_ScrollContainerData scroll = Clay_GetScrollContainerData(container);
+    const Clay_ElementData data = Clay_GetElementData(container);
+    if (!scroll.found || !data.found) return;
+    const Clay_BoundingBox &b = data.boundingBox;
+    for (const Accessible &n : accessTree.nodes)
+    {
+        if (n.id != accessId(focus)) continue;
+        const float top = n.y / s, bottom = (n.y + n.height) / s, x = (n.x + n.width / 2) / s;
+        if (x < b.x || x >= b.x + b.width) return; // not in it
+        scrolledTo = focus;
+        float &y = scroll.scrollPosition->y; // 0 at the top, negative scrolled down
+        const float least = std::min(0.0f, scroll.scrollContainerDimensions.height - scroll.contentDimensions.height);
+        if (bottom > b.y + b.height) y = std::max(least, y - (bottom - (b.y + b.height)));
+        else if (top < b.y) y = std::min(0.0f, y + (b.y - top));
+        return;
+    }
 }
 
 bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<void()> &contents, WindowLimits limits, int index,

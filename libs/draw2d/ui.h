@@ -26,9 +26,10 @@
 // keyboard focus, and Tab moves it on; past the last control (Shift+Tab:
 // before the first) Tab is the host's, which moves on to what's next
 // outside the view. A focused knob or slider steps with the arrows (Shift
-// for fine), Page Up/Down and Home/End, and Escape, Delete or Backspace
-// reset it; Enter or a digit types a value, and Enter or Escape after
-// typing leaves it focused. Enter presses a button or toggle; the arrows
+// for fine), Page Up/Down and Home/End, and Delete or Backspace reset it;
+// Escape is left to close menus and drawers. Enter or a digit types a
+// value, and Enter or Escape after typing (Escape abandoning it) leaves it
+// focused. Enter presses a button or toggle; the arrows
 // move a segmented control (wrapping); Enter opens and closes a dropdown
 // and the arrows choose in it. A control given a contextMenu opens it on a
 // secondary click, the Menu key or Shift+F10.
@@ -96,9 +97,11 @@ struct DrawerOptions
     // pointing the way it opens: centred on the edge of the box the drawer is
     // declared in while closed, and riding on the panel's inner edge while
     // open, the arrow turned to close it. The panel is opaque and fills that
-    // box along the edge. The title is the tab's name to screen readers and
-    // its tooltip. Escape, with focus on the tab or in the panel (and not
-    // used by the focused control), closes it and focuses the tab.
+    // box along the edge; what's in it scrolls, and a control the keys
+    // focus is scrolled into view. The title is the tab's name to screen readers and
+    // its tooltip. Escape, with focus on the tab or in the panel, closes it
+    // and focuses the tab (unless something in it uses it first: a text
+    // edit, a value being typed, an open menu, a drag).
     bool overlay = false;
 };
 
@@ -227,7 +230,8 @@ public:
     int contextMenu(Clay_ElementId element, const char *const *items, int count);
     // Drag up or right to raise it, Shift for fine; double-click for the
     // default. Focused, the arrows step it (Shift fine, Alt large), as a
-    // knob's, and Enter or a digit types a value.
+    // knob's, Delete or Backspace reset it, and Enter or a digit types a
+    // value. Escape cancels a drag.
     void numberBox(Params &params, Param *p, const char *format, bool log = false, float widthPoints = 64);
     // A parameter as a line of text, its label then its value, for laying
     // over a plot (char-spectrum's readouts): drag up or down (Shift for
@@ -236,7 +240,8 @@ public:
     // click steps to the next, wrapping. To screen readers a spin button
     // named for its parameter; focused, the arrows step it (an item at a
     // time), Page Up and Down step further, Home and End go to the ends,
-    // and Escape, Delete or Backspace reset it. widthPoints 0: as wide as
+    // and Delete or Backspace reset it (Escape only cancels a drag).
+    // widthPoints 0: as wide as
     // its text; else the value is right-aligned in that width.
     void readout(Params &params, Param *p, const char *label, const char *format, bool log = false, float widthPoints = 0);
     void readout(Params &params, Param *p, const char *label, const char *const *items, int count, float widthPoints = 0);
@@ -446,6 +451,10 @@ private:
     // lying along a top or bottom edge, floating where it's told.
     bool drawerHeader(const char *title, bool &open, int index, int arrow = 0, bool tall = true,
                       Clay_FloatingElementConfig floating = {});
+    // Scrolls a scroll container (declared next) so the focused control,
+    // if it's in it and focus moved with the keys, is in view.
+    void scrollToFocus(Clay_ElementId container);
+    const void *scrolledTo = nullptr; // the control it last scrolled to
     // Open overlay drawers, as the last frame had them: their box and their
     // tab; and the one an Escape is to close (see key).
     std::vector<std::pair<uint32_t, uint32_t>> overlays, overlaysNow;

@@ -57,20 +57,20 @@ in. A4 tuning also sets the piano strip's keys and the pitch names.
 The settings are in a drawer. The tab on the window's right edge (named
 **Settings** for screen readers, and in its tooltip) slides its panel out
 over the plot, which keeps its size, so the time axis and scrolling stay as
-they are. The tab then rides on the panel's left edge and closes it again;
-so does Escape, with focus in the panel, unless the focused readout uses
-Escape to reset itself. Focus then goes back to the tab, and Tab goes from
-the tab into the panel. Drag the panel's left edge (or focus the edge and
-use the arrows) to make it wider; the readouts fill as many columns as fit.
-Whether it is open and its width are saved with the plugin's state. Pause
-moves left of the open panel, so it stays in view.
+they are. The panel is opaque, with one setting a row. The tab then rides on
+the panel's left edge and closes it again; so does Escape from anywhere in
+the panel, and focus goes back to the tab. Tab goes from the tab into the
+panel, which scrolls to show the setting focused. Drag the panel's left
+edge (or focus the edge and use the arrows) to resize it, from 240 to 480
+points. Whether it is open and its width are saved with the plugin's state.
+Pause moves left of the open panel, so it stays in view.
 
 Drag a readout up or down (Shift for fine) or scroll over it to change it;
-double-click it, or choose Reset to Default from its context menu, to reset
-it; click one with a list of values (FFT size, Window, Channel, Scale,
-Palette, the switches) to step to the next. With a readout focused, the arrows, Page Up and Down, Home
-and End step it, and Delete resets it; screen readers see each as a spin
-button.
+Escape during the drag puts it back. Double-click it, press Delete or
+Backspace, or choose Reset to Default from its context menu, to reset it;
+click one with a list of values (FFT size, Window, Channel, Scale, Palette,
+the switches) to step to the next. With a readout focused, the arrows, Page
+Up and Down, Home and End step it. Screen readers see each as a spin button.
 
 Hovering over the spectrogram shows the frequency, the nearest pitch in cents
 and the level under the pointer. Peak snap follows the nearest peak in that

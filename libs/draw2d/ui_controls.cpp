@@ -53,11 +53,11 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
     const bool fine = mouse.modifiers & View::shift;
     const double unit = toUnit(p, p.value, log);
 
-    // Knobs and sliders step, and Escape, Delete or Backspace reset them (as
-    // double-click does), as compost's do; one with a value to type also
-    // takes Enter and digits (typeInto).
+    // Knobs and sliders step, and Delete or Backspace reset them (as
+    // double-click does); Escape is left to close what they're in (a menu,
+    // a drawer). One with a value to type also takes Enter and digits (typeInto).
     if (focus == me)
-        focusUses = stepKeys | keyBit(View::Key::escape) | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward)
+        focusUses = stepKeys | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward)
                   | (typable ? keyBit(View::Key::enter) : 0),
         focusTakesDigits = typable;
     if (!active && over(x, y, w, h))
@@ -92,7 +92,7 @@ bool Ui::control(Params &params, Param &p, const void *me, float x, float y, flo
             case View::Key::pageDown: set(params, p, fromUnit(p, u - 0.1, log)); break;
             case View::Key::home: set(params, p, p.min); break;
             case View::Key::end: set(params, p, p.max); break;
-            case View::Key::escape: case View::Key::backspace: case View::Key::deleteForward: set(params, p, p.defaultValue); break;
+            case View::Key::backspace: case View::Key::deleteForward: set(params, p, p.defaultValue); break;
             default: break; // Tab: in end()
             }
         }
@@ -752,10 +752,10 @@ void Ui::xyPad(Params &params, Param *px, Param *py, Rect r)
     if (a.doubleClicked) set(params, *px, px->defaultValue), set(params, *py, py->defaultValue);
     if (a.pressed) params.begin(*px), params.begin(*py), held = {&params, px, py, false};
     // Keys, as two sliders': left and right move x, up and down y; Shift
-    // fine, Alt a page's step; Escape, Delete or Backspace reset both.
+    // fine, Alt a page's step; Delete or Backspace reset both.
     if (focus == me)
     {
-        focusUses = stepKeys | keyBit(View::Key::escape) | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward);
+        focusUses = stepKeys | keyBit(View::Key::backspace) | keyBit(View::Key::deleteForward);
         focusTakesDigits = false;
         for (auto [key, modifiers] : keys)
         {
@@ -767,7 +767,7 @@ void Ui::xyPad(Params &params, Param *px, Param *py, Rect r)
             case View::Key::right: nudge(*px, step); break;
             case View::Key::up: nudge(*py, step); break;
             case View::Key::down: nudge(*py, -step); break;
-            case View::Key::escape: case View::Key::backspace: case View::Key::deleteForward:
+            case View::Key::backspace: case View::Key::deleteForward:
                 set(params, *px, px->defaultValue), set(params, *py, py->defaultValue);
                 break;
             default: break;

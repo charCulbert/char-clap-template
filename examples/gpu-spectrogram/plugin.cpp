@@ -90,7 +90,7 @@ static const Setting settings[S_COUNT] = {
     {"CQT update rate", 0, 2, 1},
     {"Key tone", 0, 1, 1},
     {"Settings drawer", 0, 1, 0},
-    {"Settings drawer width", 140, 900, 280},
+    {"Settings drawer width", 240, 480, 300},
 };
 
 // The key tone: a sine at -18 dBFS, faded in and out over two of its cycles
@@ -166,12 +166,14 @@ static const clap_plugin_audio_ports_t extensionAudioPorts = {
 };
 
 // The state is the settings as a CBOR map (core/messages.h) with a version, so
-// later versions can add settings and still read this one.
+// later versions can add settings and still read this one. Version 2: the
+// settings drawer opens over the plot with a column of settings, so a
+// version 1 width (a drawer beside the plot) starts again at the default.
 static const clap_plugin_state_t extensionState = {
     .save = [](const clap_plugin_t *_plugin, const clap_ostream_t *stream) -> bool
     {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-        core::Value::Map state{{"version", 1}};
+        core::Value::Map state{{"version", 2}};
         for (uint32_t i = 0; i < S_COUNT; i++)
             state[settings[i].name] = plugin->settingValues[i];
         const auto bytes = core::encode(state);
@@ -200,13 +202,16 @@ static const clap_plugin_state_t extensionState = {
                 return false;
         }
         auto state = core::decode(bytes.data(), bytes.size());
-        if (!state || (*state)["version"].number() < 1)
+        const double version = state ? (*state)["version"].number() : 0;
+        if (version < 1)
             return false;
         for (uint32_t i = 0; i < S_COUNT; i++)
         {
             const double value = (*state)[settings[i].name].number(settings[i].defaultValue);
             plugin->settingValues[i] = value < settings[i].min ? settings[i].min : value > settings[i].max ? settings[i].max : value;
         }
+        if (version < 2)
+            plugin->settingValues[S_DRAWER_WIDTH] = settings[S_DRAWER_WIDTH].defaultValue;
         PluginSendValues(plugin);
         PluginSetTone(plugin);
         return true;

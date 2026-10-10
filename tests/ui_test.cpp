@@ -1340,6 +1340,9 @@ static void dockedDrawers()
 static void overlayDrawer()
 {
     Ui ui;
+    gpu::Params params;
+    setUpParams(params);
+    gpu::Param *a = params.find("A");
     bool open = false, inside = false, declared = false;
     float width = 120;
     auto draw = [&] {
@@ -1347,7 +1350,11 @@ static void overlayDrawer()
         frame(ui, [&] {
             CLAY({.id = CLAY_ID("Plot"), .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
             {
-                ui.drawer("Settings", open, width, [&] { declared = true, ui.toggle("Inside", inside); },
+                ui.drawer("Settings", open, width, [&] {
+                    declared = true;
+                    ui.toggle("Inside", inside);
+                    ui.readout(params, a, "Amount", "%.2f");
+                },
                           {.edge = gpu::DrawerOptions::Edge::right, .min = 80, .max = 200, .overlay = true});
             }
         });
@@ -1385,6 +1392,15 @@ static void overlayDrawer()
     ui.key(View::Key::enter, 0); // focus went back to the tab, which opens it again
     draw();
     draw(); // (the tab moves out with the panel the frame after)
+    CHECK(open);
+    for (int i = 0; i < 3; ++i) ui.key(View::Key::tab, 0), draw(); // the handle, the toggle, the readout
+    a->value = 0.8;
+    CHECK(ui.key(View::Key::escape, 0)); // from a readout too: it has no other use for Escape
+    draw();
+    CHECK(!open && a->value == 0.8);
+    ui.key(View::Key::enter, 0);
+    draw();
+    draw();
     CHECK(open);
     clickAt(ui, tab(), draw); // the same tab closes it
     CHECK(!open);
@@ -2079,9 +2095,11 @@ static void keysBackToHost()
     pointer(ui, View::Pointer::up, 50, 50);
     draw();
     // A focused knob takes its keys, as compost's does: the arrows step,
-    // Escape, Delete and Backspace reset it, Enter opens its value to type;
-    // a key it doesn't use goes back to the host.
-    CHECK(ui.key(View::Key::up, 0) && ui.key(View::Key::escape, 0) && !ui.key(View::Key::undo, 0));
+    // Delete and Backspace reset it, Enter opens its value to type; a key it
+    // doesn't use goes back to the host, Escape among them (it's for closing
+    // what the knob is in).
+    CHECK(ui.key(View::Key::up, 0) && !ui.key(View::Key::escape, 0) && ui.key(View::Key::deleteForward, 0)
+          && !ui.key(View::Key::undo, 0));
     draw();
     CHECK(a->value == a->defaultValue);
     ui.key(View::Key::up, View::alt); // a page's step
@@ -2177,7 +2195,7 @@ static void numberBoxLikeCompost()
     CHECK(ui.key(View::Key::up, 0)); // still focused after the edit
     draw();
     CHECK(std::abs(a->value - 0.21) < 1e-9);
-    CHECK(ui.key(View::Key::escape, 0)); // resets
+    CHECK(!ui.key(View::Key::escape, 0) && ui.key(View::Key::deleteForward, 0)); // Delete resets, not Escape
     draw();
     CHECK(std::abs(a->value - 0.5) < 1e-9);
     CHECK(ui.key(View::Key::up, View::shift)); // Shift: a fine step, as a knob's
@@ -2231,6 +2249,21 @@ static void readouts()
     CHECK(ui.key(View::Key::up, 0)); // focused by the click: the arrows step it
     draw();
     CHECK(std::abs(a->value - 0.51) < 1e-9);
+    // Delete resets it; Escape isn't its (it closes what it's in) but in a
+    // drag, where it cancels the drag.
+    CHECK(!ui.key(View::Key::escape, 0) && ui.key(View::Key::deleteForward, 0));
+    draw();
+    CHECK(std::abs(a->value - 0.5) < 1e-9);
+    pointer(ui, View::Pointer::down, x, y);
+    draw();
+    pointer(ui, View::Pointer::move, x, y - 40);
+    draw();
+    CHECK(std::abs(a->value - 0.7) < 1e-6 && ui.key(View::Key::escape, 0));
+    draw();
+    CHECK(std::abs(a->value - 0.5) < 1e-9);
+    pointer(ui, View::Pointer::up, x, y - 40);
+    draw();
+    CHECK(std::abs(a->value - 0.5) < 1e-9);
     // B's default 0.5 is item 1, "On": a click steps (wrapping) to "Off", the wheel back.
     clickAt(ui, rb, draw);
     CHECK(b->value == 0);
@@ -2543,8 +2576,8 @@ static void contextMenus()
     draw();
     CHECK(chosen.size() == 3 && chosen[2] == 0);
 
-    // Escape closes it and focus goes back to the knob, which Escape would
-    // otherwise reset; Tab closes it too, not moving on.
+    // Escape closes it and focus goes back to the knob, leaving its value;
+    // Tab closes it too, not moving on.
     ui.key(View::Key::contextMenu, 0);
     draw();
     CHECK(ui.key(View::Key::escape, 0));
