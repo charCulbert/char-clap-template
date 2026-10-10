@@ -15,6 +15,8 @@
 // (it grows to fill its box) or at a rectangle, as Ui's controls do, and
 // tells screen readers what it shows. Built on Ui's public surface only
 // (draw, theme, paint, accessible): a view of your own is made the same way.
+// Laid out, a view draws when the frame ends: what it's given (samples,
+// peaks, the name) must last until Ui::end, as the box it paints does.
 namespace gpu {
 
 // A waveform overview: one envelope per channel (left above right), each a
@@ -37,7 +39,8 @@ inline void waveform(Ui &ui, const char *name, const std::vector<std::vector<Pea
         const std::vector<Peak> &peaks = channels[c];
         if (peaks.empty()) continue;
         const float middle = r.y + (float(c) + 0.5f) * lane;
-        const double first = view.start * peaks.size(), length = (view.end - view.start) * peaks.size();
+        const double start = std::clamp(double(view.start), 0.0, 1.0), end = std::clamp(double(view.end), start, 1.0);
+        const double first = start * peaks.size(), length = (end - start) * peaks.size();
         std::vector<float> top(static_cast<size_t>(columns)), bottom(static_cast<size_t>(columns));
         for (int x = 0; x < columns; ++x) // each pixel column: the extremes of the buckets under it
         {
@@ -308,7 +311,10 @@ private:
     void push(const float *values)
     {
         std::copy_n(values, bins.size(), &history[size_t(head) * bins.size()]);
-        changed.push_back(head);
+        // Not drawn for a while (hidden): past a full turn, upload all of it
+        // once rather than keep a list that grows without end.
+        if (int(changed.size()) < options.columns) changed.push_back(head);
+        else redraw = true, changed.clear();
         head = (head + 1) % options.columns;
         ++added;
         arrivals.push_back(std::chrono::steady_clock::now());
