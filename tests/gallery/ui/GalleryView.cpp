@@ -298,16 +298,34 @@ private:
         });
     }
 
+    // A parameter's context menu, for the knob or slider declared just before.
+    void parameterMenu(gpu::Param *p, const char *format)
+    {
+        static const char *const items[] = {"Reset to default", "Copy value"};
+        const int chosen = ui.contextMenu(items, 2);
+        if (!p || chosen < 0) return;
+        if (chosen == 0)
+        {
+            params.begin(*p);
+            params.change(*p, p->defaultValue);
+            params.end(*p);
+        }
+        char value[32];
+        std::snprintf(value, sizeof(value), format, p->value);
+        if (chosen == 1 && copyText) copyText(value);
+    }
+
     void controlsPage()
     {
         static const char *const names[] = {"Gain", "Mix", "Cutoff", "Drive"};
         static const char *const formats[] = {"%.1f dB", "%.0f %%", "%.0f Hz", "%.1f"};
         row([&] {
-            cell("Knobs: drag, Shift fine, wheel, double-click resets, Tab + arrows", [&] {
+            cell("Knobs: drag, Shift fine, wheel, double-click resets, Tab + arrows, right-click or Menu key", [&] {
                 for (int i = 0; i < 4; ++i)
                 {
                     ui.knob(params, params.find(names[i]), formats[i], i == 2);
                     ui.tooltip(names[i]);
+                    parameterMenu(params.find(names[i]), formats[i]);
                 }
             });
         });
@@ -316,7 +334,11 @@ private:
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 6,
                                  .layoutDirection = CLAY_TOP_TO_BOTTOM}})
                 {
-                    for (int i = 0; i < 4; ++i) ui.slider(params, params.find(names[i]), formats[i], i == 2);
+                    for (int i = 0; i < 4; ++i)
+                    {
+                        ui.slider(params, params.find(names[i]), formats[i], i == 2);
+                        parameterMenu(params.find(names[i]), formats[i]);
+                    }
                 }
             });
         });
