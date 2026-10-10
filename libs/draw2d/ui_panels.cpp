@@ -39,10 +39,12 @@ bool Ui::handle(Clay_ElementId hid, const char *name, float &size, float min, fl
     if (a.held) size = clamp(sign * (along - origin) - splitGrab);
     if (a.doubleClicked) size = clamp(min); // as Enter: collapse
     const void *me = reinterpret_cast<const void *>(uintptr_t(hid.id));
-    for (View::Key key : focusable(hid, a))
+    focusable(hid, a);
+    for (auto [key, modifiers] : keys)
     {
+        if (focus != me) break;
         // The arrows move the handle on screen: its area grows or shrinks as it does.
-        const float step = mouse.modifiers & View::shift ? 1.0f : 16.0f;
+        const float step = modifiers & View::shift ? 1.0f : 16.0f;
         const bool back = vertical ? key == View::Key::up : key == View::Key::left;
         const bool forth = vertical ? key == View::Key::down : key == View::Key::right;
         if (back || forth) size = clamp(size + (forth ? step : -step) * float(sign));

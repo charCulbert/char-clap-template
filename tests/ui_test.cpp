@@ -162,6 +162,12 @@ static void keyboardFocus()
     ui.key(View::Key::right, 0);
     draw();
     CHECK(selected == 2);
+    ui.key(View::Key::right, 0); // wraps, as APG's radio group
+    draw();
+    CHECK(selected == 0);
+    ui.key(View::Key::left, 0);
+    draw();
+    CHECK(selected == 2);
     ui.key(View::Key::tab, 0);
     draw();
     // The dropdown, as HTML's select: Down opens it on the choice, Down
@@ -560,6 +566,9 @@ static void splitPanes()
     ui.key(View::Key::enter, 0); // restore
     draw();
     CHECK(std::abs(size - (380 - 7 - 60 - 16)) < 0.5f);
+    ui.key(View::Key::left, View::shift); // Shift: a point (the key's own Shift, not the pointer's)
+    draw();
+    CHECK(std::abs(size - (380 - 7 - 60 - 17)) < 0.5f);
     const gpu::Accessible *splitter = nullptr;
     for (const gpu::Accessible &n : ui.accessibility()->nodes)
         if (n.role == gpu::Accessible::Role::splitter) splitter = &n;
@@ -1277,7 +1286,28 @@ static void knobDragAndKeys()
     ui.key(View::Key::backspace, 0);
     ui.key(View::Key::backspace, 0);
     ui.text("0.25");
+    CHECK(ui.textCaret().y >= 100 && ui.textCaret().y < 140 && ui.textCaret().height > 0); // its caret, under the dial
     ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(std::abs(a->value - 0.25) < 1e-9);
+    CHECK(ui.key(View::Key::up, 0)); // the knob has the keys again
+    draw();
+    CHECK(std::abs(a->value - 0.26) < 1e-9);
+    ui.text("0.4"); // digits and Enter before a frame: the digits are set
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(std::abs(a->value - 0.4) < 1e-9 && !ui.editingText());
+    a->value = 0.26;
+    // The slider's value too; Escape abandons the typing, and only that.
+    pointer(ui, View::Pointer::down, 290, 205);
+    draw();
+    pointer(ui, View::Pointer::up, 290, 205);
+    draw();
+    CHECK(ui.editingText());
+    ui.text("0.9");
+    ui.key(View::Key::escape, 0);
+    draw();
+    CHECK(!ui.editingText() && std::abs(a->value - 0.26) < 1e-9 && ui.key(View::Key::down, 0));
     draw();
     CHECK(std::abs(a->value - 0.25) < 1e-9);
     // Where the host set a decimal-comma locale, both separators still read
@@ -1286,6 +1316,9 @@ static void knobDragAndKeys()
     {
         for (const char *typed : {"0,5", "0.75"})
         {
+            pointer(ui, View::Pointer::down, 380, 280); // somewhere else first: the next click isn't a double-click
+            pointer(ui, View::Pointer::up, 380, 280);
+            draw();
             pointer(ui, View::Pointer::down, 50, 110);
             draw();
             pointer(ui, View::Pointer::up, 50, 110);
@@ -1293,8 +1326,8 @@ static void knobDragAndKeys()
             ui.text(typed);
             ui.key(View::Key::enter, 0);
             draw();
+            CHECK(std::abs(a->value - (typed[2] == '5' ? 0.5 : 0.75)) < 1e-9);
         }
-        CHECK(std::abs(a->value - 0.75) < 1e-9);
         std::setlocale(LC_NUMERIC, "C");
     }
 }
@@ -1330,6 +1363,20 @@ static void textFieldEdits()
     ui.key(View::Key::escape, 0);
     draw();
     CHECK(value == "xy" && commits == 1);
+    // Enter or Escape leaves it focused, as a page's field: Enter edits it
+    // again, typing goes on at its end, Tab moves on from it.
+    CHECK(!ui.editingText() && ui.key(View::Key::enter, 0));
+    draw();
+    CHECK(ui.editingText());
+    ui.text("w"); // over the selection: all of it
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(value == "w" && commits == 2 && !ui.editingText());
+    CHECK(ui.text("v"));
+    draw();
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(value == "wv" && commits == 3);
 }
 
 static void pianoNotes()
@@ -1750,6 +1797,52 @@ static void textFieldShortcuts()
 
 // A focused control takes only the keys it uses; the rest, and every key
 // after a click on empty space, are the host's.
+// Tab past the last control (Shift+Tab before the first) leaves the view:
+// the host gets it, to move on to its next control, so the keyboard can't
+// be trapped in here (WCAG 2.1.2). The next Tab comes in at the first.
+static void tabLeavesTheView()
+{
+    Ui ui;
+    std::string name = "One";
+    int clicks = 0;
+    bool on = false;
+    auto draw = [&] {
+        frame(ui, [&] {
+            if (ui.button("Go")) ++clicks;
+            ui.toggle("Sync", on);
+            ui.textField(name);
+        });
+    };
+    draw();
+    CHECK(ui.key(View::Key::tab, 0)); // in, at the first
+    draw();
+    draw(); // (the frame after a key, which the presenter draws: the newly focused control says which keys it takes)
+    CHECK(ui.key(View::Key::enter, 0));
+    draw();
+    CHECK(clicks == 1);
+    CHECK(!ui.key(View::Key::tab, View::shift)); // before the first: out
+    draw();
+    CHECK(!ui.key(View::Key::enter, 0)); // nothing has focus
+    CHECK(ui.key(View::Key::tab, View::shift)); // back in, at the last: the field
+    draw();
+    draw();
+    CHECK(ui.editingText());
+    ui.text("Two");
+    CHECK(!ui.key(View::Key::tab, 0)); // past the last: out, keeping the edit
+    draw();
+    draw();
+    CHECK(!ui.editingText() && name == "Two" && !ui.key(View::Key::enter, 0));
+    CHECK(ui.key(View::Key::tab, 0) && ui.key(View::Key::tab, 0)); // in again, and on to the toggle
+    draw();
+    draw();
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(on && clicks == 1);
+    Ui empty; // nothing to focus: Tab is the host's at once
+    frame(empty, [] {});
+    CHECK(!empty.key(View::Key::tab, 0));
+}
+
 static void keysBackToHost()
 {
     Ui ui;
@@ -1870,6 +1963,20 @@ static void numberBoxLikeCompost()
     CHECK(ui.key(View::Key::escape, 0)); // resets
     draw();
     CHECK(std::abs(a->value - 0.5) < 1e-9);
+    CHECK(ui.key(View::Key::up, View::shift)); // Shift: a fine step, as a knob's
+    draw();
+    CHECK(std::abs(a->value - 0.501) < 1e-9);
+    // Being edited, its caret is where an input method's window goes.
+    ui.key(View::Key::enter, 0);
+    draw();
+    const View::Caret caret = ui.textCaret();
+    CHECK(ui.editingText() && caret.x > b.x && caret.x < b.x + b.width && caret.y == b.y && caret.height == b.height);
+    ui.key(View::Key::escape, 0);
+    draw();
+    CHECK(ui.text("0.3")); // digits and Enter before a frame: the digits are set
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(std::abs(a->value - 0.3) < 1e-9 && !ui.editingText());
 }
 
 // Readouts, as char-spectrum's: a number drags (the range in 200 points) and
@@ -2297,6 +2404,7 @@ int main()
     dragOfVanishedControl();
     longUndoHistory();
     keysBackToHost();
+    tabLeavesTheView();
     flickAfterPress();
     noHoverWhileDragging();
     numberBoxLikeCompost();

@@ -122,6 +122,9 @@ bool Ui::editKeys(uint32_t field, std::string &value, bool overField, float text
         draft = toUtf8(b.text);
         if (keep && draft != value) value = draft, committed = true;
         editing = 0;
+        // This frame's keys were the field's (Enter or Escape among them): not
+        // also its control's, which may have focus again. Tab still moves on.
+        std::erase_if(keys, [](auto k) { return k.first != View::Key::tab; });
     };
     auto selected = [&] {
         const int from = std::min(t.state.select_start, t.state.select_end), to = std::max(t.state.select_start, t.state.select_end);
@@ -189,6 +192,15 @@ bool Ui::editKeys(uint32_t field, std::string &value, bool overField, float text
     return committed;
 }
 
+// Typing that started an edit: the keys that came with it are the edit's
+// (Enter commits it), not the control's that has just let them go.
+void Ui::keysToEdit()
+{
+    for (auto [key, modifiers] : keys)
+        if (key != View::Key::tab) edits.push_back({{}, key, modifiers});
+    std::erase_if(keys, [](auto k) { return k.first != View::Key::tab; });
+}
+
 void Ui::startEditing(uint32_t field, std::string text, bool selectAll)
 {
     if (editing && editing != field) pendingField = editing, pendingDraft = draft; // see textField
@@ -239,21 +251,25 @@ void Ui::typeInto(const void *me, const void *entry, const Param &p)
     if (focus != me) return;
     const uint32_t field = uint32_t(reinterpret_cast<uintptr_t>(entry)) | 1u;
     if (editing == field) return;
-    if (!typedToFocus.empty()) startEditing(field, std::exchange(typedToFocus, {}));
+    if (!typedToFocus.empty()) return startEditing(field, std::exchange(typedToFocus, {})), keysToEdit();
     const auto enter = std::find_if(keys.begin(), keys.end(), [](auto k) { return k.first == View::Key::enter; });
     if (enter != keys.end()) keys.erase(enter), startEditing(field, plainNumber(p.value), true); // not also its commit
 }
 
-bool Ui::valueEntry(Params &params, Param &p, const void *id, Rect r, Draw2D::Align align)
+bool Ui::valueEntry(Params &params, Param &p, const void *control, const void *id, Rect r, Draw2D::Align align)
 {
     const uint32_t field = uint32_t(reinterpret_cast<uintptr_t>(id)) | 1u;
     const bool isOver = over(r.x, r.y, r.w, r.h);
     if (press(id, isOver, doubleClicks).pressed && editing != field) startEditing(field, plainNumber(p.value), true);
     std::string typed = plainNumber(p.value);
+    const bool wasEditing = editing == field;
     if (editKeys(field, typed, isOver))
     {
         if (double value; parseNumber(typed, value)) set(params, p, value);
     }
+    // Typing ended with Enter or Escape: the keys are the control's again
+    // (a click elsewhere takes them away as usual).
+    if (wasEditing && editing != field && !mouse.pressed) focus = control;
     if (editing != field) return false;
     const float size = theme.textSize * s, width = draw.measure(size, draft, theme.valueFont);
     const float x = align == Draw2D::Align::center ? r.x + (r.w - width) / 2 : align == Draw2D::Align::right ? r.x + r.w - width : r.x;
@@ -268,6 +284,7 @@ bool Ui::valueEntry(Params &params, Param &p, const void *id, Rect r, Draw2D::Al
     draw.text(x, r.y + r.h / 2 + 0.35f * size, size, draft, theme.text, Draw2D::Align::left, theme.valueFont);
     const float caretX = x + draw.measure(size, std::string_view(draft).substr(0, caret), theme.valueFont);
     draw.rect(caretX, r.y + 2 * s, 1 * s, r.h - 4 * s, 0, theme.accent);
+    caretAt = {caretX, r.y, r.h}; // for an input method's window
     return true;
 }
 
@@ -317,10 +334,25 @@ bool Ui::textField(std::string &value, float widthPoints, int index)
     }
     const void *me = reinterpret_cast<const void *>(uintptr_t(fid.id));
     order.push_back(me); // Tab reaches it, and starts editing it
+    // After an edit ends with Enter or Escape it keeps focus without editing,
+    // as a page's field keeps it: Enter edits it again, and typing goes on at
+    // its end.
+    if (focus != me && restingField == fid.id) restingField = 0;
+    const bool resting = focus == me && restingField == fid.id;
     if ((a.pressed || a.doubleClicked) && editing != fid.id) startEditing(fid.id, value);
-    else if (focus == me && editing != fid.id) startEditing(fid.id, value, true);
+    else if (focus == me && editing != fid.id && !resting) startEditing(fid.id, value, true);
+    else if (resting && editing != fid.id)
+    {
+        focusUses = keyBit(View::Key::enter), focusTakesDigits = false, focusTakesLetters = true;
+        const bool enter = std::any_of(keys.begin(), keys.end(), [](auto k) { return k.first == View::Key::enter; });
+        if (!typedToFocus.empty()) startEditing(fid.id, value), edits.push_back({std::exchange(typedToFocus, {}), {}, 0}), keysToEdit();
+        else if (enter) startEditing(fid.id, value, true);
+    }
+    const bool wasEditing = editing == fid.id;
     const Clay_BoundingBox box = Clay_GetElementData(fid).boundingBox; // last frame's
     committed |= editKeys(fid.id, value, Clay_PointerOver(fid), box.x + 5 - fieldScroll);
+    if (wasEditing && editing != fid.id && !mouse.pressed)
+        focus = me, restingField = fid.id, focusUses = keyBit(View::Key::enter), focusTakesDigits = false, focusTakesLetters = true;
     const bool edit = editing == fid.id, hot = Clay_PointerOver(fid);
     if (hot && !active) cursor = View::Cursor::text;
     // Text longer than the field scrolls to keep the caret in view, as far
@@ -408,11 +440,13 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
     // Keys while it has focus: arrows step (Alt a large step), Page Up and
     // Down step large, Home and End go to the ends, Escape, Delete or
     // Backspace reset it, Enter or a typed number edits it.
-    if (focus == me && !edit)
+    if (focus == me && !edit && !typedToFocus.empty()) startEditing(nid.id, std::exchange(typedToFocus, {})), keysToEdit();
+    else if (focus == me && !edit)
     {
         for (auto [key, modifiers] : keys)
         {
-            const double u = toUnit(*p, p->value, log), small = modifiers & View::alt ? 0.1 : 0.01;
+            // Shift for fine, Alt for a page's step, as a knob's.
+            const double u = toUnit(*p, p->value, log), small = modifiers & View::shift ? 0.001 : modifiers & View::alt ? 0.1 : 0.01;
             switch (key)
             {
             case View::Key::up: case View::Key::right: set(params, *p, fromUnit(*p, u + small, log)); break;
@@ -430,7 +464,6 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
             default: break;
             }
         }
-        if (!typedToFocus.empty() && editing != nid.id) startEditing(nid.id, std::exchange(typedToFocus, {}));
     }
     if (editKeys(nid.id, typed, Clay_PointerOver(nid)) || typed != before)
     {
@@ -442,6 +475,13 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
     // The value as a bar filling the box, the number over it (compost's look).
     const bool editNow = editing == nid.id, hot = Clay_PointerOver(nid);
     const float lineHeight = theme.textSize * 1.25f;
+    if (editNow) // the caret, for an input method's window: the text and its 1-point caret are centred in the box (last frame's)
+    {
+        const Clay_BoundingBox box = Clay_GetElementData(nid).boundingBox;
+        const float textWidth = draw.measure(theme.textSize, draft, theme.valueFont) + 1;
+        const float caretX = box.x + (box.width - textWidth) / 2 + draw.measure(theme.textSize, draft.substr(0, caret), theme.valueFont);
+        caretAt = {caretX * s, box.y * s, box.height * s};
+    }
     const Color fill = {theme.accent.r, theme.accent.g, theme.accent.b, 0.3f};
     CLAY({.id = nid, .layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_FIXED(lineHeight + 4)}},
           .backgroundColor = clayColor(theme.background), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),

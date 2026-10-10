@@ -75,6 +75,23 @@ void Ui::pointer(const View::PointerEvent &event)
     }
 }
 
+// Where Tab goes on from: the text field being edited, or the focused control.
+std::vector<const void *>::const_iterator Ui::tabFrom() const
+{
+    const void *field = reinterpret_cast<const void *>(uintptr_t(editing));
+    if (const auto at = std::find(order.begin(), order.end(), field); editing && at != order.end()) return at;
+    return std::find(order.begin(), order.end(), focus);
+}
+
+// Tab from the last control (Shift+Tab from the first) leaves the view: the
+// host's next control takes focus, so the keyboard is never trapped in here
+// (WCAG 2.1.2). From none, it comes in at the first (the last).
+bool Ui::tabLeaves(bool back) const
+{
+    const auto at = tabFrom();
+    return order.empty() || (at != order.end() && (back ? at == order.begin() : at + 1 == order.end()));
+}
+
 bool Ui::key(View::Key key, unsigned modifiers)
 {
     // Tab moves between controls; the rest need a control or a text field to
@@ -87,10 +104,13 @@ bool Ui::key(View::Key key, unsigned modifiers)
     const bool used = key == K::tab || (focusUses >> unsigned(key) & 1) || (key == K::escape && openMenu)
                    || (key == K::contextMenu && focusHasMenu);
     if (!editing && !used) return false;
+    if (key == K::tab && order.empty()) return false;
     keys.push_back({key, modifiers});
     if (editing) edits.push_back({{}, key, modifiers});
     focusVisible = !editing;
-    return true;
+    // Tab leaving the view is the host's too; this frame still sees it, to
+    // keep a field's edit or choose in an open dropdown, and lets focus go.
+    return key != K::tab || !tabLeaves(modifiers & View::shift);
 }
 
 bool Ui::text(const char *utf8)
@@ -262,18 +282,12 @@ bool Ui::record()
         if (key != View::Key::tab || order.empty()) continue;
         // From a text field being edited: keep its edit (as a click
         // elsewhere does) and go on from the field.
-        const void *from = focus;
-        if (editing)
-        {
-            const void *field = reinterpret_cast<const void *>(uintptr_t(editing));
-            if (std::find(order.begin(), order.end(), field) != order.end()) from = field;
-            pendingField = editing, pendingDraft = draft, editing = 0;
-        }
-        const auto at = std::find(order.begin(), order.end(), from);
-        const bool back = modifiers & View::shift;
-        if (at == order.end()) focus = back ? order.back() : order.front();
-        else if (back) focus = at == order.begin() ? order.back() : *(at - 1);
-        else focus = at + 1 == order.end() ? order.front() : *(at + 1);
+        const bool back = modifiers & View::shift, leaving = tabLeaves(back);
+        const auto at = tabFrom();
+        if (editing) pendingField = editing, pendingDraft = draft, editing = 0;
+        if (leaving) focus = nullptr, focusVisible = false; // out to the host's next control
+        else if (at == order.end()) focus = back ? order.back() : order.front();
+        else focus = back ? *(at - 1) : *(at + 1);
     }
     // The control being dragged wasn't declared this frame (it moved, its
     // drawer closed, the page changed): let go of it, or nothing else could

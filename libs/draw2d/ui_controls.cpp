@@ -156,7 +156,7 @@ void Ui::knob(Params &params, Param *p, Rect box, const char *format, bool log)
     std::snprintf(value, sizeof(value), format, p->value);
     describeParam(me, params, *p, value, box).node.orientation = 2; // dragged up and down
     typeInto(me, &p->defaultValue, *p);
-    if (!valueEntry(params, *p, &p->defaultValue, {box.x, cy + r + 0.3f * size, box.w, 1.3f * size}, Draw2D::Align::center))
+    if (!valueEntry(params, *p, me, &p->defaultValue, {box.x, cy + r + 0.3f * size, box.w, 1.3f * size}, Draw2D::Align::center))
         draw.text(cx, cy + r + 1.3f * size, size, value, theme.text, Draw2D::Align::center, theme.valueFont);
     draw.text(cx, cy + r + 2.6f * size, size, p->name, theme.dim, Draw2D::Align::center, theme.labelFont);
 }
@@ -174,7 +174,7 @@ void Ui::slider(Params &params, Param *p, Rect box, const char *format, bool log
     const float valueWidth = std::max(draw.measure(size, value, theme.valueFont), 3 * size) + 4 * s;
     const void *me = controlId(*p, px, py);
     typeInto(me, &p->max, *p);
-    const bool typing = valueEntry(params, *p, &p->max, {px + w - valueWidth, py, valueWidth, 1.4f * size}, Draw2D::Align::right);
+    const bool typing = valueEntry(params, *p, me, &p->max, {px + w - valueWidth, py, valueWidth, 1.4f * size}, Draw2D::Align::right);
     describeParam(me, params, *p, value, box).node.orientation = 1;
     const bool dragging = control(params, *p, me, px, py, w, h, false, w, log, true, sliderDrag == Drag::absolute);
     const bool hot = dragging || (!active && over(px, py, w, h));
@@ -246,11 +246,12 @@ bool Ui::segmented(const char *const *items, int count, int &selected, int index
             if (a.clicked && selected != i) selected = i, changed = true;
             any.pressed |= a.pressed;
         }
+        // The arrows move the choice, wrapping at the ends, as APG's radio group.
         for (View::Key key : focusable(sid, any))
         {
             const int step = key == View::Key::right || key == View::Key::down ? 1 : key == View::Key::left || key == View::Key::up ? -1 : 0;
-            const int next = std::clamp(selected + step, 0, count - 1);
-            if (next != selected) selected = next, changed = true;
+            const int next = count > 0 ? ((selected + step) % count + count) % count : selected;
+            if (step && next != selected) selected = next, changed = true;
         }
         const void *group = reinterpret_cast<const void *>(uintptr_t(sid.id));
         describe(group, Accessible::Role::radioGroup, nullptr).element = sid.id;

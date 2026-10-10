@@ -23,11 +23,15 @@
 //
 // Knobs and sliders: drag (Shift for fine), scroll, double-click for the
 // default, click the value to type one. The last control clicked has
-// keyboard focus, and Tab moves it on. A focused knob or slider steps with
-// the arrows (Shift for fine), Page Up/Down and Home/End; Enter presses a
-// button or toggle; the arrows move a segmented control; Enter opens and
-// closes a dropdown and the arrows choose in it. A control given a
-// contextMenu opens it on a secondary click, the Menu key or Shift+F10.
+// keyboard focus, and Tab moves it on; past the last control (Shift+Tab:
+// before the first) Tab is the host's, which moves on to what's next
+// outside the view. A focused knob or slider steps with the arrows (Shift
+// for fine), Page Up/Down and Home/End, and Escape, Delete or Backspace
+// reset it; Enter or a digit types a value, and Enter or Escape after
+// typing leaves it focused. Enter presses a button or toggle; the arrows
+// move a segmented control (wrapping); Enter opens and closes a dropdown
+// and the arrows choose in it. A control given a contextMenu opens it on a
+// secondary click, the Menu key or Shift+F10.
 namespace gpu {
 
 // The default look follows Slide: flat greys, hairlines, one warm accent, in
@@ -180,7 +184,8 @@ public:
     bool segmented(Params &params, Param *p, const char *const *items, int count);
     bool dropdown(Params &params, Param *p, const char *const *items, int count);
     // Edits text; returns true when the edit is committed (Enter, or a click
-    // elsewhere). Escape abandons it.
+    // elsewhere). Escape abandons it. After Enter or Escape it keeps focus:
+    // Enter edits it again, and typing goes on at its end.
     bool textField(std::string &value, float widthPoints = 120, int index = 0);
     // Takes files dropped on the element: true when some land on it, with
     // their paths in `files`. fileOver: files are being dragged over it.
@@ -205,7 +210,9 @@ public:
     // The same for an element of your own, such as a paint() box; for keys,
     // a control drawn inside it must have focus.
     int contextMenu(Clay_ElementId element, const char *const *items, int count);
-    // Drag up or down to change, Shift for fine; double-click to type a value.
+    // Drag up or right to raise it, Shift for fine; double-click for the
+    // default. Focused, the arrows step it (Shift fine, Alt large), as a
+    // knob's, and Enter or a digit types a value.
     void numberBox(Params &params, Param *p, const char *format, bool log = false, float widthPoints = 64);
     // A parameter as a line of text, its label then its value, for laying
     // over a plot (char-spectrum's readouts): drag up or down (Shift for
@@ -459,10 +466,11 @@ private:
     // with the pointer; NaN where the text isn't left-aligned.
     bool editKeys(uint32_t field, std::string &value, bool overField, float textX = NAN);
     static std::string plainNumber(double value);
-    bool valueEntry(Params &params, Param &p, const void *id, Rect r, Draw2D::Align align);
+    bool valueEntry(Params &params, Param &p, const void *control, const void *id, Rect r, Draw2D::Align align);
     void readout(Params &params, Param &p, const char *label, const char *format, bool log, const char *const *items, int count,
                  float widthPoints);
     void startEditing(uint32_t field, std::string text, bool selectAll = false);
+    void keysToEdit();
     void fieldText(const std::string &shown, bool edit);
 
     struct
@@ -530,6 +538,8 @@ private:
     Rect menuAt{};
     bool focusHasMenu = false;  // the focused control has a context menu: the Menu key is the view's
     void closeMenu();
+    std::vector<const void *>::const_iterator tabFrom() const;
+    bool tabLeaves(bool back) const;
     bool controlIn(const void *control, Clay_ElementId element) const;
     // The popup list of a dropdown or a context menu (see ui_controls.cpp).
     int popup(Clay_ElementId menu, const char *itemName, int itemBase, const char *const *items, int count, int marked,
@@ -569,6 +579,7 @@ private:
     float dragFromX = 0, dragFromY = 0;
     bool inside(Clay_ElementId id, float x, float y) const; // in last frame's box; pixels
     uint32_t editing = 0;       // the text field being edited, or 0
+    uint32_t restingField = 0;  // a text field with focus after its edit ended (Enter, Escape), not editing
     float fieldScroll = 0;      // how far its text is scrolled left (points)
     View::Caret caretAt;        // where its caret is (pixels), for input methods
     std::string draft;          // its text while editing
