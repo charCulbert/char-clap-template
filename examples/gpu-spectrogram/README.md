@@ -44,7 +44,7 @@ automating them.
 | Window | rectangular, Hann, Hamming or Blackman | Hann |
 | Channel | Mix, Left or Right | Mix |
 | Smoothing | 0 (off) to 0.9: each bin keeps that much of its last value (in dB) | 0 |
-| Frequency range | lower 0 to 500 Hz, upper 1 kHz to Nyquist | 20 Hz to 24 kHz |
+| Frequency range | lower 0 to 500 Hz, upper 100 Hz to Nyquist | 20 Hz to 24 kHz |
 | Level range | floor −160 to −60 dB, ceiling −20 to 12 dB | −100 to 0 dB |
 | Scale | linear, log or mel | log |
 | Palette | System, Bone, Inferno, Viridis or Magma | System |
@@ -53,7 +53,7 @@ automating them.
 | Transform | FFT or CQT | FFT |
 | CQT bands per octave | 12, 24 or 36 | 24 |
 | A4 tuning | 400 to 480 Hz | 440 Hz |
-| CQT frequency limits | lower 55 to 220 Hz, upper 1 kHz to 0.4 × the sample rate | 55 Hz to 16 kHz |
+| CQT frequency limits | lower 27.5 Hz (A0) to 220 Hz, upper 1 kHz to 0.4 × the sample rate | 55 Hz to 16 kHz |
 | CQT update rate | 15, 30 or 60 a second | 30 |
 | CQT reading | Mean, Peak or Centre | Mean |
 
@@ -67,7 +67,11 @@ time (Mean), its loudest moment (Peak, which shows a click at its own level
 but reads noise higher in the high bands), or its value at the update's
 middle (Centre, as Listener reads it). The panel shows the delay from a
 sound to its column: half the transform's block, about 341 ms at 48 kHz with
-the defaults (the block holds 24 periods of 55 Hz). The CQT runs from 44.1
+the defaults (the block holds 24 periods of 55 Hz). A lower floor, down to
+A0 (27.5 Hz), resolves the bass's lowest notes at a cost: the block, and so
+the delay, doubles below about 35 Hz at 24 bands an octave (683 ms). The
+display's upper limit goes down to 100 Hz so the plot can zoom in on them;
+the range stays an octave at least. The CQT runs from 44.1
 to 96 kHz, as Listener's; at other sample rates the plugin shows the FFT and
 the panel says so. A4 tuning also sets the piano strip's keys and the pitch
 names with the FFT.

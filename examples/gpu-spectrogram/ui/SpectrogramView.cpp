@@ -136,6 +136,7 @@ public:
         gpu::Spectrogram::Options o = spectrogram.settings();
         o.minFrequency = float(p[low]->value);
         o.maxFrequency = float(p[high]->value);
+        o.minFrequency = std::min(o.minFrequency, o.maxFrequency / 2); // an octave at least, with the upper as low as 100 Hz
         if (cqtShown && !hz.empty()) // no further than its bands go, as Listener's
         {
             o.minFrequency = std::clamp(o.minFrequency, hz.front(), hz.back());

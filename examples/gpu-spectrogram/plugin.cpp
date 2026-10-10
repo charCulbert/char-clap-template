@@ -49,7 +49,7 @@ enum SettingId
     S_CHANNEL,   // chardsp::Stft::Channel: mix, left, right
     S_SMOOTHING, // each bin's last value kept, 0 (off) to 0.9
     // How it's shown, which only the interface uses.
-    S_LOW, S_HIGH,       // the frequency range, Hz (the interface stops at Nyquist)
+    S_LOW, S_HIGH,       // the frequency range, Hz (the interface stops at Nyquist); the upper from 100 Hz, to zoom in on the bass
     S_FLOOR, S_CEILING,  // the level range, dB
     S_SCALE,             // gpu::Spectrogram::Scale: linear, log, mel
     S_PALETTE,           // gpu::Spectrogram::Palette: system, bone, inferno, viridis, magma
@@ -74,7 +74,7 @@ static const Setting settings[S_COUNT] = {
     {"Channel", 0, 2, 0},
     {"Smoothing", 0, 0.9, 0},
     {"Low frequency", 0, 500, 20},
-    {"High frequency", 1000, 96000, 24000},
+    {"High frequency", 100, 96000, 24000},
     {"Floor", -160, -60, -100},
     {"Ceiling", -20, 12, 0},
     {"Scale", 0, 2, 1},
@@ -86,7 +86,7 @@ static const Setting settings[S_COUNT] = {
     {"Transform", 0, 1, 0},
     {"CQT bands per octave", 0, 2, 1},
     {"A4 tuning", 400, 480, 440},
-    {"CQT low frequency", 55, 220, 55},
+    {"CQT low frequency", 27.5, 220, 55}, // from A0, a piano's lowest key
     {"CQT high frequency", 1000, 38400, 16000},
     {"CQT update rate", 0, 2, 1},
     {"Key tone", 0, 1, 1},
@@ -114,7 +114,8 @@ struct MyPlugin
     // The analysis: the audio thread fills both rings; the main thread sets
     // up the one chosen, takes its columns and sends them to the interface
     // (see on_main_thread). The CQT's ring is made once, for its largest
-    // block (36 bands an octave from 55 Hz at 96 kHz), before anything pushes.
+    // block (36 bands an octave from 27.5 Hz at 96 kHz: 131072 samples),
+    // before anything pushes: two blocks of both channels, 2 MB.
     chardsp::Stft stft;
     chardsp::ConstantQStream<float> cqt;
     std::vector<float> cqtLast; // main thread: each band's last level, for smoothing
@@ -460,7 +461,7 @@ static const clap_plugin_t pluginClass = {
         plugin->gui.init(_plugin, plugin->host);
         for (uint32_t i = 0; i < S_COUNT; i++)
             plugin->settingValues[i] = settings[i].defaultValue;
-        plugin->cqt.prepare(chardsp::ConstantQ<float>::minimumBlockSize(96000, 36, 55));
+        plugin->cqt.prepare(chardsp::ConstantQ<float>::minimumBlockSize(96000, 36, 27.5));
         return true;
     },
 
