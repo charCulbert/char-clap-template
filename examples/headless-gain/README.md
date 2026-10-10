@@ -23,7 +23,7 @@ already. The plugins land here:
 | Windows | `build/CLAP/Release/Headless Gain.clap` | `build/Release/Headless Gain.vst3` | `build/Release/Headless Gain.exe` | |
 | Linux | `build/Headless Gain.clap` | `build/Release/Headless Gain.vst3` | `build/Headless Gain` | |
 
-**WCLAP** (for browser hosts) needs the [WASI SDK](https://github.com/WebAssembly/wasi-sdk/releases):
+**WCLAP** (for browser hosts) needs the [WASI SDK 33](https://github.com/WebAssembly/wasi-sdk/releases):
 
 ```sh
 cmake -B build-wclap -DCMAKE_TOOLCHAIN_FILE=<wasi-sdk>/share/cmake/wasi-sdk-p1.cmake

@@ -104,7 +104,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.TARGET }}-${{ matrix.os }}
-          # Windows and Linux CLAPs are single files, their ui/ folder beside them.
+          # Windows and Linux CLAPs are single files, their .clap.resources folder beside them.
           path: |
             build/**/${{ env.NAME }}.clap
             build/**/${{ env.NAME }}.clap.resources

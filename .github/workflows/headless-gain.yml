@@ -101,8 +101,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.TARGET }}-${{ matrix.os }}
+          # Windows and Linux CLAPs are single files, their .clap.resources folder (licences) beside them.
           path: |
             build/**/${{ env.NAME }}.clap
+            build/**/${{ env.NAME }}.clap.resources
             build/**/${{ env.NAME }}.vst3
             build/**/${{ env.NAME }}.component
           if-no-files-found: error

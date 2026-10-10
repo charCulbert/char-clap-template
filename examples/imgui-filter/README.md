@@ -13,9 +13,9 @@ Resonance) whose interface is stock Dear ImGui widgets.
   anything else here and read them with `core::readResource("/path")` (on the
   main thread), or `gpu::loadAsset` in the view.
 - Screen readers see nothing of it: Dear ImGui keeps no accessibility tree. A
-  `gpu::View` that wants one returns it from `accessibility()` (as the draw2d
-  examples do with `Ui::accessibility()`), and the presenter hands it to
-  VoiceOver, Narrator and the browser.
+  `gpu::View` that wants one returns it from `gpu::View::accessibility()` (see
+  `libs/gpu/accessibility.h`), and the presenter hands it to VoiceOver,
+  Narrator, Orca (AT-SPI on Linux) and, in a WCLAP, the browser.
 - Natively `libs/gpu` draws the view with Dawn in the host's window. In WCLAP
   the same view is compiled with Emscripten into the page the host shows.
 
@@ -36,7 +36,7 @@ already. The plugins land here:
 | Windows | `build/CLAP/Release/ImGui Filter.clap` | `build/Release/ImGui Filter.vst3` | `build/Release/ImGui Filter.exe` | |
 | Linux | `build/ImGui Filter.clap` | `build/Release/ImGui Filter.vst3` | `build/ImGui Filter` | |
 
-**WCLAP** (for browser hosts) needs the [WASI SDK](https://github.com/WebAssembly/wasi-sdk/releases) and [Emscripten](https://emscripten.org) (`emcmake` on your PATH) for the page:
+**WCLAP** (for browser hosts) needs the [WASI SDK 33](https://github.com/WebAssembly/wasi-sdk/releases) and [Emscripten 4.0.11](https://emscripten.org) (`emcmake` on your PATH) for the page:
 
 ```sh
 cmake -B build-wclap -DCMAKE_TOOLCHAIN_FILE=<wasi-sdk>/share/cmake/wasi-sdk-p1.cmake

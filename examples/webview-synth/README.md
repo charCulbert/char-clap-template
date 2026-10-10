@@ -31,7 +31,7 @@ already. The plugins land here:
 | Windows | `build/CLAP/Release/WebView Synth.clap` | `build/Release/WebView Synth.vst3` | `build/Release/WebView Synth.exe` | |
 | Linux | `build/WebView Synth.clap` | `build/Release/WebView Synth.vst3` | `build/WebView Synth` | |
 
-**WCLAP** (for browser hosts) needs the [WASI SDK](https://github.com/WebAssembly/wasi-sdk/releases):
+**WCLAP** (for browser hosts) needs the [WASI SDK 33](https://github.com/WebAssembly/wasi-sdk/releases):
 
 ```sh
 cmake -B build-wclap -DCMAKE_TOOLCHAIN_FILE=<wasi-sdk>/share/cmake/wasi-sdk-p1.cmake

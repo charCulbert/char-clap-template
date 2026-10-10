@@ -1,6 +1,6 @@
 # CLAP plugin starters
 
-Four small CLAP plugins, each a starting point for a different kind of
+Five small CLAP plugins, each a starting point for a different kind of
 interface, plus the shared code they build on and a script that copies one
 into a new project of your own. Every plugin also builds as VST3, AU,
 standalone and WCLAP (for browser hosts), from the same source.
@@ -27,8 +27,8 @@ python3 tools/new-plugin.py --from filter --name "Warm Filter" --vendor "Charlie
 It needs Python 3.8 or later and nothing else (on Windows, where Python's
 installer doesn't add `python3`, run it as `py tools\new-plugin.py ...`).
 `--from` is `gain` (no interface), `synth` (a web page), `analyzer` (Draw2D
-and Clay on WebGPU, our own drawing) or `filter` (Dear ImGui). Leave any option out and it
-asks. It also takes `--id` (default `com.<vendor>.<name>`), `--au-subtype` and
+and Clay on WebGPU, our own drawing), `spectrogram` (Draw2D's views and
+controls) or `filter` (Dear ImGui). Leave any option out and it asks. It also takes `--id` (default `com.<vendor>.<name>`), `--au-subtype` and
 `--au-manufacturer` (4 letters each, made from the name and vendor if you don't
 give them), `--url`, and `--license` (MIT unless you say `none`).
 
@@ -78,7 +78,9 @@ libs/
                    natively; in WCLAP the same view is compiled to a web page
   draw2d/          our own drawing for a GPU view: shapes, text, images, clipping;
                    Clay for layout, hit-testing, popups and scrolling; knobs,
-                   sliders, buttons, menus, text fields; light and dark themes
+                   sliders, buttons, menus (also context menus), text fields,
+                   dockable windows (dock.h), waveform, scope and spectrogram
+                   views (views.h); light and dark themes
 tests/             tests for the libraries and the analyzer's DSP
   gallery/         GUI Gallery: a plugin with a page per draw2d feature
 tools/             new-plugin.py, check-templates.py
@@ -88,6 +90,23 @@ tools/             new-plugin.py, check-templates.py
 Each `libs/*/*.cmake` file says at the top what it does. They download and
 pin their own dependencies, and give you a function that adds the library to
 your plugin (`core_add_to`, `webview_add_to`, `gpu_add_to`, `draw2d_add_to`).
+
+Things the GPU libraries do that you don't have to:
+
+- **Screen readers.** Each control is in an accessibility tree
+  (`gpu::View::accessibility()`, which draw2d fills in). Natively AccessKit
+  hands it to VoiceOver (macOS NSAccessibility), Narrator and NVDA (Windows UI
+  Automation) and Orca (Linux AT-SPI). In a WCLAP the page mirrors it as
+  WAI-ARIA elements over the canvas.
+- **Context menus.** `Ui::contextMenu` opens on a secondary click
+  (`PointerEvent` button 1; Ctrl+click on macOS), or on the Menu key or
+  Shift+F10 (`Key::contextMenu`).
+- **Refresh rate.** The view draws at the monitor's rate: on Linux it asks
+  XRandR for it, which is why the build needs `libxrandr-dev`.
+- **Linux GPU builds are x86_64 only**: Dawn's and AccessKit's prebuilt
+  libraries have no other Linux architecture. A Linux plugin links with
+  `-z nodelete`, so it stays loaded once loaded: AccessKit's D-Bus thread
+  never ends.
 
 ### How the interface talks to the plugin
 
@@ -127,9 +146,10 @@ Read a file with `core::readResource("/sounds/kick.wav")` on the main thread
   `make_clapfirst_plugins(...)` and `project(... VERSION ...)` in `CMakeLists.txt`.
   (The generator does this for you.)
 - **Parameters**: the `P_*` defines and `extensionParams.get_info` in `plugin.cpp`
-  of every example but the analyzer, which has none, so its code stays about
-  drawing: its three controls are settings saved with its state. For a Draw2D
-  interface with parameters, copy the filter's parameter code into it.
+  of the gain, synth and filter. The analyzer and spectrogram have none, so
+  their code stays about drawing: their controls are settings saved with the
+  plugin's state. For a Draw2D interface with parameters, copy the filter's
+  parameter code into it.
 - **Window size and resizing**: `guiWidth`/`guiHeight` in `MyPlugin`, the
   `GUI_MIN_*`/`GUI_MAX_*` defines, and `extensionGui.get_resize_hints` in
   `plugin.cpp`. How the content fills the window is up to the interface (the
@@ -207,10 +227,15 @@ Each needs one extra flag, in its own build folder:
 
 | Format | Needs | Configure |
 |---|---|---|
-| WCLAP | [WASI SDK](https://github.com/WebAssembly/wasi-sdk/releases); for the GPU examples also [Emscripten](https://emscripten.org) (`emcmake` on your PATH) | `cmake -B build-wclap -DCMAKE_TOOLCHAIN_FILE=<wasi-sdk>/share/cmake/wasi-sdk-p1.cmake` |
+| WCLAP | [WASI SDK 33](https://github.com/WebAssembly/wasi-sdk/releases); for the GPU examples also [Emscripten 4.0.11](https://emscripten.org) (`emcmake` on your PATH) | `cmake -B build-wclap -DCMAKE_TOOLCHAIN_FILE=<wasi-sdk>/share/cmake/wasi-sdk-p1.cmake` |
 | AUv3 (macOS) | Xcode | `cmake -B build-xcode -G Xcode` |
 | iOS (AUv3 in an app) | Xcode | `cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS` |
 | AAX | Avid's AAX SDK | `cmake -B build-aax -DAAX_SDK_ROOT=<path to the SDK>` |
+
+Those are the versions CI uses and the ones whose licences ship. For another
+Emscripten, add `libs/gpu/licenses/emscripten-<version>.txt` (the configure
+stops without it); for another WASI SDK, check `libs/core/licenses/wasi-sdk/`
+still matches its runtime.
 
 Then `cmake --build <folder>` as usual (add `--config Release` for the Xcode
 builds). A WCLAP comes out as `build-wclap/<Name>.wclap.tar.gz`: load that in a
@@ -221,7 +246,7 @@ device needs your team in Xcode, and shipping AAX needs PACE signing.
 ### Everything at once
 
 At the top of this repository, `cmake -B build && cmake --build build --config Release` builds all
-four examples and the tests in one go (downloading once), and
+five examples and the tests in one go (downloading once), and
 `ctest --test-dir build` runs the tests.
 
 ## Test
@@ -248,10 +273,19 @@ It makes a project from each example in `build-templates/`, builds it with
 plain CMake, and validates it. It takes a while (every project downloads and
 builds from scratch), so it isn't part of CI.
 
-The GPU interface (`libs/draw2d`) has two kinds of test. `ctest` runs
-`ui_test`, which drives the layout and controls with made-up pointer and key
-events, and `draw2d_test`, which draws into an offscreen texture and checks
-pixels: inside and outside shapes, corners, clips, draw order. The GUI
+`ctest` runs these (in `tests/`):
+
+- `resources` and `messages`: the resource reader and the message codec;
+  `messages_js` runs the JavaScript codec against the C++ one (needs Node).
+- `spectrum`: the analyzer's spectrum analysis.
+- `ui`: draw2d's layout and controls, driven with made-up pointer and key
+  events.
+- `draw2d`: draws into an offscreen texture and checks pixels (inside and
+  outside shapes, corners, clips, draw order).
+- `context`: the WebGPU context (`libs/gpu/context.cpp`).
+
+`draw2d` and `context` need a WebGPU adapter (a software one will do) and skip
+without one. The GUI
 Gallery (`tests/gallery`) is for looking: each cell draws one feature and
 says what it should look like. Build it with the rest, or alone with
 `cmake -S tests/gallery -B build-gallery && cmake --build build-gallery`, and
@@ -264,10 +298,11 @@ undo history covers the project.
 
 Each example has its own workflow in `.github/workflows/`, which runs only
 when that example, a library it uses, or the workflow itself changes. Editing
-`libs/gpu` runs the analyzer's and the filter's; editing
-`examples/webview-synth` runs only the synth's. `tests.yml` runs the unit
-tests when the libraries they cover change, and `gallery.yml` builds and
-validates the GUI Gallery.
+`libs/gpu` runs the analyzer's, the spectrogram's and the filter's, plus
+`tests.yml` and `gallery.yml`; editing `libs/draw2d` runs the same without the
+filter's; editing `examples/webview-synth` runs only the synth's. `tests.yml`
+runs the unit tests when the libraries they cover change, and `gallery.yml`
+builds and validates the GUI Gallery.
 
 A workflow run has two jobs:
 
@@ -291,18 +326,28 @@ Every version is pinned in one place:
 | clap-wrapper | `libs/core/core.cmake` | a commit on its `next` branch (needed for the AUv2 fixes in its PR #536) |
 | CHOC | `libs/webview/webview.cmake` | a commit |
 | Dawn | `libs/gpu/gpu.cmake` | release v20260922.191850 |
-| stb (truetype, image), Clay, nanosvg | `libs/draw2d/draw2d.cmake` | a commit, a commit after v0.14, a commit |
+| AccessKit (prebuilt C library) | `libs/gpu/gpu.cmake` | release 0.23.1 |
+| stb (truetype, image, textedit), Clay, nanosvg | `libs/draw2d/draw2d.cmake` | a commit, a commit after v0.14, a commit |
+| Emscripten (GPU WCLAPs) | the `version:` of `setup-emsdk` in each GPU example's workflow; a licence file in `libs/gpu/licenses/` | 4.0.11 |
+| WASI SDK (WCLAPs) | each workflow's install step; its runtime's licences in `libs/core/licenses/wasi-sdk/` | 33 |
 | Dear ImGui | `examples/imgui-filter/CMakeLists.txt` | v1.92.9b |
 | Signalsmith DSP (FFT) | `examples/gpu-analyzer/signalsmith-dsp.cmake` | a commit |
 
-Downloads are checked against a SHA256 where CMake allows it (Dawn, stb, Clay,
-ImGui, Signalsmith DSP). When you change a pin, change the hash too, then run the check above.
+Downloads are checked against a SHA256 where CMake allows it (Dawn, AccessKit, stb, Clay,
+nanosvg, ImGui, Signalsmith DSP). When you change a pin, change the hash too, then run the check above.
 
 ## Licences
 
 The dependencies are all permissively licensed: CLAP SDK and clap-wrapper
-(MIT), CHOC (ISC), Dawn (BSD 3-Clause), stb_truetype (MIT or public domain),
-Clay (zlib), Dear ImGui (MIT), Signalsmith DSP (MIT), and the Inter font (SIL Open Font License, its
+(MIT), CHOC (ISC), Dawn (BSD 3-Clause), AccessKit (MIT or Apache-2.0, with a BSD 3-Clause
+notice from Chromium), stb_truetype, stb_image and stb_textedit (MIT or public
+domain), Clay (zlib), nanosvg (zlib), Dear ImGui (MIT), Signalsmith DSP (MIT),
+Emscripten's runtime and emdawnwebgpu in a GPU WCLAP's page (MIT or NCSA;
+BSD 3-Clause; plus musl and libc++), and the Inter font (SIL Open Font License, its
 licence beside it in `resources/fonts/`). The VST3 and AudioUnit SDKs that
 clap-wrapper downloads have their own terms. Projects made with
 `new-plugin.py` get a `THIRD_PARTY_NOTICES.md` listing the ones they use.
+Every build also copies the licence texts of what it downloaded into
+`THIRD_PARTY_LICENSES/` beside the plugin. AccessKit's static libraries
+contain Rust crates, and its release lists none of their licences: its
+`LICENSE-MIT` and `LICENSE.chromium` are all that ships for it.

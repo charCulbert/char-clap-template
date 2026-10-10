@@ -1,7 +1,8 @@
 name: GUI Gallery
 
 # Builds and validates the GUI Gallery (tests/gallery) on macOS, Windows and
-# Linux, CLAP only. Runs when it or a library it uses changes.
+# Linux, CLAP only (VST3 and WCLAP build locally, not here). Runs when it or
+# a library it uses changes.
 on:
   push:
     branches: [main] # other branches run through their pull request

@@ -40,7 +40,7 @@ already. The plugins land here:
 | Windows | `build/CLAP/Release/GPU Analyzer.clap` | `build/Release/GPU Analyzer.vst3` | `build/Release/GPU Analyzer.exe` | |
 | Linux | `build/GPU Analyzer.clap` | `build/Release/GPU Analyzer.vst3` | `build/GPU Analyzer` | |
 
-**WCLAP** (for browser hosts) needs the [WASI SDK](https://github.com/WebAssembly/wasi-sdk/releases) and [Emscripten](https://emscripten.org) (`emcmake` on your PATH) for the page:
+**WCLAP** (for browser hosts) needs the [WASI SDK 33](https://github.com/WebAssembly/wasi-sdk/releases) and [Emscripten 4.0.11](https://emscripten.org) (`emcmake` on your PATH) for the page:
 
 ```sh
 cmake -B build-wclap -DCMAKE_TOOLCHAIN_FILE=<wasi-sdk>/share/cmake/wasi-sdk-p1.cmake

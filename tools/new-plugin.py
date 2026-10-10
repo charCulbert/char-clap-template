@@ -29,13 +29,13 @@ EXAMPLES = {
                   notices=["clap", "clap-wrapper", "choc"]),
     "analyzer": dict(folder="gpu-analyzer", name="GPU Analyzer", target="GpuAnalyzer",
                      id="com.charlieculbert.gpuanalyzer", subtype="GpAn", libs=["core", "gpu", "draw2d"],
-                     notices=["clap", "clap-wrapper", "dawn", "stb", "clay", "signalsmith", "inter"]),
+                     notices=["clap", "clap-wrapper", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "inter", "emscripten"]),
     "spectrogram": dict(folder="gpu-spectrogram", name="GPU Spectrogram", target="GpuSpectrogram",
                         id="com.charlieculbert.gpuspectrogram", subtype="GpSg", libs=["core", "gpu", "draw2d"],
-                        notices=["clap", "clap-wrapper", "dawn", "stb", "clay", "signalsmith", "inter"]),
+                        notices=["clap", "clap-wrapper", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "inter", "emscripten"]),
     "filter": dict(folder="imgui-filter", name="ImGui Filter", target="ImGuiFilter",
                    id="com.charlieculbert.imguifilter", subtype="ImFl", libs=["core", "gpu"],
-                   notices=["clap", "clap-wrapper", "dawn", "imgui", "inter"]),
+                   notices=["clap", "clap-wrapper", "dawn", "accesskit", "imgui", "inter", "emscripten"]),
     "gain": dict(folder="headless-gain", name="Headless Gain", target="HeadlessGain",
                  id="com.charlieculbert.headlessgain", subtype="HdGn", libs=["core"],
                  notices=["clap", "clap-wrapper"]),
@@ -48,7 +48,12 @@ NOTICES = {
                      "https://github.com/free-audio/clap-wrapper", "MIT (see each SDK's own licence)"),
     "choc": ("CHOC", "https://github.com/Tracktion/choc", "ISC"),
     "dawn": ("Dawn", "https://dawn.googlesource.com/dawn", "BSD 3-Clause"),
-    "stb": ("stb_truetype", "https://github.com/nothings/stb", "MIT or public domain"),
+    "accesskit": ("AccessKit (its prebuilt libraries; also contain Rust crates under their own licences)",
+                  "https://github.com/AccessKit/accesskit", "MIT or Apache-2.0, with a BSD 3-Clause notice from Chromium"),
+    "stb": ("stb_truetype, stb_image and stb_textedit", "https://github.com/nothings/stb", "MIT or public domain"),
+    "nanosvg": ("nanosvg", "https://github.com/memononen/nanosvg", "zlib"),
+    "emscripten": ("Emscripten's runtime and emdawnwebgpu, in the WCLAP's web page only",
+                   "https://emscripten.org", "MIT or NCSA (Emscripten), BSD 3-Clause (emdawnwebgpu), plus musl and libc++"),
     "clay": ("Clay", "https://github.com/nicbarker/clay", "zlib"),
     "imgui": ("Dear ImGui", "https://github.com/ocornut/imgui", "MIT"),
     "signalsmith": ("Signalsmith Audio DSP (its FFT)", "https://github.com/Signalsmith-Audio/dsp", "MIT"),
@@ -106,7 +111,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--from", dest="example", choices=EXAMPLES,
                         help="gain (no UI), synth (web page UI), analyzer (Draw2D and Clay on WebGPU: our own drawing), "
-                             "filter (Dear ImGui)")
+                             "spectrogram (Draw2D's views and controls), filter (Dear ImGui)")
     parser.add_argument("--name", help='the plugin\'s name, e.g. "Warm Filter"')
     parser.add_argument("--vendor", help="you or your company")
     parser.add_argument("--dest", help="the new project's folder (must not exist yet, or be empty)")
@@ -117,7 +122,7 @@ def main():
     parser.add_argument("--license", default="MIT", help='"MIT" (default), or "none" to add no LICENSE file')
     args = parser.parse_args()
 
-    example = args.example or ask("Example (synth, analyzer, filter, gain)", "filter")
+    example = args.example or ask("Example (gain, synth, analyzer, spectrogram, filter)", "filter")
     if example not in EXAMPLES:
         sys.exit(f"unknown example: {example}")
     old = EXAMPLES[example]
@@ -212,7 +217,7 @@ def main():
     notices = "\n".join(f"- {title}: {license}. {url}" for title, url, license in (NOTICES[n] for n in old["notices"]))
     (dest / "THIRD_PARTY_NOTICES.md").write_text(
         "# Third-party software\n\nThis plugin is built with, and its binaries include, the following. "
-        "CMake downloads them (pinned in libs/*/*.cmake and CMakeLists.txt); keep their notices with "
+        "CMake downloads them (pinned in libs/*/*.cmake, and in CMakeLists.txt or signalsmith-dsp.cmake beside it); keep their notices with "
         f"anything you distribute. Every build ships their full licence texts in THIRD_PARTY_LICENSES/.\n\n{notices}\n", encoding="utf-8")
 
     print(f"""Made {name} in {dest}
