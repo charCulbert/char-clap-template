@@ -34,7 +34,6 @@ bool Context::createDevice()
     for (bool fallback : {false, true})
     {
         wgpu::RequestAdapterOptions options;
-        options.compatibleSurface = surface;
         options.forceFallbackAdapter = fallback;
         instance.WaitAny(instance.RequestAdapter(&options, wgpu::CallbackMode::WaitAnyOnly,
             [](wgpu::RequestAdapterStatus status, wgpu::Adapter result, wgpu::StringView, Context *self) {
@@ -55,8 +54,12 @@ bool Context::createDevice()
     toggles.disabledToggleCount = 1;
     deviceDescriptor.nextInChain = &toggles;
 #endif
+    // The error callback (called any number of times, so it takes no
+    // captures) gets the counter by pointer. The lost callback, which Dawn
+    // keeps until the device is gone, holds it alive that long: the device
+    // can outlive us, in a view that hasn't let go of it yet.
     deviceDescriptor.SetDeviceLostCallback(wgpu::CallbackMode::AllowSpontaneous,
-        [lost = lost](const wgpu::Device &, wgpu::DeviceLostReason reason, wgpu::StringView message) {
+        [lost = lost, errors = errors](const wgpu::Device &, wgpu::DeviceLostReason reason, wgpu::StringView message) {
             if (reason == wgpu::DeviceLostReason::Destroyed || reason == wgpu::DeviceLostReason::CallbackCancelled) return;
             std::fprintf(stderr, "WebGPU device lost: %.*s\n", int(message.length), message.data);
             *lost = true;
@@ -118,21 +121,21 @@ void Context::configure(uint32_t newWidth, uint32_t newHeight)
     surface.Configure(&config);
 }
 
-void Context::frame(View &view, float scale, bool damaged)
+bool Context::frame(View &view, float scale, bool damaged)
 {
-    if (!surface || !device) return;
-    if (!view.record(float(width), float(height), scale) && !damaged) return;
+    if (!surface || !device) return false;
+    if (!view.record(float(width), float(height), scale) && !damaged) return true;
     wgpu::SurfaceTexture current;
     surface.GetCurrentTexture(&current);
     if (current.status == wgpu::SurfaceGetCurrentTextureStatus::Outdated ||
         current.status == wgpu::SurfaceGetCurrentTextureStatus::Lost)
     {
         configure(width, height);
-        return;
+        return false;
     }
     if (current.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal &&
         current.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal)
-        return;
+        return false;
 
     wgpu::RenderPassColorAttachment attachment;
     attachment.view = current.texture.CreateView();
@@ -153,6 +156,7 @@ void Context::frame(View &view, float scale, bool damaged)
     surface.Present(); // the browser presents a canvas by itself
     instance.ProcessEvents();
 #endif
+    return true;
 }
 
 }

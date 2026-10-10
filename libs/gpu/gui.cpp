@@ -173,6 +173,13 @@ void Gui::destroy()
     context.reset();
     if (window) platform::destroy(window);
     window = nullptr;
+    // What the last window had: a new one starts without it. width and
+    // height stay, for the next one to open at the size this had.
+    dirty = true;
+    damaged = false;
+    shownScale = 0;
+    accessVersion = 0;
+    appearanceChecked = recoveryTried = paced = {};
 }
 
 bool Gui::setParent(const clap_window_t *parent)
@@ -307,7 +314,7 @@ void Gui::frame()
     // Moved to a screen of another scale: ask for the size that keeps the
     // view the same in points (clap.gui counts pixels outside macOS).
     const float newScale = scale();
-    if (shownScale > 0 && newScale != shownScale && pixelsPerPoint() != 1.0f && hostGui && pluginGui)
+    if (shownScale > 0 && newScale != shownScale && platform::windowApi != platform::Api::cocoa && hostGui && pluginGui)
     {
         uint32_t wide = uint32_t(std::lround(width * newScale / shownScale)), tall = uint32_t(std::lround(height * newScale / shownScale));
         pluginGui->adjust_size(plugin, &wide, &tall);
@@ -323,8 +330,13 @@ void Gui::frame()
     }
     platform::textInput(window, view->editingText(), view->textCaret());
     if (!(dirty || damaged || view->animating())) return;
-    context->frame(*view, scale(), damaged);
+    // Cleared first: what the view does while it records (a resize, a
+    // message to the plugin) can ask for the next frame.
+    const bool redraw = damaged;
     dirty = damaged = false;
+    // Not shown (no surface texture this time): the view has recorded it
+    // already, so draw it next time even if nothing changes in between.
+    if (!context->frame(*view, scale(), redraw)) damaged = true;
     if (const Accessibility *tree = view->accessibility(); tree && tree->version != accessVersion)
         platform::accessibility(window, *tree), accessVersion = tree->version;
 }

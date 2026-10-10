@@ -29,7 +29,9 @@ struct Context
     // view draw, and presents. Reconfigures a lost surface.
     // damaged: the system lost what's on screen, so draw even if the view
     // looks just as it did.
-    void frame(View &view, float scale, bool damaged = false);
+    // Returns false when it had a frame to show but couldn't (no surface
+    // texture this time): the caller tries again with the next one.
+    bool frame(View &view, float scale, bool damaged = false);
 };
 
 }
