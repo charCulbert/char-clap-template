@@ -136,7 +136,8 @@ public:
     bool record();
     void flush(const wgpu::RenderPassEncoder &pass) { draw.flush(pass); }
 
-    // A piano's note-on and note-off this frame, -1 for none.
+    // A piano's note-on and note-off this frame, -1 for none. The off is of
+    // the note before the on (a slide from key to key): send it first.
     struct Notes { int on = -1, off = -1; };
     // An envelope's breakpoint, 0..1 across and up.
     struct Point { float x, y; };
@@ -258,7 +259,8 @@ public:
     bool steps(std::vector<float> &values);
     // A piano keyboard filling the width, heightPoints tall. Its notes come
     // back from the next frame's call (drawing happens at end()).
-    Notes piano(int lowest, int highest, float heightPoints = 126, const std::function<bool(int)> &lit = {}); // 126: compost's
+    Notes piano(int lowest, int highest, float heightPoints = 126, const std::function<bool(int)> &lit = {}, // 126: compost's
+                int index = 0);
     // A filmstrip knob at the size of one frame (in points, at scale 1 a pixel each).
     void imageKnob(Params &params, Param *p, int image, int frames, bool log = false, bool across = false);
 
@@ -295,8 +297,10 @@ public:
     // A piano keyboard from note lowest to highest (MIDI numbers; best from
     // and to a white key). Press a key, slide across keys; lit says which
     // notes to show held (e.g. from incoming MIDI). Played with the pointer;
-    // to screen readers a picture of a keyboard, with its range.
-    Notes piano(int lowest, int highest, Rect r, const std::function<bool(int)> &lit = {});
+    // to screen readers a picture of a keyboard, with its range. Two pianos
+    // on a page need two indexes: each holds its own note. One taken away
+    // while a key is held sends that note's off from its next call.
+    Notes piano(int lowest, int highest, Rect r, const std::function<bool(int)> &lit = {}, int index = 0);
 
     // What a quick second press is: a double-click (the default: knobs reset,
     // fields select a word), or just another press, so a button, toggle or
@@ -382,6 +386,7 @@ private:
         int image = -1, frames = 0;  // a filmstrip knob's
         bool across = false;
         int lowest = 0, highest = 0; // a piano's
+        uint32_t keyboard = 0;       // and its id
         std::function<bool(int)> lit;
         std::vector<Point> *points = nullptr; // an envelope's
         std::vector<float> *values = nullptr; // steps'
@@ -537,8 +542,12 @@ private:
     std::vector<const void *> scopes; // pushId's, innermost last
     bool leftAfterRelease = false; // the pointer left the view after a release this frame hasn't seen
 
-    int playing = -1;           // the piano note held down, or -1
-    Notes pianoNotes;           // what the piano drawn last frame reported
+    // Each piano's, by its id: the note held down, a note-off owed since it
+    // went away with a key held, and (laid out) what it reported last frame.
+    struct Keyboard { uint32_t id; int playing = -1, owed = -1; Notes notes; };
+    std::vector<Keyboard> keyboards;
+    Keyboard &keyboardOf(uint32_t id);
+    Notes keyboard(uint32_t id, int lowest, int highest, Rect r, const std::function<bool(int)> &lit);
     int grabbedPoint = -1;      // the envelope point being dragged
     uint32_t numberDrag = 0;    // the number box being dragged
     bool numberMoved = false;   // past its dead zone

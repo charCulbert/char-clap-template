@@ -213,7 +213,7 @@ bool Ui::record()
         else if (kind == meterBox) meter(c->level, c->peak, r);
         else if (kind == paintBox) (*static_cast<const std::function<void(Rect)> *>(data))(r);
         else if (kind == imageKnobBox) imageKnob(*c->params, c->p, c->image, c->frames, r, c->log, c->across);
-        else if (kind == pianoBox) pianoNotes = piano(c->lowest, c->highest, r, c->lit);
+        else if (kind == pianoBox) keyboardOf(c->keyboard).notes = keyboard(c->keyboard, c->lowest, c->highest, r, c->lit);
         else if (kind == envelopeBox) { if (envelope(*c->points, r)) changedNow.push_back(c->points); }
         else if (kind == stepsBox) { if (steps(*c->values, r)) changedNow.push_back(c->values); }
         else if (kind == chevronBox)
@@ -280,6 +280,8 @@ bool Ui::record()
         if (held.params && held.first) held.params->end(*held.first);
         if (held.params && held.second) held.params->end(*held.second);
         if (held.locked && lockPointer) lockPointer(false);
+        for (Keyboard &k : keyboards) // a piano: its note ends, told by its next call
+            if (reinterpret_cast<const void *>(uintptr_t(k.id)) == active && k.playing >= 0) k.owed = std::exchange(k.playing, -1);
         active = nullptr, numberDrag = 0, held = {};
     }
     activeSeen = false;

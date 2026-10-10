@@ -1247,6 +1247,52 @@ static void pianoNotes()
     CHECK(notes.off == 61);
 }
 
+// Two pianos on a page: each holds its own note and reports its own notes;
+// one taken away while a key is held owes its note-off, sent by its next call.
+static void twoPianos()
+{
+    Ui ui;
+    Ui::Notes top, bottom;
+    bool showTop = true;
+    auto draw = [&] {
+        frame(ui, [&] {
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+            {
+                if (showTop) top = ui.piano(60, 71, 60, {}, 0);
+                bottom = ui.piano(60, 71, 60, {}, 1);
+            }
+        });
+    };
+    draw();
+    draw();
+    const Clay_BoundingBox upper = box("Piano", 0), lower = box("Piano", 1);
+    CHECK(upper.height == 60 && lower.y >= upper.y + upper.height);
+    pointer(ui, View::Pointer::down, upper.x + upper.width / 2, upper.y + 50);
+    draw();
+    draw(); // (a laid-out piano's notes come from the next frame's call)
+    const int held = top.on;
+    CHECK(held >= 60 && bottom.on == -1 && bottom.off == -1);
+    pointer(ui, View::Pointer::up, upper.x + upper.width / 2, upper.y + 50);
+    draw();
+    draw();
+    CHECK(top.off == held && bottom.off == -1);
+    // The upper one goes while a key is held: its note ends when it's back.
+    pointer(ui, View::Pointer::down, upper.x + upper.width / 2, upper.y + 50);
+    draw();
+    draw();
+    CHECK(top.on == held);
+    showTop = false;
+    draw();
+    pointer(ui, View::Pointer::up, upper.x + upper.width / 2, upper.y + 50);
+    draw();
+    CHECK(bottom.on == -1 && bottom.off == -1);
+    showTop = true;
+    top = {};
+    draw();
+    draw();
+    CHECK(top.off == held && top.on == -1);
+}
+
 static void editors()
 {
     Ui ui;
@@ -1289,6 +1335,36 @@ static void editors()
     draw();
     CHECK(stepsChanged);
     for (float v : values) CHECK(std::abs(v - 0.5f) < 1e-4);
+}
+
+// Two step editors and two envelopes side by side: a drag on one leaves the
+// other alone.
+static void twoEditorsAtOnce()
+{
+    Ui ui;
+    std::vector<float> left(4, 0.0f), right(4, 0.0f);
+    std::vector<Ui::Point> first = {{0, 0}, {0.5f, 1}, {1, 0}}, second = first;
+    auto draw = [&] {
+        ui.begin(400, 300, 1);
+        ui.steps(left, gpu::Rect{0, 0, 160, 100});
+        ui.steps(right, gpu::Rect{200, 0, 160, 100});
+        ui.envelope(first, gpu::Rect{0, 150, 160, 100});
+        ui.envelope(second, gpu::Rect{200, 150, 160, 100});
+        ui.end(wgpu::RenderPassEncoder{});
+    };
+    auto drag = [&](float x0, float y0, float x1, float y1) {
+        pointer(ui, View::Pointer::down, x0, y0), draw();
+        pointer(ui, View::Pointer::move, x1, y1), draw();
+        pointer(ui, View::Pointer::up, x1, y1), draw();
+    };
+    draw();
+    drag(250, 50, 340, 50); // across the right steps
+    for (float v : left) CHECK(v == 0);
+    CHECK(right[0] == 0 && std::abs(right[1] - 0.5f) < 1e-4 && std::abs(right[3] - 0.5f) < 1e-4);
+    drag(280, 150, 280, 200); // the second envelope's middle point, down
+    CHECK(first[1].y == 1 && std::abs(second[1].y - 0.5f) < 1e-4);
+    drag(80, 150, 80, 225); // the first's
+    CHECK(std::abs(first[1].y - 0.25f) < 1e-4 && std::abs(second[1].y - 0.5f) < 1e-4);
 }
 
 // Steps, envelope and piano take the keyboard and tell screen readers what
@@ -1450,6 +1526,8 @@ static void randomInput(uint32_t seed)
     bool on = false, drawerOpen = true;
     int segment = 0, choice = 0;
     const char *items[] = {"One", "Two", "Three"};
+    int sounding = 0; // pianos' notes on, less their offs
+    auto sound = [&](Ui::Notes n) { sounding += (n.on >= 0) - (n.off >= 0); };
     auto draw = [&] {
         frame(ui, [&] {
             CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(180), CLAY_SIZING_GROW(0)}, .childGap = 4, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
@@ -1460,7 +1538,11 @@ static void randomInput(uint32_t seed)
                 ui.dropdown(items, 3, choice);
                 ui.textField(field, 100);
                 ui.numberBox(params, b, "%.1f");
-                if (ui.drawer("More", drawerOpen)) ui.knob(params, c, "%.0f", true);
+                if (ui.drawer("More", drawerOpen))
+                {
+                    ui.knob(params, c, "%.0f", true);
+                    sound(ui.piano(48, 60, 30, {}, 1)); // goes and comes back with its drawer, maybe with a key held
+                }
                 ui.slider(params, a, "%.2f");
             }
             CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 4, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
@@ -1469,7 +1551,7 @@ static void randomInput(uint32_t seed)
                 ui.xyPad(params, a, c);
                 ui.envelope(points);
                 ui.steps(values);
-                ui.piano(48, 72, 40);
+                sound(ui.piano(48, 72, 40));
             }
         });
     };
@@ -1500,15 +1582,18 @@ static void randomInput(uint32_t seed)
         }
         for (float v : values) CHECK(v >= 0 && v <= 1);
         CHECK(segment >= 0 && segment < 3 && choice >= 0 && choice < 3);
-        CHECK(!unbalanced);
+        CHECK(!unbalanced && sounding >= 0 && sounding <= 2);
         if (failures) return (void)std::fprintf(stderr, "random input: seed %u, event %d\n", seed, i); // the first is the useful one
     }
     if (down) ui.pointer({View::Pointer::up, x, y});
     ui.pointer({View::Pointer::leave, x, y});
     ui.key(View::Key::escape, 0);
+    drawerOpen = true; // a piano that went with its drawer sends what it owes
+    draw();
     draw();
     draw();
     for (int n : open) CHECK(n == 0);
+    CHECK(sounding == 0);
 }
 
 // Selection, word moves, undo and the clipboard inside a field (stb_textedit).
@@ -2084,7 +2169,9 @@ int main()
     readouts();
     spectrogramTime();
     pianoNotes();
+    twoPianos();
     editors();
+    twoEditorsAtOnce();
     editorKeysAndScreenReader();
     for (uint32_t seed = 1; seed <= 4 && !failures; ++seed) randomInput(seed);
     if (failures) std::fprintf(stderr, "%d failed\n", failures);

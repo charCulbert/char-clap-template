@@ -897,9 +897,23 @@ static std::string noteName(int note)
     return names[((note % 12) + 12) % 12] + std::to_string(note / 12 - 1);
 }
 
-Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(int)> &lit)
+Ui::Keyboard &Ui::keyboardOf(uint32_t id)
 {
+    for (Keyboard &k : keyboards)
+        if (k.id == id) return k;
+    return keyboards.emplace_back(Keyboard{id});
+}
+
+Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(int)> &lit, int index)
+{
+    return keyboard(id("Piano", index).id, lowest, highest, r, lit);
+}
+
+Ui::Notes Ui::keyboard(uint32_t identity, int lowest, int highest, Rect r, const std::function<bool(int)> &lit)
+{
+    Keyboard &board = keyboardOf(identity);
     Notes notes;
+    notes.off = std::exchange(board.owed, -1);
     int whites = 0;
     for (int n = lowest; n <= highest; ++n) whites += !isBlack(n);
     if (whites == 0) return notes;
@@ -924,19 +938,27 @@ Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(in
     for (int n = lowest; n <= highest && under < 0; ++n)
         if (!isBlack(n) && inside(keyRect(n))) under = n;
 
-    const auto a = area(&playing, r.x, r.y, r.w, r.h);
-    if (a.held && under != playing && (under >= 0 || !a.pressed)) // pressed, or slid onto another key
+    // Every press plays: a quick second one is the note again, not a double-click.
+    const auto a = area(reinterpret_cast<const void *>(uintptr_t(identity)), r.x, r.y, r.w, r.h, eachPress);
+    if (a.held && under != board.playing && (under >= 0 || !a.pressed)) // pressed, or slid onto another key
     {
-        if (playing >= 0) notes.off = playing;
-        playing = under, notes.on = under;
+        if (board.playing >= 0) notes.off = board.playing;
+        board.playing = under, notes.on = under;
     }
-    if (a.released && playing >= 0) notes.off = playing, notes.on = -1, playing = -1;
+    // Let go: its off now, or from the next call for a note begun in this one
+    // (a tap within a frame), as a call's off is always of the note before its on.
+    if (a.released && board.playing >= 0)
+    {
+        if (notes.on == board.playing) board.owed = board.playing;
+        else notes.off = board.playing;
+        board.playing = -1;
+    }
 
     // Square keys with a hairline edge; a pressed one in the accent; each C
     // named at its foot ("C4" is MIDI 60), small and muted.
     auto drawKey = [&](int n) {
         const Rect k = keyRect(n);
-        const bool down = n == playing || (lit && lit(n));
+        const bool down = n == board.playing || (lit && lit(n));
         const Color fill = down ? theme.accent : isBlack(n) ? theme.blackKey : theme.whiteKey;
         const Color line = down ? theme.accent : isBlack(n) ? theme.blackKey : theme.edge;
         draw.rect(k.x, k.y, k.w, k.h, Draw2D::Corners{}, fill, Draw2D::Sides{1 * s, 1 * s, 1 * s, 1 * s}, line);
@@ -959,15 +981,15 @@ Ui::Notes Ui::piano(int lowest, int highest, Rect r, const std::function<bool(in
     return notes;
 }
 
-Ui::Notes Ui::piano(int lowest, int highest, float heightPoints, const std::function<bool(int)> &lit)
+Ui::Notes Ui::piano(int lowest, int highest, float heightPoints, const std::function<bool(int)> &lit, int index)
 {
+    const Clay_ElementId pid = id("Piano", index);
     Placed board{nullptr, nullptr, nullptr, false};
-    board.lowest = lowest, board.highest = highest, board.lit = lit;
-    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(heightPoints)}},
+    board.lowest = lowest, board.highest = highest, board.lit = lit, board.keyboard = pid.id;
+    CLAY({.id = pid, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(heightPoints)}},
           .custom = {.customData = layout.custom(pianoBox, &placed.emplace_back(std::move(board)))}}) {}
-    const Notes notes = pianoNotes;
-    pianoNotes = {};
-    return notes;
+    lastElement = pid.id;
+    return std::exchange(keyboardOf(pid.id).notes, {});
 }
 
 bool Ui::envelope(std::vector<Point> &points, Rect r)
@@ -988,7 +1010,7 @@ bool Ui::envelope(std::vector<Point> &points, Rect r)
         const Point p = toPixels(points[i]);
         if (std::abs(mouse.x - p.x) <= handle * 1.6f && std::abs(mouse.y - p.y) <= handle * 1.6f) near = int(i);
     }
-    const auto a = area(&grabbedPoint, r.x, r.y, r.w, r.h);
+    const auto a = area(me, r.x, r.y, r.w, r.h); // by its data, as its focus is: two envelopes drag apart
     if (a.pressed || a.doubleClicked) focus = me, pressFocused = true;
     if (a.doubleClicked)
     {
@@ -1108,7 +1130,7 @@ bool Ui::envelope(std::vector<Point> &points, Rect r)
     draw.polyline(xy.data(), points.size(), 1.5f * s, theme.accent);
     for (size_t i = 0; i < points.size(); ++i)
     {
-        const bool hot = int(i) == grabbedPoint || (grabbedPoint < 0 && int(i) == near);
+        const bool hot = active == me ? int(i) == grabbedPoint : !active && int(i) == near;
         draw.circle(xy[2 * i], xy[2 * i + 1], hot ? handle * 1.25f : handle, hot ? theme.accent : theme.background, 1.5f * s, theme.accent);
     }
     if (focusShown(me)) draw.circle(xy[2 * size_t(chosen)], xy[2 * size_t(chosen) + 1], handle * 1.9f, {0, 0, 0, 0}, 1.5f * s, theme.accent);
@@ -1124,7 +1146,7 @@ bool Ui::steps(std::vector<float> &values, Rect r)
     const void *me = &values;
     order.push_back(me);
     takePartFocus(me, 0, count - 1);
-    const auto a = area(&lastStep, r.x, r.y, r.w, r.h);
+    const auto a = area(me, r.x, r.y, r.w, r.h); // by its data, as its focus is: two step editors paint apart
     if (a.pressed || a.doubleClicked) focus = me, pressFocused = true;
     if (a.held)
     {
