@@ -102,9 +102,10 @@ public:
         };
     }
 
-    // Called after the user changes it: docks, pops out or closes a panel,
-    // reorders or shows another tab, moves or resizes a window or split (once
-    // a drag ends). The time to save layout with the plugin's state.
+    // Called once for each change the user makes: docks, pops out or closes
+    // a panel, reorders or shows another tab, moves or resizes a window or
+    // split; once a drag ends, or for the key that did it. The time to save
+    // layout with the plugin's state.
     std::function<void()> changed;
 
     // A dock space: fills the box it's declared in. Optional; call it where
@@ -133,8 +134,8 @@ public:
         // frame, where it was.
         if (later) later(ui);
         later = nullptr;
-        // Edits that don't reshape the layout (a tab shown, a split or window
-        // moved or resized), told once the pointer's let go: once a drag.
+        // Edits, told once the pointer's let go: once a drag, however many
+        // steps it took (a tab moved along its bar, then docked).
         if (edited && !ui.pointerAt().down)
         {
             edited = false;
@@ -223,8 +224,11 @@ private:
         {
             if (n.size <= 0) n.size = 160;
             const char *label = strings.emplace_back(names(n.children[0]) + " and " + names(n.children[1])).c_str();
-            edited |= ui.split(label, n.size, [&] { tree(ui, n.children[0], panels, window); },
-                               [&] { tree(ui, n.children[1], panels, window); }, {.stacked = n.stacked}, splits++);
+            // (Not edited |= ui.split(...): what's in it may set edited too,
+            // and MSVC reads the left side first.)
+            const bool resized = ui.split(label, n.size, [&] { tree(ui, n.children[0], panels, window); },
+                                          [&] { tree(ui, n.children[1], panels, window); }, {.stacked = n.stacked}, splits++);
+            edited |= resized;
             return;
         }
         const int index = int(groups.size());
@@ -321,7 +325,7 @@ private:
             n.tabs.erase(n.tabs.begin() + from);
             n.tabs.insert(n.tabs.begin() + t.over, std::move(moved));
             n.shown = t.over;
-            if (changed) changed();
+            edited = true;
         }
         if (t.released)
         {
@@ -401,16 +405,16 @@ private:
         }
         const Ui::PointerAt p = ui.pointerAt();
         const float px = p.x / ui.s, py = p.y / ui.s;
-        if (drag.mode != Mode::title)
+        if (drag.mode != Mode::title) // (by its title, window() sees Ui move it)
         {
             Rect &frame = layout.windows[size_t(moved)].frame;
+            edited |= frame.x != px - drag.grabX || frame.y != py - drag.grabY;
             frame.x = px - drag.grabX, frame.y = py - drag.grabY;
         }
         Target target;
         const bool over = targets(ui, moved, px, py, target);
         if (p.down) return;
         if (over) later = [this, moved, target](Ui &u) { dock(u, size_t(moved), target); };
-        else if (changed) changed(); // it moved
         drag = {}, outlineAlpha = 0;
     }
 
@@ -524,7 +528,7 @@ private:
         prune(layout.space);
         for (Window &w : layout.windows) prune(w.root);
         std::erase_if(layout.windows, [](const Window &w) { return w.root.children.empty() && w.root.tabs.empty(); });
-        if (changed) changed();
+        edited = true; // told at the end of windows()
     }
     static void prune(Node &n)
     {

@@ -959,19 +959,22 @@ static void dockableWindows()
     auto at = [](Clay_ElementId id) { return Clay_GetElementData(id).boundingBox; };
     auto title = [&](const char *name) { return at(in("WindowHeader", int(in(name).id))); };
     dock.options.dockIntoWindows = true, dock.options.popOut = true; // ImGui's way, and the button
+    // Told once for each edit, to save it: once a drag ends, or for the key.
     int changes = 0;
     dock.changed = [&] { ++changes; };
+    auto once = [&] { return std::exchange(changes, 0) == 1; };
     draw();
     CHECK(layout.windows.size() == 3 && layout.space.tabs.empty());
     layout.windows[0].frame = {20, 20, 240, 180}, layout.windows[1].frame = {300, 20, 240, 180}, layout.windows[2].frame = {20, 300, 240, 180};
     draw();
     draw();
+    changes = 0;
 
     // Edit's title onto the middle of Mix's window: one window of tabs.
     Clay_BoundingBox t = title("Edit");
     drag(t.x + 30, t.y + 6, 20 + 120, 20 + 90);
     CHECK(layout.windows.size() == 2 && layout.windows[0].root.tabs == (Tabs{"Mix", "Edit"}));
-    CHECK(changes >= 1); // told, to save it
+    CHECK(once()); // moved, then docked: one edit
     CHECK(hasChild(ui, "Mix, Edit", "Panels")); // what's in a dock's window (its tab list) is its dialog's
     auto popOuts = [&] {
         int n = 0;
@@ -994,21 +997,43 @@ static void dockableWindows()
     CHECK(layout.windows.size() == 1 && layout.windows[0].root.children.size() == 2 && !layout.windows[0].root.stacked);
     CHECK(layout.windows[0].root.children.size() == 2 && layout.windows[0].root.children[1].tabs == Tabs{"Notes"});
     CHECK(std::abs(layout.windows[0].root.size - (g.width / 2 - 7)) < 1); // the half the outline showed, on the right
+    CHECK(once());
 
     // The bar's empty part moves the window.
     const float x0 = both.x;
     const Clay_BoundingBox bar = at(in("TabList", 0));
     drag(bar.x + bar.width - 6, bar.y + 6, bar.x + bar.width - 6 + 50, bar.y + 6 + 30);
     CHECK(std::abs(layout.windows[0].frame.x - (x0 + 50)) < 1);
+    CHECK(once());
 
     // Along the bar: Mix onto Edit's place. Out of it: Edit in a window of its own.
     Clay_BoundingBox mix = at(in("Tab", 0)), edit = at(in("Tab", 1));
     drag(mix.x + mix.width / 2, mix.y + 6, edit.x + edit.width / 2, edit.y + 6);
     CHECK(layout.windows[0].root.children.size() == 2 && layout.windows[0].root.children[0].tabs == (Tabs{"Edit", "Mix"}));
+    CHECK(once()); // a tab moved along its bar
     edit = at(in("Tab", 0));
     drag(edit.x + edit.width / 2, edit.y + 6, 450, 350); // let go on nothing: it stays where it's carried
     CHECK(layout.windows.size() == 2 && layout.windows[1].root.tabs == Tabs{"Edit"});
     CHECK(std::abs(layout.windows[1].frame.x - (450 - 60)) < 1);
+    CHECK(once()); // pulled out and carried
+    // A split dragged: once.
+    const gpu::Accessible *divider = nullptr;
+    for (const gpu::Accessible &n : ui.accessibility()->nodes)
+        if (n.role == gpu::Accessible::Role::splitter) divider = &n;
+    CHECK(divider != nullptr);
+    if (divider)
+    {
+        const float before = layout.windows[0].root.size, dx = divider->x + divider->width / 2, dy = divider->y + divider->height / 2;
+        drag(dx, dy, dx - 20, dy);
+        CHECK(std::abs(layout.windows[0].root.size - (before - 20)) < 1 && once());
+    }
+    // A lone window resized by its corner, then moved by its title: once each.
+    const Clay_BoundingBox corner = at(in("WindowGrip", int(in("Edit").id)));
+    drag(corner.x + 6, corner.y + 6, corner.x + 26, corner.y + 16);
+    CHECK(layout.windows[1].frame.w == 300 + 20 && once());
+    t = title("Edit");
+    drag(t.x + 30, t.y + 6, t.x + 10, t.y + 26);
+    CHECK(std::abs(layout.windows[1].frame.x - (450 - 60 - 20)) < 1 && once());
 
     // A dock space: Edit's title onto its middle, then Alt and Enter pull it out again.
     withSpace = true;
@@ -1018,15 +1043,18 @@ static void dockableWindows()
     t = title("Edit");
     drag(t.x + 30, t.y + 6, 200, 150); // the middle of the 400 x 300 space
     CHECK(layout.windows.size() == 1 && layout.space.tabs == Tabs{"Edit"});
-    clickAt(ui, at(in("Tab", 0)), draw); // the space's group is drawn first
+    CHECK(once());
+    clickAt(ui, at(in("Tab", 0)), draw); // the space's group is drawn first (its one tab: no change)
     ui.key(View::Key::enter, View::alt);
     draw();
     draw();
     CHECK(layout.space.tabs.empty() && layout.windows.size() == 2);
+    CHECK(once()); // the key
     // Closing it docks it into the space.
     clickAt(ui, at(in("WindowClose", int(in("Edit").id))), draw);
     draw();
     CHECK(layout.space.tabs == Tabs{"Edit"} && layout.windows.size() == 1);
+    CHECK(once());
     // The other window to the space's own left edge: a side of all of it.
     gpu::Rect &w = layout.windows[0].frame;
     w = {450, 320, 300, 220};
@@ -1037,6 +1065,7 @@ static void dockableWindows()
     CHECK(layout.windows.empty() && layout.space.children.size() == 2 && !layout.space.stacked);
     CHECK(layout.space.children.size() == 2 && layout.space.children[1].tabs == Tabs{"Edit"});
     CHECK(std::abs(layout.space.size - 400.0f / 3) < 1); // the third the outline showed, on the left
+    CHECK(once());
 }
 
 // As the gallery's Dock page: a page button above a dock space holding one
@@ -1186,7 +1215,7 @@ static void dockSpaceOnly()
     int changes = 0;
     dock.changed = [&] { ++changes; };
     clickAt(ui, Clay_GetElementData(in("Tab", 1)).boundingBox, draw); // Mix's tab
-    CHECK(layout.space.shown == 1 && changes >= 1);
+    CHECK(layout.space.shown == 1 && changes == 1);
     clickAt(ui, Clay_GetElementData(in("Tab", 0)).boundingBox, draw); // back to Edit
     dock.popOut("Mix");
     draw();
