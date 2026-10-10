@@ -50,6 +50,10 @@ public:
     // A Draw2D image for a box: pass the result as .image = {.imageData = ...}.
     // The box's backgroundColor alpha, if set, fades it.
     static void *image(int number) { return reinterpret_cast<void *>(intptr_t(number) + 1); }
+    // Makes this layout's Clay context Clay's current one, which begin()
+    // does: for asking Clay about the last frame between frames (from input
+    // or a screen reader), when another instance's may be current.
+    void activate() const { Clay_SetCurrentContext(context); }
     // Computes the layout, draws it, and calls onCustom for each custom box.
     void end(const std::function<void(int kind, void *data, Rect pixels)> &onCustom);
     // What the last end() laid out, in order: each element's id and box

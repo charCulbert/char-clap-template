@@ -2094,6 +2094,25 @@ static void fileDrags()
     CHECK(out.size() == 1 && made == 1);
     pointer(ui, View::Pointer::up, src.x + 60, src.y + 5);
     draw();
+
+    // Two views (two plugin windows), each its own layout: a drag over one
+    // is judged by its own last frame, whichever was drawn last.
+    Ui other;
+    std::vector<std::string> elsewhere;
+    auto drawOther = [&] {
+        frame(other, [&] {
+            CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(200), CLAY_SIZING_FIXED(200)}}}) {} // the target further along
+            const Clay_ElementId target = CLAY_IDI("Target", 0);
+            other.dropTarget(target, elsewhere);
+            CLAY({.id = target, .layout = {.sizing = {CLAY_SIZING_FIXED(100), CLAY_SIZING_FIXED(40)}}}) {}
+        });
+    };
+    draw();
+    drawOther();
+    drawOther();
+    CHECK(ui.files(View::FileDrag::over, t.x + 10, t.y + 10, {"/x.txt"}));
+    CHECK(!other.files(View::FileDrag::over, t.x + 10, t.y + 10, {"/x.txt"}));
+    CHECK(ui.bounds(CLAY_IDI("Target", 0)).x == t.x && other.bounds(CLAY_IDI("Target", 0)).x > t.x);
 }
 
 // A context menu, as the WAI-ARIA menu: a secondary click or the Menu key

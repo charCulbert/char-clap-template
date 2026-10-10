@@ -128,6 +128,7 @@ bool Ui::files(View::FileDrag type, float x, float y, const std::vector<std::str
 
 bool Ui::inside(Clay_ElementId id, float x, float y) const
 {
+    layout.activate(); // (also called between frames: files)
     const Clay_ElementData data = Clay_GetElementData(id);
     const Clay_BoundingBox &b = data.boundingBox;
     return data.found && x / s >= b.x && x / s < b.x + b.width && y / s >= b.y && y / s < b.y + b.height;
@@ -383,11 +384,16 @@ void Ui::popId()
 
 Rect Ui::bounds(Clay_ElementId element) const
 {
+    layout.activate();
     const Clay_ElementData d = Clay_GetElementData(element);
     return d.found ? Rect{d.boundingBox.x, d.boundingBox.y, d.boundingBox.width, d.boundingBox.height} : Rect{};
 }
 
-bool Ui::pointerOver(Clay_ElementId element) const { return Clay_PointerOver(element); }
+bool Ui::pointerOver(Clay_ElementId element) const
+{
+    layout.activate();
+    return Clay_PointerOver(element);
+}
 
 Clay_TextElementConfig *Ui::textConfig(Color color, int font)
 {
