@@ -343,8 +343,8 @@ The dependencies are all permissively licensed: CLAP SDK and clap-wrapper
 notice from Chromium), stb_truetype, stb_image and stb_textedit (MIT or public
 domain), Clay (zlib), nanosvg (zlib), Dear ImGui (MIT), Signalsmith DSP (MIT),
 Emscripten's runtime and emdawnwebgpu in a GPU WCLAP's page (MIT or NCSA;
-BSD 3-Clause; plus musl and libc++), and the Inter font (SIL Open Font License, its
-licence beside it in `resources/fonts/`). The VST3 and AudioUnit SDKs that
+BSD 3-Clause; plus musl and libc++), and the Inter and IBM Plex Mono fonts (SIL Open
+Font License, its licence beside each in `resources/fonts/`). The VST3 and AudioUnit SDKs that
 clap-wrapper downloads have their own terms. Projects made with
 `new-plugin.py` get a `THIRD_PARTY_NOTICES.md` listing the ones they use.
 Every build also copies the licence texts of what it downloaded into

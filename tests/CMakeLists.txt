@@ -1,4 +1,4 @@
-# Tests for the shared code and the analyzer's DSP (not copied into new plugins).
+# Tests for the shared code and the examples' DSP (not copied into new plugins).
 # Built by the top-level CMakeLists.txt, or alone:
 #   cmake -S tests -B build-tests && cmake --build build-tests && ctest --test-dir build-tests
 cmake_minimum_required(VERSION 3.28)
@@ -23,6 +23,9 @@ include(../examples/gpu-analyzer/signalsmith-dsp.cmake)
 add_executable(spectrum_test spectrum_test.cpp)
 target_include_directories(spectrum_test PRIVATE ${SIGNALSMITH_DSP_INCLUDE})
 add_test(NAME spectrum COMMAND spectrum_test)
+add_executable(stft_test stft_test.cpp)
+target_include_directories(stft_test PRIVATE ${SIGNALSMITH_DSP_INCLUDE})
+add_test(NAME stft COMMAND stft_test)
 
 # The GPU interface's drawing, layout and controls (libs/draw2d). draw2d_test
 # needs a WebGPU adapter (a software one will do) and skips without one.
@@ -43,6 +46,6 @@ add_test(NAME context COMMAND context_test)
 set_tests_properties(context PROPERTIES SKIP_RETURN_CODE 77)
 
 # The tests are assert()s, so keep them in every build type.
-foreach(test resources_test messages_test spectrum_test ui_test draw2d_test context_test)
+foreach(test resources_test messages_test spectrum_test stft_test ui_test draw2d_test context_test)
     target_compile_options(${test} PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
 endforeach()

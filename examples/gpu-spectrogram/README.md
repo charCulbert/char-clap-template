@@ -9,19 +9,55 @@ parts, with no drawing code of its own; for a drawing of your own, see
 - `plugin.cpp`: the whole CLAP plugin: audio ports, state, the hand-off of
   the analysis to the interface, and the `clap.gui` and `clap.webview` extensions.
 - `signalsmith-dsp.cmake`: pins Signalsmith Audio's DSP headers, for their FFT.
-- `chardsp_Stft.h`: the analysis, a short-time Fourier transform as Listener's
-  default: a Hann-windowed 2048-sample FFT every 512 samples, in dB relative to
-  a full-scale sine. The audio thread only copies samples into a ring.
-- `ui/SpectrogramView.cpp`: the interface, a `gpu::View`: a `gpu::Spectrogram`
-  (`draw2d/views.h`) filling a box that draws itself (`Ui::paint`), and Ui
-  controls above it, laid out with Clay.
-- Palette, Scale and Floor are settings saved in the plugin's state, not CLAP
-  parameters, since they only change the display.
-- `resources/`: the files the plugin ships (its font). Add images, sounds or
+- `chardsp_Stft.h`: the analysis, a short-time Fourier transform as
+  Listener's, in dB relative to a full-scale sine. The audio thread only
+  copies both channels into a ring; the main thread sets up the FFT and
+  window and reads the ring.
+- `ui/SpectrogramView.cpp`: the interface, a `gpu::View`, laid out as
+  char-spectrum's: a `gpu::Spectrogram` (`draw2d/views.h`) fills the window,
+  frequencies up its left edge and seconds along the bottom drawn over it,
+  and the settings as readouts (`Ui::readout`) in the top right corner.
+- `resources/`: the files the plugin ships (its font, IBM Plex Mono). Add images, sounds or
   anything else here and read them with `core::readResource("/path")` (on the
   main thread), or `gpu::loadAsset` in the view.
 - Natively `libs/gpu` draws the view with Dawn in the host's window. In WCLAP
   the same view is compiled with Emscripten into the page the host shows.
+
+## Settings
+
+Listener's spectrogram settings, with its ranges and defaults. They are saved
+in the plugin's state, not CLAP parameters, since hosts have no use for
+automating them.
+
+| Setting | Values | Default |
+|---|---|---|
+| FFT size | 256 to 16384, powers of two | 2048 |
+| Hop size | 1 sample to the FFT size | 512 |
+| Window | rectangular, Hann, Hamming or Blackman | Hann |
+| Channel | Mix, Left or Right | Mix |
+| Smoothing | 0 (off) to 0.9: each bin keeps that much of its last value (in dB) | 0 |
+| Frequency range | lower 0 to 500 Hz, upper 1 kHz to Nyquist | 20 Hz to 24 kHz |
+| Level range | floor −160 to −60 dB, ceiling −20 to 12 dB | −100 to 0 dB |
+| Scale | linear, log or mel | log |
+| Palette | System, Bone, Inferno, Viridis or Magma | System |
+| Scroll rate | 25 to 200 points a second, whatever the hop | 100 |
+| Piano strip, peak snap, cursor readout | on or off | on |
+
+Drag a readout up or down (Shift for fine) or scroll over it to change it;
+double-click it, or choose Reset to Default from its context menu, to reset
+it; click one with a list of values (FFT size, Window, Channel, Scale,
+Palette, the switches) to step to the next. With a readout focused, the arrows, Page Up and Down, Home
+and End step it, and Delete resets it; screen readers see each as a spin
+button.
+
+Hovering over the spectrogram shows the frequency, the nearest pitch in cents
+and the level under the pointer. Peak snap follows the nearest peak in that
+column within 10 points (keeping one it follows within 18), as Listener's;
+hold Command to bypass it.
+
+A short hop with a large FFT is more work than the main thread can do in
+real time: the plugin analyses at most 8 columns each time it runs (60 times
+a second) and skips older ones, so the picture keeps time.
 
 ## Build
 

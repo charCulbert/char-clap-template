@@ -8,8 +8,8 @@
 // reusable parts: the message codec and file loader (core/), and the presenter
 // that shows a gpu::View in the host's window (gpu/).
 //
-// Its three controls, Palette, Scale and Floor, only change how it looks,
-// so they are settings saved with the plugin's state, not CLAP parameters:
+// Its settings, Listener's spectrogram's, change only the analysis and how it
+// looks, so they are saved with the plugin's state, not CLAP parameters:
 // hosts don't list or automate them. The interface edits them with the same
 // messages it would use for parameters.
 #include "clap/clap.h"
@@ -29,18 +29,47 @@
 #include "core/resources.h"
 #include "gpu/gui.h"
 
-// Settings: {name, min, max, default}. Their index is their id in messages.
+// Settings: {name, min, max, default}, with Listener's ranges and defaults.
+// Their index is their id in messages; the name is their key in the state.
 struct Setting
 {
     const char *name;
     double min, max, defaultValue;
 };
-static const Setting settings[] = {
-    {"Palette", 0, 4, 0}, // gpu::Spectrogram::Palette: system, bone, inferno, viridis, magma
-    {"Scale", 0, 2, 1},   // gpu::Spectrogram::Scale: linear, log, mel
-    {"Floor", -140, -40, -100}, // dB drawn as silence, as Listener's default
+enum SettingId
+{
+    // The analysis (chardsp::Stft), which the plugin does.
+    S_FFT_SIZE,  // log2 of the FFT size: 8 to 14 is 256 to 16384 samples
+    S_HOP_SIZE,  // samples, up to the FFT size
+    S_WINDOW,    // chardsp::Stft::Window: rectangular, Hann, Hamming, Blackman
+    S_CHANNEL,   // chardsp::Stft::Channel: mix, left, right
+    S_SMOOTHING, // each bin's last value kept, 0 (off) to 0.9
+    // How it's shown, which only the interface uses.
+    S_LOW, S_HIGH,       // the frequency range, Hz (the interface stops at Nyquist)
+    S_FLOOR, S_CEILING,  // the level range, dB
+    S_SCALE,             // gpu::Spectrogram::Scale: linear, log, mel
+    S_PALETTE,           // gpu::Spectrogram::Palette: system, bone, inferno, viridis, magma
+    S_SCROLL_RATE,       // points a second, whatever the hop
+    S_PIANO, S_PEAK_SNAP, S_CURSOR, // on or off: the piano strip, and the readout under the pointer
+    S_COUNT
 };
-#define S_COUNT (3)
+static const Setting settings[S_COUNT] = {
+    {"FFT size", 8, 14, 11},
+    {"Hop size", 1, 16384, 512},
+    {"Window", 0, 3, 1},
+    {"Channel", 0, 2, 0},
+    {"Smoothing", 0, 0.9, 0},
+    {"Low frequency", 0, 500, 20},
+    {"High frequency", 1000, 96000, 24000},
+    {"Floor", -160, -60, -100},
+    {"Ceiling", -20, 12, 0},
+    {"Scale", 0, 2, 1},
+    {"Palette", 0, 4, 0},
+    {"Scroll rate", 25, 200, 100},
+    {"Piano", 0, 1, 1},
+    {"Peak snap", 0, 1, 1},
+    {"Cursor", 0, 1, 1},
+};
 
 struct MyPlugin
 {
@@ -50,8 +79,8 @@ struct MyPlugin
     float sampleRate;
     double settingValues[S_COUNT]; // main thread only
 
-    // The analysis: the audio thread fills it; the main thread takes its
-    // columns and sends them to the interface (see on_main_thread).
+    // The analysis: the audio thread fills its ring; the main thread sets it
+    // up, takes its columns and sends them to the interface (see on_main_thread).
     chardsp::Stft stft;
     std::atomic<bool> columnsPending;
     uint32_t framesSinceColumns = 0; // audio thread only
@@ -190,8 +219,8 @@ static const clap_plugin_webview_t extensionWebview = {
 };
 
 // clap.gui: size policy is ours; creating and embedding the view is gpu::Gui's.
-// The limits are in points; the minimum height keeps three knobs readable.
-#define GUI_MIN_WIDTH (360)
+// The limits are in points; the minimum keeps the settings' readouts clear of each other.
+#define GUI_MIN_WIDTH (420)
 #define GUI_MIN_HEIGHT (270)
 #define GUI_MAX_WIDTH (2000)
 #define GUI_MAX_HEIGHT (1200)
@@ -304,7 +333,8 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //                 {type: "begin" | "end", id}     a drag starts or ends (unused here)
 //   plugin -> UI  {type: "params", params: [{id, name, min, max, default}]}  the settings
 //                 {type: "values", values: [value per setting id]}
-//                 {type: "column", rate, db: [Stft::size / 2 bins, bin k at k * rate / Stft::size Hz]}
+//                 {type: "column", rate, seconds, db: [FFT size / 2 bins, bin k at k * rate / FFT size Hz]}
+//                     seconds: the audio since the last column, so the interface scrolls in time
 static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
 {
     const auto type = message["type"].text();
@@ -420,9 +450,24 @@ static const clap_plugin_t pluginClass = {
         // The audio thread asks for this 60 times a second; skip it while the interface is closed.
         if (!plugin->columnsPending.exchange(false, std::memory_order_acq_rel) || !plugin->uiReady)
             return;
+        // The analysis runs here, on the main thread, never the audio thread:
+        // new settings set up a new FFT and window first.
+        const double *v = plugin->settingValues;
+        chardsp::Stft::Settings analysis;
+        analysis.size = 1 << (int)std::lround(v[S_FFT_SIZE]);
+        analysis.hop = std::min((int)std::lround(v[S_HOP_SIZE]), analysis.size);
+        analysis.window = (chardsp::Stft::Window)std::lround(v[S_WINDOW]);
+        analysis.channel = (chardsp::Stft::Channel)std::lround(v[S_CHANNEL]);
+        analysis.smoothing = (float)v[S_SMOOTHING];
+        plugin->stft.configure(analysis);
         std::vector<float> column;
-        while (plugin->stft.next(column)) // about 1.5 columns a call at 48 kHz: one per 512 samples
+        uint32_t advanced = 0;
+        // At most 8 columns a call (Stft::next skips older ones), each sent
+        // with how much audio it moves on: about 1.5 a call at 48 kHz with a
+        // hop of 512.
+        for (int sent = 0; sent < 8 && plugin->stft.next(column, advanced); sent++)
             plugin->gui.send(core::Value::Map{{"type", "column"}, {"rate", (double)plugin->sampleRate},
+                                              {"seconds", advanced / (double)plugin->sampleRate},
                                               {"db", core::Value::Array(column.begin(), column.end())}});
     },
 };

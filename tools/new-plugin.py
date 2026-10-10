@@ -32,7 +32,7 @@ EXAMPLES = {
                      notices=["clap", "clap-wrapper", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "inter", "emscripten"]),
     "spectrogram": dict(folder="gpu-spectrogram", name="GPU Spectrogram", target="GpuSpectrogram",
                         id="com.charlieculbert.gpuspectrogram", subtype="GpSg", libs=["core", "gpu", "draw2d"],
-                        notices=["clap", "clap-wrapper", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "inter", "emscripten"]),
+                        notices=["clap", "clap-wrapper", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "plex", "emscripten"]),
     "filter": dict(folder="imgui-filter", name="ImGui Filter", target="ImGuiFilter",
                    id="com.charlieculbert.imguifilter", subtype="ImFl", libs=["core", "gpu"],
                    notices=["clap", "clap-wrapper", "dawn", "accesskit", "imgui", "inter", "emscripten"]),
@@ -58,6 +58,7 @@ NOTICES = {
     "imgui": ("Dear ImGui", "https://github.com/ocornut/imgui", "MIT"),
     "signalsmith": ("Signalsmith Audio DSP (its FFT)", "https://github.com/Signalsmith-Audio/dsp", "MIT"),
     "inter": ("Inter (font, in resources/fonts with its licence)", "https://rsms.me/inter", "SIL Open Font License 1.1"),
+    "plex": ("IBM Plex Mono (font, in resources/fonts with its licence)", "https://github.com/IBM/plex", "SIL Open Font License 1.1"),
 }
 
 MIT = """MIT License
