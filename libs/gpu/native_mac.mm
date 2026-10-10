@@ -47,6 +47,7 @@ void accessFocused(Window *window, bool focused);
 - (void)edit:(gpu::View::Key)key;
 - (void)paste;
 - (void)dragFiles:(const std::vector<std::string> &)paths;
+- (void)keysFocused:(BOOL)focused; // it, or GpuKeys for it, has the keyboard
 @end
 
 // Takes the keys while a text field is edited (see textInput). The keys the
@@ -79,6 +80,23 @@ void accessFocused(Window *window, bool focused);
 - (void)selectAll:(id)sender { [self.target edit:gpu::View::Key::selectAll]; }
 - (void)undo:(id)sender { [self.target edit:gpu::View::Key::undo]; }
 - (void)redo:(id)sender { [self.target edit:gpu::View::Key::redo]; }
+// Screen readers see the view's text field, from its tree, not this empty
+// one: the focus they ask for is the view's, which keeps it while we have
+// the keys for it.
+- (BOOL)isAccessibilityElement { return NO; }
+- (id)accessibilityFocusedUIElement { return self.target.accessibilityFocusedUIElement; }
+- (BOOL)becomeFirstResponder
+{
+    const BOOL taken = [super becomeFirstResponder];
+    if (taken) [self.target keysFocused:YES];
+    return taken;
+}
+- (BOOL)resignFirstResponder
+{
+    const BOOL given = [super resignFirstResponder];
+    if (given) [self.target keysFocused:NO];
+    return given;
+}
 @end
 
 @implementation GpuView
@@ -207,8 +225,18 @@ static unsigned modifiers(NSEvent *event)
     [self send:gpu::View::Pointer::down event:event button:1];
 }
 - (void)rightMouseUp:(NSEvent *)event { [self send:gpu::View::Pointer::up event:event button:1]; }
-- (void)otherMouseDown:(NSEvent *)event { [self send:gpu::View::Pointer::down event:event button:2]; }
-- (void)otherMouseUp:(NSEvent *)event { [self send:gpu::View::Pointer::up event:event button:2]; }
+// The middle one; others (a mouse's back and forward) aren't the view's, as on
+// Windows and Linux: the host may use them.
+- (void)otherMouseDown:(NSEvent *)event
+{
+    if (event.buttonNumber == 2) [self send:gpu::View::Pointer::down event:event button:2];
+    else [super otherMouseDown:event];
+}
+- (void)otherMouseUp:(NSEvent *)event
+{
+    if (event.buttonNumber == 2) [self send:gpu::View::Pointer::up event:event button:2];
+    else [super otherMouseUp:event];
+}
 - (void)scrollWheel:(NSEvent *)event
 {
     if (!_callbacks) return;
@@ -312,14 +340,18 @@ static unsigned modifiers(NSEvent *event)
 - (NSArray *)accessibilityChildren { return self.owner ? gpu::platform::accessChildren(self.owner) : @[]; }
 - (id)accessibilityFocusedUIElement { return self.owner ? gpu::platform::accessFocus(self.owner) : nil; }
 - (id)accessibilityHitTest:(NSPoint)point { return self.owner ? gpu::platform::accessHitTest(self.owner, point) : nil; }
+- (void)keysFocused:(BOOL)focused
+{
+    if (self.owner) gpu::platform::accessFocused(self.owner, focused);
+}
 - (BOOL)becomeFirstResponder
 {
-    if (self.owner) gpu::platform::accessFocused(self.owner, true);
+    [self keysFocused:YES];
     return YES;
 }
 - (BOOL)resignFirstResponder
 {
-    if (self.owner) gpu::platform::accessFocused(self.owner, false);
+    [self keysFocused:NO];
     return YES;
 }
 @end
@@ -348,8 +380,11 @@ static void accessAction(accesskit_action_request *request, void *window)
     Accessible::Action kind;
     double value;
     if (!accesskit::action(request, id, kind, value)) return;
+    // The view, not the window: destroy() may delete the window before this
+    // runs, and clears the view's callbacks when it does.
+    GpuView *view = static_cast<Window *>(window)->view;
     dispatch_async(dispatch_get_main_queue(), ^{ // where views are used, should AppKit ever call from elsewhere
-        if (auto *w = static_cast<Window *>(window); w->view.callbacks) w->callbacks.access(id, kind, value);
+        if (view.callbacks) view.callbacks->access(id, kind, value);
     });
 }
 
