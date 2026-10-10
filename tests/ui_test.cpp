@@ -1333,42 +1333,60 @@ static void dockedDrawers()
     CHECK(!topOpen && bottomOpen);
 }
 
-// A drawer whose header is only an arrow: 24 points square, named by its
-// title (with no description repeating it) and expanded while open; a click
-// opens it and its contents come, and a click closes it.
-static void arrowOnlyDrawer()
+// An overlay drawer: closed, a tab 24 by 48 points centred on its box's
+// edge, named by its title (no description repeating it); open, a panel over
+// the box (which keeps its size) with the tab on its inner edge. Tab goes
+// from the tab into the panel; Escape there closes it and focuses the tab.
+static void overlayDrawer()
 {
     Ui ui;
-    bool open = false, declared = false;
+    bool open = false, inside = false, declared = false;
     float width = 120;
     auto draw = [&] {
         declared = false;
         frame(ui, [&] {
-            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
+            CLAY({.id = CLAY_ID("Plot"), .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
             {
-                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) {}
-                ui.drawer("Settings", open, width, [&] { declared = true; },
-                          {.edge = gpu::DrawerOptions::Edge::right, .min = 80, .max = 200, .arrowOnly = true});
+                ui.drawer("Settings", open, width, [&] { declared = true, ui.toggle("Inside", inside); },
+                          {.edge = gpu::DrawerOptions::Edge::right, .min = 80, .max = 200, .overlay = true});
             }
         });
     };
     draw();
     draw();
-    const Clay_BoundingBox header = box("DrawerHeader", Clay_GetElementIdWithIndex(CLAY_STRING("Settings"), 0).id);
-    CHECK(header.width == 24 && header.height == 24);
-    CHECK(header.x + header.width == 390); // closed, at the right edge (inside the frame's padding)
+    const Clay_ElementId settings = Clay_GetElementIdWithIndex(CLAY_STRING("Settings"), 0);
+    auto tab = [&] { return box("DrawerHeader", settings.id); };
+    const Clay_BoundingBox plot = box("Plot");
+    CHECK(tab().width == 24 && tab().height == 48);
+    CHECK(tab().x + 24 == plot.x + plot.width && tab().y + 24 == plot.y + plot.height / 2); // on the right edge, centred
     auto node = [&]() -> const gpu::Accessible * {
         for (const gpu::Accessible &n : ui.accessibility()->nodes)
             if (n.role == gpu::Accessible::Role::button && n.name == "Settings") return &n;
         return nullptr;
     };
     CHECK(node() && node()->expanded == 0 && node()->description.empty());
-    clickAt(ui, header, draw);
+    clickAt(ui, tab(), draw);
     draw();
     CHECK(open && declared && node() && node()->expanded == 1);
-    const Clay_BoundingBox opened = box("DrawerHeader", Clay_GetElementIdWithIndex(CLAY_STRING("Settings"), 0).id);
-    CHECK(opened.width == 24 && opened.height == 24);
-    clickAt(ui, opened, draw);
+    const Clay_BoundingBox panel = Clay_GetElementData(settings).boundingBox, after = box("Plot");
+    CHECK(after.width == plot.width && after.height == plot.height); // nothing under it moved
+    CHECK(panel.x + panel.width == plot.x + plot.width && panel.width == 120 + 7 && panel.height == plot.height);
+    CHECK(tab().x + 24 == panel.x && tab().width == 24); // riding on its inner edge
+    ui.key(View::Key::tab, 0); // from the tab (focused by the click) into the panel: its edge's handle,
+    draw();
+    ui.key(View::Key::tab, 0); // then what's in it
+    draw();
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(inside);
+    CHECK(ui.key(View::Key::escape, 0)); // the toggle has no use for it: it closes the drawer
+    draw();
+    CHECK(!open);
+    ui.key(View::Key::enter, 0); // focus went back to the tab, which opens it again
+    draw();
+    draw(); // (the tab moves out with the panel the frame after)
+    CHECK(open);
+    clickAt(ui, tab(), draw); // the same tab closes it
     CHECK(!open);
 }
 
@@ -2591,7 +2609,7 @@ int main()
     windows();
     windowInScope();
     dockedDrawers();
-    arrowOnlyDrawer();
+    overlayDrawer();
     signalViews();
     tabStrip();
     dockableWindows();

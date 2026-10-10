@@ -128,23 +128,69 @@ bool Ui::drawer(const char *title, bool &open, float &size, const std::function<
     using Edge = DrawerOptions::Edge;
     const bool across = options.edge == Edge::left || options.edge == Edge::right; // it sizes widths
     const Clay_ElementId xid = id(title, index), hid = id("DrawerHandle", xid.id);
+    const Clay_ElementId tid = id("DrawerHeader", xid.id); // as drawerHeader names it
+    // Escape closed it (see key): focus goes back to its tab.
+    if (options.overlay && escapeCloses == xid.id)
+    {
+        escapeCloses = 0, open = false, settle = true;
+        focus = reinterpret_cast<const void *>(uintptr_t(tid.id)), focusVisible = true;
+    }
     // Its header: the disclosure button, as the plain drawer's.
     const Clay_ElementData laidOut = Clay_GetElementData(xid);
     const Clay_BoundingBox box = laidOut.boundingBox;
-    if (!laidOut.found) settle = true;
+    if (!laidOut.found && (open || !options.overlay)) settle = true; // (a closed overlay has only its tab)
     // Its handle resizes it, measured from the docked edge: inwards is bigger.
     if (open && options.resizable)
     {
         const bool fromEnd = options.edge == Edge::bottom || options.edge == Edge::right;
         const float origin = across ? (fromEnd ? box.x + box.width : box.x) : (fromEnd ? box.y + box.height : box.y);
-        const float header = across ? 0 : theme.textSize * 1.25f + 8 + 1; // a column's header sits above what the handle sizes
+        // A column's header sits above what the handle sizes (an overlay's tab is outside it).
+        const float header = across || options.overlay ? 0 : theme.textSize * 1.25f + 8 + 1;
         const std::string name = std::string("Resize ") + title;
         float content = size;
         if (handle(hid, name.c_str(), content, options.min, options.max, !across,
-                   fromEnd ? origin - (across ? 0 : header) : origin + header, fromEnd ? -1 : 1))
+                   fromEnd ? origin - header : origin + header, fromEnd ? -1 : 1))
             size = content;
     }
     const auto grow = CLAY_SIZING_GROW(0), fixed = CLAY_SIZING_FIXED(size);
+    const bool towardsEnd = options.edge == Edge::left || options.edge == Edge::top; // opens right or down
+    const bool handleFirst = options.edge == Edge::bottom || options.edge == Edge::right; // on its inner side
+    if (options.overlay)
+    {
+        // Floating at the edge of the box it's declared in: the panel along
+        // that edge while open, and the tab centred on the edge, or on the
+        // panel's inner side. The tab is placed by the box, not the panel
+        // (Clay places a floating child only after its parent), and is under
+        // it (z 8, the panel 9), so it's drawn first and comes first in
+        // reading and Tab order.
+        using P = Clay_FloatingAttachPointType;
+        const P edgePoint = options.edge == Edge::left ? CLAY_ATTACH_POINT_LEFT_CENTER : options.edge == Edge::right ? CLAY_ATTACH_POINT_RIGHT_CENTER
+                          : options.edge == Edge::top ? CLAY_ATTACH_POINT_CENTER_TOP : CLAY_ATTACH_POINT_CENTER_BOTTOM;
+        const int opens = across ? (towardsEnd ? chevronRightBox : chevronLeftBox) : (towardsEnd ? chevronBox : chevronUpBox);
+        const int closes = across ? (towardsEnd ? chevronLeftBox : chevronRightBox) : (towardsEnd ? chevronUpBox : chevronBox);
+        const bool wasOpen = open;
+        const float extent = wasOpen ? size + (options.resizable ? 7 : 0) : 0, inwards = towardsEnd ? extent : -extent;
+        if (drawerHeader(title, open, index, wasOpen ? closes : opens, across,
+                         {.offset = {across ? inwards : 0, across ? 0 : inwards}, .zIndex = 8, .attachPoints = {edgePoint, edgePoint},
+                          .attachTo = CLAY_ATTACH_TO_PARENT}))
+            settle = true; // opened: the panel comes next frame
+        if (!wasOpen) return open;
+        overlaysNow.push_back({xid.id, tid.id});
+        CLAY({.id = xid, .layout = {.sizing = {across ? CLAY_SIZING_FIT(0) : grow, across ? grow : CLAY_SIZING_FIT(0)},
+                                    .layoutDirection = across ? CLAY_LEFT_TO_RIGHT : CLAY_TOP_TO_BOTTOM},
+              .floating = {.zIndex = 9, .attachPoints = {edgePoint, edgePoint}, .attachTo = CLAY_ATTACH_TO_PARENT}})
+        {
+            if (options.resizable && handleFirst) handleBox(hid, !across);
+            CLAY({.layout = {.sizing = {across ? fixed : grow, across ? grow : fixed}, .padding = CLAY_PADDING_ALL(6), .childGap = 6,
+                             .layoutDirection = CLAY_TOP_TO_BOTTOM},
+                  .backgroundColor = clayColor(theme.background), .clip = {.vertical = true}})
+            {
+                if (open) contents();
+            }
+            if (options.resizable && !handleFirst) handleBox(hid, !across);
+        }
+        return open;
+    }
     auto body = [&] {
         CLAY({.layout = {.sizing = {grow, across ? grow : fixed}, .padding = CLAY_PADDING_ALL(6), .childGap = 6,
                          .layoutDirection = CLAY_TOP_TO_BOTTOM},
@@ -154,19 +200,14 @@ bool Ui::drawer(const char *title, bool &open, float &size, const std::function<
     CLAY({.id = xid, .layout = {.sizing = {across ? (open ? fixed : CLAY_SIZING_FIT(0)) : grow, across ? grow : CLAY_SIZING_FIT(0)},
                                 .layoutDirection = across ? CLAY_LEFT_TO_RIGHT : CLAY_TOP_TO_BOTTOM}})
     {
-        if (open && options.resizable && (options.edge == Edge::bottom || options.edge == Edge::right)) handleBox(hid, !across);
+        if (open && options.resizable && handleFirst) handleBox(hid, !across);
         CLAY({.layout = {.sizing = {grow, grow}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
         {
             if (open && options.edge == Edge::bottom) body();
-            // The header: an arrow pointing the way it opens (away from its
-            // edge), the other way while open; or the plain drawer's.
-            const bool towardsEnd = options.edge == Edge::left || options.edge == Edge::top; // opens right or down
-            const int opens = across ? (towardsEnd ? chevronRightBox : chevronLeftBox) : (towardsEnd ? chevronBox : chevronUpBox);
-            const int closes = across ? (towardsEnd ? chevronLeftBox : chevronRightBox) : (towardsEnd ? chevronUpBox : chevronBox);
-            drawerHeader(title, open, index, options.arrowOnly ? (open ? closes : opens) : 0);
+            drawerHeader(title, open, index); // the header
             if (before && open && options.edge != Edge::bottom) body();
         }
-        if (open && options.resizable && (options.edge == Edge::top || options.edge == Edge::left)) handleBox(hid, !across);
+        if (open && options.resizable && !handleFirst) handleBox(hid, !across);
     }
     return open;
 }
@@ -289,7 +330,7 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
 // ImGui's collapsing header). Declare the section only while it returns true.
 bool Ui::drawer(const char *title, bool &open, int index) { return drawerHeader(title, open, index, 0); }
 
-bool Ui::drawerHeader(const char *title, bool &open, int index, int arrow)
+bool Ui::drawerHeader(const char *title, bool &open, int index, int arrow, bool tall, Clay_FloatingElementConfig floating)
 {
     // Its id from its title, as a window's: two drawers need no index to
     // differ. (Not the title's own id: a docked drawer's box has that.)
@@ -303,10 +344,12 @@ bool Ui::drawerHeader(const char *title, bool &open, int index, int arrow)
     const bool hot = Clay_PointerOver(did);
     if (arrow)
     {
-        // 24 points square, outlined as a toggle is; the title as its tooltip.
-        CLAY({.id = did, .layout = {.sizing = {CLAY_SIZING_FIXED(24), CLAY_SIZING_FIXED(24)},
+        // An overlay drawer's tab: 24 by 48 points (WCAG 2.5.8 asks 24 at
+        // least), opaque over what's under it; the title as its tooltip.
+        CLAY({.id = did, .layout = {.sizing = {CLAY_SIZING_FIXED(tall ? 24.0f : 48.0f), CLAY_SIZING_FIXED(tall ? 48.0f : 24.0f)},
                                     .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
-              .backgroundColor = clayColor(hot ? theme.panel : Color{0, 0, 0, 0}), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+              .backgroundColor = clayColor(theme.panel), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+              .floating = floating,
               .border = {.color = clayColor(focusShown(did) ? theme.accent : hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
         {
             CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(8), CLAY_SIZING_FIXED(8)}}, .custom = {.customData = layout.custom(arrow)}}) {}

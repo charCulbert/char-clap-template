@@ -91,11 +91,15 @@ struct DrawerOptions
     Edge edge = Edge::top;
     bool resizable = true;
     float min = 40, max = 1e9f;
-    // Its header only an arrow, 24 points square (WCAG 2.5.8's least),
-    // pointing the way it opens and the other way while open: for a drawer
-    // over or beside a plot. The title stays its name to screen readers and
-    // shows as its tooltip.
-    bool arrowOnly = false;
+    // Over what's under it (a plot), not beside it: nothing moves when it
+    // opens. Its header is then a tab, 24 by 48 points, with an arrow
+    // pointing the way it opens: centred on the edge of the box the drawer is
+    // declared in while closed, and riding on the panel's inner edge while
+    // open, the arrow turned to close it. The panel is opaque and fills that
+    // box along the edge. The title is the tab's name to screen readers and
+    // its tooltip. Escape, with focus on the tab or in the panel (and not
+    // used by the focused control), closes it and focuses the tab.
+    bool overlay = false;
 };
 
 // How a Ui::split lays out and limits its two areas (points).
@@ -438,8 +442,14 @@ private:
         float place = -1;       // its place among its siblings when said by hand, not by where it is drawn
     };
     // A drawer's header: the title after a chevron, or (arrow: a chevron
-    // Builtin) that arrow alone.
-    bool drawerHeader(const char *title, bool &open, int index, int arrow);
+    // Builtin) an overlay drawer's tab with that arrow, upright (tall) or
+    // lying along a top or bottom edge, floating where it's told.
+    bool drawerHeader(const char *title, bool &open, int index, int arrow = 0, bool tall = true,
+                      Clay_FloatingElementConfig floating = {});
+    // Open overlay drawers, as the last frame had them: their box and their
+    // tab; and the one an Escape is to close (see key).
+    std::vector<std::pair<uint32_t, uint32_t>> overlays, overlaysNow;
+    uint32_t escapeCloses = 0;
     bool handle(Clay_ElementId hid, const char *name, float &size, float min, float most, bool vertical, float origin, int sign);
     void handleBox(Clay_ElementId hid, bool vertical);
     std::vector<Described> described;

@@ -1,9 +1,10 @@
 // GPU Spectrogram's interface, made only of libs/draw2d's parts: a
 // gpu::Spectrogram (draw2d/views.h) fills the window, its scales drawn over
-// its edges, with a Pause toggle and the settings drawer's arrow (Ui::drawer)
-// in its top right corner. Open, the drawer docks to the right edge, beside
-// the plot, with the plugin's settings as readouts (Ui::readout) to drag,
-// scroll or click; its edge resizes it. Hovering shows the frequency, nearest
+// its edges, with a Pause toggle in its top right corner and the settings
+// drawer's tab (Ui::drawer, an overlay) on its right edge. Open, the drawer's
+// panel covers the plot's right side, which stays as it is, with the
+// plugin's settings as readouts (Ui::readout) to drag, scroll or click; its
+// edge resizes it. Hovering shows the frequency, nearest
 // pitch and level under the pointer; holding a key of the piano strip plays
 // its pitch (through the plugin) and marks it across the plot. Space pauses
 // the display. The columns arrive from the plugin as "column" messages (see
@@ -133,42 +134,35 @@ public:
         spectrogram.configure(o); // cheap when nothing changed: it only redraws when its picture would
 
         ui.begin(width, height, scale);
-        const Clay_ElementId plot = ui.id("Plot"), corner = ui.id("Corner");
-        const bool drawerOpen = p[drawer]->value >= 0.5;
-        // The spectrogram fills the window, edge to edge, beside the drawer
-        // while it's open; Pause (and the drawer's arrow while it's closed)
-        // over its top right corner.
-        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
+        const Clay_ElementId plot = ui.id("Plot"), corner = ui.id("Corner"), panel = ui.id("Settings");
+        const Clay_ElementId tab = ui.id("DrawerHeader", panel.id); // the drawer's tab, as Ui names it
+        // The spectrogram fills the window, edge to edge, and stays so: the
+        // settings drawer opens over it from the right edge. Pause sits in
+        // its top right corner, and left of the drawer's panel while it's open.
+        const float panelWidth = p[drawer]->value >= 0.5 ? ui.bounds(panel).w : 0;
+        CLAY({.id = plot, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
+              .custom = {.customData = ui.paint([this, plot, corner, panel, tab](gpu::Rect r) {
+                  spectrogram.draw(ui, "Spectrogram", r);
+                  if (p[piano]->value >= 0.5f) drawPiano(r);
+                  else if (heldNote >= 0) playNote(-1); // the strip went away with a key held
+                  drawScales(r);
+                  if (heldNote >= 0) drawGuide(r);
+                  if (hovering && heldNote < 0 && p[cursor]->value >= 0.5f && ui.pointerOver(plot) && !ui.pointerOver(corner)
+                      && !ui.pointerOver(panel) && !ui.pointerOver(tab))
+                      drawCursor(r);
+              })}})
         {
-            CLAY({.id = plot, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
-                  .custom = {.customData = ui.paint([this, plot, corner](gpu::Rect r) {
-                      spectrogram.draw(ui, "Spectrogram", r);
-                      if (p[piano]->value >= 0.5f) drawPiano(r);
-                      else if (heldNote >= 0) playNote(-1); // the strip went away with a key held
-                      drawScales(r);
-                      if (heldNote >= 0) drawGuide(r);
-                      if (hovering && heldNote < 0 && p[cursor]->value >= 0.5f && ui.pointerOver(plot) && !ui.pointerOver(corner))
-                          drawCursor(r);
-                  })}})
+            const gpu::Color &b = ui.theme.background;
+            CLAY({.id = corner, .layout = {.sizing = {CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0)}, .padding = {4, 4, 4, 4}},
+                  .backgroundColor = gpu::clayColor({b.r, b.g, b.b, 0.78f}), .cornerRadius = CLAY_CORNER_RADIUS(4),
+                  .floating = {.offset = {-8 - panelWidth, 8}, .attachPoints = {CLAY_ATTACH_POINT_RIGHT_TOP, CLAY_ATTACH_POINT_RIGHT_TOP},
+                               .attachTo = CLAY_ATTACH_TO_PARENT}})
             {
-                const gpu::Color &b = ui.theme.background;
-                CLAY({.id = corner, .layout = {.sizing = {CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0)}, .padding = {4, 4, 4, 4}, .childGap = 4,
-                                               .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
-                      .backgroundColor = gpu::clayColor({b.r, b.g, b.b, 0.78f}), .cornerRadius = CLAY_CORNER_RADIUS(4),
-                      .floating = {.offset = {-8, 8}, .attachPoints = {CLAY_ATTACH_POINT_RIGHT_TOP, CLAY_ATTACH_POINT_RIGHT_TOP},
-                                   .attachTo = CLAY_ATTACH_TO_PARENT}})
-                {
-                    bool pause = paused;
-                    if (ui.toggle("Pause", pause)) setPaused(pause);
-                    ui.tooltip("Freeze the display (Space); the analysis keeps running");
-                    if (!drawerOpen) settingsDrawer(width / scale);
-                }
+                bool pause = paused;
+                if (ui.toggle("Pause", pause)) setPaused(pause);
+                ui.tooltip("Freeze the display (Space); the analysis keeps running");
             }
-            if (drawerOpen)
-                CLAY({.layout = {.sizing = {CLAY_SIZING_FIT(0), CLAY_SIZING_GROW(0)}}, .backgroundColor = gpu::clayColor(ui.theme.background)})
-                {
-                    settingsDrawer(width / scale);
-                }
+            settingsDrawer(width / scale);
         }
         ui.resizeGrip(width, height);
         return ui.record();
@@ -186,7 +180,7 @@ private:
         ui.announce(paused ? "Display paused" : "Display resumed");
     }
 
-    // The settings drawer, docked to the right edge (see record), which keeps
+    // The settings drawer, over the plot's right edge (see record), which keeps
     // whether it's open and its width in the plugin's state. In it the
     // settings as readouts, as many to a row as its width has room for; the
     // CQT's only while it's the transform. Each has a context menu to reset it.
@@ -196,7 +190,7 @@ private:
         float size = float(p[drawerWidth]->value);
         const float least = float(p[drawerWidth]->min), most = std::max(least, std::min(float(p[drawerWidth]->max), widthPoints - 200));
         ui.drawer("Settings", open, size, [&] { readouts(size); },
-                  {.edge = gpu::DrawerOptions::Edge::right, .min = least, .max = most, .arrowOnly = true});
+                  {.edge = gpu::DrawerOptions::Edge::right, .min = least, .max = most, .overlay = true});
         auto keep = [this](gpu::Param &q, double value) {
             if (value == q.value) return;
             params.begin(q), params.change(q, value), params.end(q);

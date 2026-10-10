@@ -101,8 +101,15 @@ bool Ui::key(View::Key key, unsigned modifiers)
     // Keys the focused control has no use for are the host's: Space and
     // Delete, Enter on a knob, Escape with no menu open.
     using K = View::Key;
+    // Escape closes an open overlay drawer that has the focus, on its tab or
+    // inside it, unless the focused control uses Escape itself.
+    uint32_t closes = 0;
+    if (key == K::escape && !editing && !openMenu && !(focusUses >> unsigned(key) & 1))
+        for (auto [box, tab] : overlays)
+            if (focus == reinterpret_cast<const void *>(uintptr_t(tab)) || controlIn(focus, {box, 0, 0, {}})) closes = box;
+    if (closes) escapeCloses = closes;
     const bool used = key == K::tab || (focusUses >> unsigned(key) & 1) || (key == K::escape && openMenu)
-                   || (key == K::contextMenu && focusHasMenu);
+                   || (key == K::contextMenu && focusHasMenu) || closes;
     if (!editing && !used) return false;
     if (key == K::tab && order.empty()) return false;
     keys.push_back({key, modifiers});
@@ -285,6 +292,8 @@ bool Ui::record()
     changedNow.clear();
     dropTargets.swap(dropTargetsNow);
     dropTargetsNow.clear();
+    overlays.swap(overlaysNow);
+    overlaysNow.clear();
     incoming.dropped = false; // seen by this frame's dropTarget
     if (!menuSeen && openMenu) menuFor ? closeMenu() : void(openMenu = 0); // its dropdown or control is gone
     for (auto [key, modifiers] : keys)
