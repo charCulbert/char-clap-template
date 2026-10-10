@@ -19,16 +19,11 @@ namespace {
 class FilterView : public gpu::View
 {
 public:
-    ~FilterView() override
-    {
-        if (!context) return;
-        ImGui::SetCurrentContext(context);
-        ImGui_ImplWGPU_Shutdown();
-        ImGui::DestroyContext(context); // also clears ImGui's current context
-    }
+    ~FilterView() override { release(); }
 
     void prepare(const wgpu::Device &device, wgpu::TextureFormat format) override
     {
+        release(); // prepared again after the GPU was reset: a new device
         // Each plugin instance has its own ImGui context. ImGui's current
         // context is global, so every entry point below selects ours first.
         context = ImGui::CreateContext();
@@ -102,6 +97,8 @@ public:
 
     // ImGui finishes reacting to input over a few frames; a text cursor blinks.
     bool animating() const override { return framesLeft > 0 || typing; }
+    // A Ctrl+clicked slider being typed into: the presenter gives it the keys.
+    bool editingText() const override { return typing; }
 
     void draw(const wgpu::RenderPassEncoder &pass, float width, float height, float newScale) override
     {
@@ -139,6 +136,15 @@ public:
     }
 
 private:
+    void release()
+    {
+        if (!context) return;
+        ImGui::SetCurrentContext(context);
+        ImGui_ImplWGPU_Shutdown();
+        ImGui::DestroyContext(context); // also clears ImGui's current context
+        context = nullptr;
+    }
+
     ImGuiIO &io_() { ImGui::SetCurrentContext(context); return ImGui::GetIO(); }
 
     void modifiers(unsigned mods)

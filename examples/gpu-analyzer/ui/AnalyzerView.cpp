@@ -199,6 +199,10 @@ public:
     }
     void pointer(const PointerEvent &event) override { ui.pointer(event); }
     bool key(Key key, unsigned modifiers) override { return ui.key(key, modifiers); }
+    // A knob's value typed in (Enter or a digit on a focused knob, or a click on its value).
+    bool text(const char *utf8) override { return ui.text(utf8); }
+    bool editingText() const override { return ui.editingText(); }
+    Caret textCaret() const override { return ui.textCaret(); }
     // Screen readers: the knobs describe themselves; the presenter asks for the tree.
     const gpu::Accessibility *accessibility() const override { return ui.accessibility(); }
     void accessAction(uint64_t id, gpu::Accessible::Action action, double value) override { ui.accessAction(id, action, value); }
