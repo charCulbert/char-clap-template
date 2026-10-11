@@ -287,7 +287,7 @@ public:
     bool steps(std::vector<float> &values);
     // A piano keyboard filling the width, heightPoints tall. Its notes come
     // back from the next frame's call (drawing happens at end()).
-    Notes piano(int lowest, int highest, float heightPoints = 126, const std::function<bool(int)> &lit = {}, // 126: compost's
+    Notes piano(int lowest, int highest, float heightPoints = 126, const std::function<bool(int)> &lit = {}, // 126: as compost's
                 int index = 0);
     // A filmstrip knob at the size of one frame (in points, at scale 1 a pixel each).
     void imageKnob(Params &params, Param *p, int image, int frames, bool log = false, bool across = false);

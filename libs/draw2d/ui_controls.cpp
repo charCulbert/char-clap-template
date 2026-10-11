@@ -919,17 +919,22 @@ Ui::Notes Ui::keyboard(uint32_t identity, int lowest, int highest, Rect r, const
     int whites = 0;
     for (int n = lowest; n <= highest; ++n) whites += !isBlack(n);
     if (whites == 0) return notes;
-    // As compost's piano: whites 20 points wide and blacks 12, two thirds
-    // as tall, the keyboard at that width in the middle of r (narrower only
-    // where r is), C# and F# a little left of their gaps, D# and A# right.
-    const float keyWidth = std::min(20 * s, r.w / whites), blackWidth = keyWidth * 0.6f, blackHeight = r.h * 0.66f;
+    // Whites 20 points wide, the keyboard at that width in the middle of r
+    // (narrower only where r is). Blacks in a real piano's proportions, 0.58
+    // of a white wide and 0.63 as tall, spaced as one is built: C to E's
+    // width shared evenly by its five keys, F to B's by its seven.
+    const float keyWidth = std::min(20 * s, r.w / whites), blackWidth = keyWidth * 0.58f, blackHeight = r.h * 0.63f;
     const float left = r.x + (r.w - whites * keyWidth) / 2;
     auto keyRect = [&](int note) {
         int whitesBefore = 0;
         for (int n = lowest; n < note; ++n) whitesBefore += !isBlack(n);
         if (!isBlack(note)) return Rect{left + whitesBefore * keyWidth, r.y, keyWidth, r.h};
-        static const float shift[12] = {0, -1, 0, 3, 0, 0, -1, 0, 0, 0, 3, 0}; // sixteenths of a black key's width
-        const float x = left + whitesBefore * keyWidth - blackWidth / 2 + shift[((note % 12) + 12) % 12] * blackWidth / 16;
+        const int pc = ((note % 12) + 12) % 12;
+        const bool lower = pc < 5;                   // C#, D# in C to E; F#, G#, A# in F to B
+        const int slot = lower ? pc + 1 : pc - 4;     // its slot in the group, from 1: 2, 4 or 6
+        const float slotWidth = (lower ? 3.0f : 4.0f) / (lower ? 5 : 7); // in whites
+        const float fromGap = (slot - 0.5f) * slotWidth - slot / 2;      // its centre, from the gap it sits in
+        const float x = left + (whitesBefore + fromGap) * keyWidth - blackWidth / 2;
         return Rect{x, r.y, blackWidth, blackHeight};
     };
     auto inside = [&](Rect k) { return mouse.x >= k.x && mouse.x < k.x + k.w && mouse.y >= k.y && mouse.y < k.y + k.h; };
