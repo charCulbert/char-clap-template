@@ -6,7 +6,11 @@ Resonance) whose interface is stock Dear ImGui widgets.
 - `entry.cpp`: the CLAP entry point, which makes the plugin.
 - `plugin.cpp`: the whole CLAP plugin: audio ports, parameters, state, and the
   `clap.gui` and `clap.webview` extensions.
-- `chardsp_StateVariableFilter.h`: the filter.
+- `chardsp_StateVariableFilter.h`: the filter, which follows the
+  topology-preserving-transform state-variable filter in the
+  [Cmajor](https://github.com/cmajor-lang/cmajor) standard library (ISC,
+  Cmajor Software Ltd): `licenses/Cmajor.txt` is its licence, which ships with
+  the plugin's other third-party licences.
 - `ui/FilterView.cpp`: the interface, a `gpu::View` drawn with Dear ImGui and
   its WebGPU renderer. Ctrl+click a slider to type a value.
 - `resources/`: the files the plugin ships (its font). Add images, sounds or

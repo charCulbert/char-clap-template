@@ -28,6 +28,8 @@ endif()
 
 set(LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../../libs")
 include(${LIBS}/gpu/gpu.cmake)
+# chardsp_StateVariableFilter.h follows the Cmajor standard library's SVF (ISC): its licence ships with the others.
+set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_LICENSES "cmajor=${CMAKE_CURRENT_SOURCE_DIR}/licenses/Cmajor.txt")
 
 # Dear ImGui (MIT) and its WebGPU renderer. It has no CMakeLists: compile its files.
 include(FetchContent)

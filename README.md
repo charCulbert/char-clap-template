@@ -344,10 +344,14 @@ notice from Chromium), stb_truetype, stb_image and stb_textedit (MIT or public
 domain), Clay (zlib), nanosvg (zlib), Dear ImGui (MIT), Signalsmith DSP (MIT),
 Signalsmith Basics (MIT; GPU Analyzer's analysis follows its analyser),
 CiCueTea (MIT; GPU Spectrogram's constant-Q transform follows it),
-Emscripten's runtime and emdawnwebgpu in a GPU WCLAP's page (MIT or NCSA;
+the Cmajor standard library (ISC; ImGui Filter's state-variable filter follows
+its `tpt::svf`), Emscripten's runtime and emdawnwebgpu in a GPU WCLAP's page (MIT or NCSA;
 BSD 3-Clause; plus musl and libc++), and the Inter and IBM Plex Mono fonts (SIL Open
-Font License, its licence beside each in `resources/fonts/`). The VST3 and AudioUnit SDKs that
-clap-wrapper downloads have their own terms. Projects made with
+Font License, its licence beside each in `resources/fonts/`). clap-wrapper also
+downloads, for every example: the VST3 SDK (MIT), RtAudio and RtMidi for the
+standalone app (MIT-style), and on macOS the AudioUnit SDK for the AU
+(Apache-2.0) and ghc::filesystem (MIT; not when `CMAKE_OSX_DEPLOYMENT_TARGET`
+is 10.15 or later). Projects made with
 `new-plugin.py` get a `THIRD_PARTY_NOTICES.md` listing the ones they use.
 Every build also copies the licence texts of what it downloaded into
 `THIRD_PARTY_LICENSES/` beside the plugin. AccessKit's static libraries
