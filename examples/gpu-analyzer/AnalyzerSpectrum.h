@@ -72,7 +72,9 @@ struct AnalyzerSpectrum
             input.restart (hop, first - hop);
             started = true;
         }
-        while (input.nextHop (Short::windowSize, ringSize))
+        // Only up to `end`: a writer running faster than real time (an
+        // offline render) would otherwise keep this loop going for ever.
+        while (int32_t (end - input.getPosition()) >= hop && input.nextHop (Short::windowSize, ringSize))
         {
             const uint32_t next = input.getPosition();
             high.step (input, mixed);

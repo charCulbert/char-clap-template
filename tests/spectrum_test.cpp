@@ -5,7 +5,10 @@
 #include <cmath>
 #include <cstdio>
 #include <functional>
+#include <atomic>
+#include <chrono>
 #include <memory>
+#include <thread>
 
 constexpr float sampleRate = 48000, minHz = 20, maxHz = 20000;
 constexpr int bandCount = 256;
@@ -94,5 +97,23 @@ int main()
                 smooth = smooth && bands[b + side] <= bands[b] + 0.01;
         std::printf("%5.0f Hz tone: one smooth peak: %s\n", hz, smooth ? "yes" : "NO");
         assert(smooth);
+    }
+
+    // A writer faster than real time (an offline render) doesn't keep analyze()
+    // going: it stops at where the writer was when it was called.
+    {
+        auto spectrum = std::make_unique<AnalyzerSpectrum>();
+        std::vector<double> bands;
+        float block[512] = {};
+        for (int i = 0; i < 100; ++i) spectrum->push(block, block, 512);
+        std::atomic<bool> stop{false};
+        std::thread writer([&] { while (!stop) spectrum->push(block, block, 512); });
+        const auto start = std::chrono::steady_clock::now();
+        for (int i = 0; i < 10; ++i) spectrum->analyze(sampleRate, minHz, maxHz, bandCount, bands);
+        const double took = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        stop = true;
+        writer.join();
+        std::printf("10 analyses beside a nonstop writer: %.0f ms\n", took * 1000);
+        assert(took < 5);
     }
 }
