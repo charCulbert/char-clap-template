@@ -1348,7 +1348,7 @@ static void overlayDrawer()
     auto draw = [&] {
         declared = false;
         frame(ui, [&] {
-            CLAY({.id = CLAY_ID("Plot"), .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
+            CLAY({.id = CLAY_IDI("Plot", 0), .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}})
             {
                 ui.drawer("Settings", open, width, [&] {
                     declared = true;
