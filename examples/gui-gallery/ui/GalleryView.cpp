@@ -702,7 +702,11 @@ private:
     void plotWithDrawer(int n, const char *title, bool &open, float &size, gpu::DrawerOptions options, const std::function<void()> &contents)
     {
         const Clay_ElementId plot = ui.id("DrawerPlot", n);
-        void *box = ui.paint([this](gpu::Rect r) { drawPlot(r); });
+        const bool ring = ui.tabStop(plot, gpu::Accessible::Role::image, "Plot"); // Tab to it, then the Menu key
+        void *box = ui.paint([this, ring](gpu::Rect r) {
+            drawPlot(r);
+            if (ring) ui.draw.rect(r.x, r.y, r.w, r.h, 0, {0, 0, 0, 0}, 2 * ui.s, ui.theme.accent);
+        });
         CLAY({.id = plot, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = box}})
         {
             ui.drawer(title, open, size, contents, options);
@@ -748,7 +752,7 @@ private:
                                numbers("Gain", "%.1f dB", "Cutoff", "%.0f Hz"));
             });
             cell("Overlay drawer, left: opaque, the 24-point tab centred; drag its inner edge to resize. Escape closes a drawer "
-                 "with focus in it. Right-click a plot for its menu", [&] {
+                 "with focus in it. A plot's menu: right-click it, or Tab to it and press the Menu key", [&] {
                 plotWithDrawer(1, "Plot options", leftOpen, leftSize, {.edge = Edge::left, .min = 90, .max = 220, .overlay = true}, switches(4));
             });
         });

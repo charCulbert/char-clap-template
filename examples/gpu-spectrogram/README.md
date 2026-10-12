@@ -29,8 +29,8 @@ parts, with no drawing code of its own; for a drawing of your own, see
   drawer's tab (`Ui::drawer`, an overlay) on its top edge. Open, the
   drawer's panel comes down over the plot, see-through, with the analysis
   and display settings as readouts (`Ui::readout`) and number boxes
-  (`Ui::numberBox`); the plot's context menu
-  has the rest.
+  (`Ui::numberBox`); the plot's context menu has the rest (the plot is a
+  stop in the Tab order, `Ui::tabStop`, so the keys reach it).
 - `resources/`: the files the plugin ships (its font, IBM Plex Mono). Add images, sounds or
   anything else here and read them with `core::readResource("/path")` (on the
   main thread), or `gpu::loadAsset` in the view.
@@ -101,14 +101,18 @@ Right-click the plot
 for what's shown over it: the piano strip, click tone, snap, cursor readout
 and labels, each checked when it's on, which choosing switches; the colours
 and the frequency scale, which choosing steps to the next; and Pause. The
-menu is slightly see-through (90%).
+menu is slightly see-through (90%). From the keyboard, Tab to the plot (the
+first stop; an outline shows it has focus) and press the Menu key or
+Shift+F10; screen readers offer the menu on the plot too.
 
 The lists (Transform, FFT size, Window, Channel and the CQT's) are readouts:
 drag one up or down or scroll over it to change it, or click it to step to
 the next. The numbers are number boxes: drag one (Shift for fine), or focus
 it and type a value, Enter to set it. Escape during a drag puts it back.
 Double-click either, press Delete or Backspace, or choose Reset to Default
-from its context menu, to reset it. Focused, the arrows step it.
+from its context menu, to reset it. Focused, the arrows step it. Where the
+sample rate makes the hop used longer than the one set, Hop shows both:
+`128 → 200` at 96 kHz.
 
 Hovering over the spectrogram shows the frequency, the nearest pitch in cents
 and the level under the pointer. Snap follows the nearest peak in that

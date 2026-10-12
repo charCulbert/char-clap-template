@@ -2511,6 +2511,66 @@ static void fileDrags()
     CHECK(ui.bounds(CLAY_IDI("Target", 0)).x == t.x && other.bounds(CLAY_IDI("Target", 0)).x > t.x);
 }
 
+// A plot of the caller's as a tab stop: Tab reaches it, the Menu key opens
+// its menu over it when it fills the view, and screen readers see one node,
+// described by the view drawn in it.
+static void tabStops()
+{
+    Ui ui;
+    static const char *const items[] = {"Clear", "Pause"};
+    std::vector<int> chosen;
+    bool on = false, ring = false;
+    auto draw = [&] {
+        frame(ui, [&] {
+            ui.toggle("Sync", on);
+            const Clay_ElementId plot = ui.id("Plot");
+            ring = ui.tabStop(plot, gpu::Accessible::Role::image, "Plot");
+            void *view = ui.paint([&ui](gpu::Rect r) { ui.accessible(gpu::Accessible::Role::image, "Picture", nullptr, r, "What it shows"); });
+            CLAY({.id = plot, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = view}}) {}
+            if (const int i = ui.contextMenu(plot, items, 2); i >= 0) chosen.push_back(i);
+        });
+    };
+    const gpu::Accessibility *tree = ui.accessibility();
+    using Role = gpu::Accessible::Role;
+    auto images = [&] {
+        std::vector<gpu::Accessible> found;
+        for (const gpu::Accessible &n : tree->nodes)
+            if (n.role == Role::image) found.push_back(n);
+        return found;
+    };
+    auto focused = [&] {
+        for (const gpu::Accessible &n : tree->nodes)
+            if (n.id == tree->focus) return n;
+        return gpu::Accessible{};
+    };
+    draw();
+    draw();
+    const std::vector<gpu::Accessible> plots = images();
+    CHECK(plots.size() == 1 && plots[0].name == "Plot" && plots[0].description == "What it shows");
+    CHECK(plots.size() == 1 && plots[0].actions & gpu::Accessible::showMenu && plots[0].actions & gpu::Accessible::focus);
+    // Tab: the toggle, then the plot, its ring shown; its arrows are the host's.
+    CHECK(ui.key(View::Key::tab, 0));
+    draw();
+    CHECK(ui.key(View::Key::tab, 0));
+    draw();
+    draw();
+    CHECK(ring && focused().name == "Plot");
+    CHECK(!ui.key(View::Key::left, 0));
+    // The Menu key opens its menu, inside the view though the plot fills it.
+    CHECK(ui.key(View::Key::contextMenu, 0));
+    draw();
+    CHECK(focused().name == "Clear" && focused().role == Role::menuItem);
+    const Clay_BoundingBox item = box("ContextMenuItem", 0);
+    CHECK(item.y >= 0 && item.y + item.height <= 300);
+    CHECK(ui.key(View::Key::enter, 0));
+    draw();
+    draw();
+    CHECK(chosen.size() == 1 && chosen[0] == 0 && focused().name == "Plot");
+    // A click on it doesn't focus it.
+    clickAt(ui, box("Plot"), draw);
+    CHECK(!ring && focused().name != "Plot");
+}
+
 // A context menu, as the WAI-ARIA menu: a secondary click or the Menu key
 // opens it, focus goes into it and back, and nothing under it is touched.
 static void contextMenus()
@@ -2669,6 +2729,7 @@ int main()
     slidersAndGrip();
     laidOutSlider();
     contextMenus();
+    tabStops();
     keyboardFocus();
     knobDragAndKeys();
     screenReader();

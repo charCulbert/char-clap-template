@@ -384,6 +384,14 @@ public:
     // The same for an element you declared and press with element(): a screen
     // reader's click on it arrives as a click there (a button of your own).
     void accessible(Clay_ElementId element, Accessible::Role role, const char *name, const char *description = nullptr);
+    // An element of your own (a plot) as a stop in the Tab order, as
+    // tabindex="0" makes one: Tab reaches it (a click doesn't focus it), and
+    // with a contextMenu for it the Menu key or Shift+F10 opens that. To
+    // screen readers one node, of this role and name; a view drawn to fill
+    // it (Ui::accessible at its box) gives that node its description rather
+    // than a node of its own. True while it has focus from the keys: draw a
+    // focus ring then.
+    bool tabStop(Clay_ElementId element, Accessible::Role role, const char *name);
     // Where the pointer is (pixels) and whether it's down: for a drag that
     // outlives the control it began on (a dock's tab pulled into a window).
     struct PointerAt { float x, y; bool down; };
@@ -464,6 +472,7 @@ private:
         Param *param = nullptr; // a parameter's control: set by setValue
         uint64_t parent = 0;    // 0: the view's
         float place = -1;       // its place among its siblings when said by hand, not by where it is drawn
+        bool stop = false;      // a tabStop: takes the description of a view drawn at its box
     };
     // A drawer's header: the title after a chevron, or (arrow: a chevron
     // Builtin) an overlay drawer's tab with that arrow, upright (tall) or

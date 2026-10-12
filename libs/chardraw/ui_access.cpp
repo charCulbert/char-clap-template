@@ -73,6 +73,16 @@ void Ui::accessible(Clay_ElementId element, Accessible::Role role, const char *n
     if (description) d.node.description = description;
 }
 
+bool Ui::tabStop(Clay_ElementId element, Accessible::Role role, const char *name)
+{
+    const void *me = reinterpret_cast<const void *>(uintptr_t(element.id));
+    order.push_back(me);
+    Described &d = describe(me, role, name);
+    d.element = element.id, d.stop = true;
+    if (focus == me) focusUses = 0, focusTakesDigits = false; // its keys are the host's, but for its menu's
+    return focusShown(me);
+}
+
 void Ui::label(const char *name)
 {
     if (lastElement && name) said.push_back({lastElement, name, {}});
@@ -150,10 +160,26 @@ void Ui::finishDescribing()
         return -1.0f;
     };
 
+    // A tab stop and a view drawn at its box (a plot filling it): one node,
+    // the stop's, saying what the view says of itself.
+    std::vector<bool> merged(described.size());
+    for (Described &d : described)
+        if (const std::optional<Rect> r = d.stop ? box(d.element) : std::nullopt)
+            for (size_t i = 0; i < described.size(); ++i)
+            {
+                const Accessible &v = described[i].node;
+                if (merged[i] || described[i].element || described[i].parent || std::abs(v.x - r->x) > 0.5f || std::abs(v.y - r->y) > 0.5f
+                    || std::abs(v.width - r->w) > 0.5f || std::abs(v.height - r->h) > 0.5f)
+                    continue;
+                if (d.node.description.empty()) d.node.description = v.description;
+                merged[i] = true;
+                break;
+            }
     struct Entry { Accessible node; float order; uint64_t parent; bool hidden; };
     std::vector<Entry> entries;
     for (Described &d : described)
     {
+        if (merged[size_t(&d - described.data())]) continue;
         float at = 1e9f + float(entries.size()); // its place in reading order
         if (d.element) // laid out by Clay: its box, and its place
         {

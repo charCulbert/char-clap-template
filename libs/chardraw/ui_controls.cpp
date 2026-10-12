@@ -585,7 +585,8 @@ int Ui::contextMenu(Clay_ElementId element, const char *const *items, int count)
     }
 
     // At the pointer, or below the control (points); moved in where it would
-    // leave the view, and above where there's no room below.
+    // leave the view, above where there's no room below, and over the
+    // control's top where there's room on neither side.
     float width = 0, height = 4;
     for (int i = 0; i < count; ++i)
     {
@@ -598,6 +599,7 @@ int Ui::contextMenu(Clay_ElementId element, const char *const *items, int count)
     float x = at.x, y = at.y + at.h + gap;
     if (x + width > viewWidth) x = std::max(0.0f, at.x + at.w - width);
     if (y + height > viewHeight && at.y - height - gap >= 0) y = at.y - height - gap;
+    else if (y + height > viewHeight) y = std::max(0.0f, std::min(at.y, viewHeight - height)); // (a plot filling the view)
     const Clay_FloatingElementConfig floating = {.offset = {x, y}, .zIndex = 100, .attachTo = CLAY_ATTACH_TO_ROOT};
     if (const int i = popup(menu, "ContextMenuItem", 0, items, count, -1, floating, 0); i >= 0)
     {

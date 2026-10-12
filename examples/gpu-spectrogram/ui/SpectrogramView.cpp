@@ -4,7 +4,8 @@
 // top edge. Open, the drawer's panel comes down over the plot, see-through,
 // with the analysis and display settings in columns: lists as readouts
 // (Ui::readout), numbers as number boxes to drag or type into; it's as big
-// as they need. The plot's context menu has the rest, and Pause. Hovering
+// as they need. The plot's context menu has the rest, and Pause; the plot
+// is in the Tab order, so the Menu key opens it too. Hovering
 // shows the frequency, nearest pitch and level under the pointer; holding a
 // key of the piano strip (or, with Click tone, the plot) plays its pitch
 // (through the plugin) and marks it across the plot. The columns arrive from
@@ -157,6 +158,9 @@ public:
         // The settings drawer comes down over the plot from its top edge, see-
         // through so the spectrogram shows under it.
         const Clay_ElementId badge = ui.id("Paused");
+        // The plot is a stop in the Tab order, first, so the keys reach its
+        // menu: the Menu key or Shift+F10 opens it.
+        plotFocused = ui.tabStop(plot, gpu::Accessible::Role::image, "Spectrogram");
         CLAY({.id = plot, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
               .custom = {.customData = ui.paint([this, plot, panel, tab, badge](gpu::Rect r) {
                   spectrogram.draw(ui, "Spectrogram", r);
@@ -171,6 +175,7 @@ public:
                                                                                    && !ui.pointerOver(tab) && !ui.pointerOver(badge)));
                   if (heldNote >= 0 || (heldHz > 0 && !readout)) drawGuide(r);
                   else if (readout) drawCursor(r);
+                  if (plotFocused) ui.draw.rect(r.x, r.y, r.w, r.h, 0, {0, 0, 0, 0}, 2 * ui.s, ui.theme.accent); // its focus ring
               })}})
         {
             // Paused (from the plot's menu): a button in the top right corner,
@@ -309,7 +314,15 @@ private:
                         CLAY_TEXT(ui.layout.text(r.label), CLAY_TEXT_CONFIG({.textColor = gpu::clayColor(ui.theme.dim),
                                                                              .fontSize = uint16_t(ui.theme.textSize)}));
                         CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}}}) {}
-                        ui.numberBox(params, q, r.format, r.log, 84);
+                        // The hop the plugin uses is a 480th of the sample rate
+                        // at least (plugin.cpp): when that's more, it shows too.
+                        char raised[32];
+                        const int used = std::min(std::max(int(std::lround(q->value)), int(std::ceil(binRate / 480))),
+                                                  int(std::lround(q->max)));
+                        const bool more = r.setting == hopSize && used > int(std::lround(q->value));
+                        if (more) std::snprintf(raised, sizeof raised, "%%.0f \xe2\x86\x92 %d", used); // U+2192 rightwards arrow
+                        ui.numberBox(params, q, more ? raised : r.format, r.log, 84);
+                        if (more) ui.tooltip("At this sample rate the hop is a 480th of it at least");
                     }
                 if (ui.contextMenu(menu, 1) == 0) params.begin(*q), params.change(*q, q->defaultValue), params.end(*q);
             }
@@ -450,9 +463,9 @@ private:
             return;
         }
         gpu::Spectrogram::Probe at;
-        const bool snap = p[snap]->value >= 0.5f && !(modifiers & gpu::View::command);
+        const bool snapping = p[snap]->value >= 0.5f && !(modifiers & gpu::View::command);
         const float y = std::clamp(click.y, r.y, r.y + r.h - 1);
-        playHz(spectrogram.probe(std::clamp(click.x, x0, r.x + r.w - 1), y, snap, at) ? at.frequency : spectrogram.frequencyAt(r, y));
+        playHz(spectrogram.probe(std::clamp(click.x, x0, r.x + r.w - 1), y, snapping, at) ? at.frequency : spectrogram.frequencyAt(r, y));
     }
 
     // A line across the plot at the pitch playing (a held key's or a click's), and its name.
@@ -510,8 +523,8 @@ private:
     void drawCursor(gpu::Rect r)
     {
         gpu::Spectrogram::Probe at;
-        const bool snap = p[snap]->value >= 0.5f && !(modifiers & gpu::View::command); // Command bypasses it, as Listener's
-        if (pointerX < r.x + stripWidth() || !spectrogram.probe(pointerX, pointerY, snap, at)) return;
+        const bool snapping = p[snap]->value >= 0.5f && !(modifiers & gpu::View::command); // Command bypasses it, as Listener's
+        if (pointerX < r.x + stripWidth() || !spectrogram.probe(pointerX, pointerY, snapping, at)) return;
         const float s = ui.s;
         const gpu::Color guide{ui.theme.text.r, ui.theme.text.g, ui.theme.text.b, 0.45f};
         if (heldHz > 0) ui.draw.line(r.x + stripWidth(), at.y, r.x + r.w, at.y, 1.5f * s, ui.theme.accent); // sounding (Click tone)
@@ -537,6 +550,7 @@ private:
     bool cqtFellBack = false; // or the FFT's, in place of the CQT asked for (it made no bands)
     float delay = 0;       // its delay, seconds
     bool paused = false;
+    bool plotFocused = false; // from the keys: its focus ring shows
     int heldNote = -1; // the piano key held, or -1
     double heldHz = 0, sentHz = 0; // the pitch held on the plot (Click tone), and the last sent to the plugin
     bool clickOnDrawer = false;    // the press held began on the drawer, so it plays nothing
