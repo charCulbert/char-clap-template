@@ -48,8 +48,10 @@ void initResources(const char *entryPath)
 {
 #if defined(__wasi__)
     // The host mounts the WCLAP bundle at entryPath. WASI opens paths
-    // relative to its preopened root, so drop the leading '/'.
-    root() = std::filesystem::path(entryPath ? entryPath : "").relative_path() / "resources";
+    // relative to its preopened root, so drop the leading '/'. The plugin's
+    // files sit at the bundle's root, beside module.wasm.
+    root() = std::filesystem::path(entryPath ? entryPath : "").relative_path();
+    if (root().empty()) root() = ".";
 #else
     (void)entryPath;
     // Through any symlinks: a plugin linked into a plugin folder (as while

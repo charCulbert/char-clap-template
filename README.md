@@ -134,7 +134,7 @@ images, sounds. The build copies the folder into every format:
 |---|---|
 | macOS bundles, VST3 (every OS) | `<plugin>/Contents/Resources/` |
 | CLAP on Windows and Linux (a single file) | `<plugin>.clap.resources/` beside it |
-| WCLAP | `resources/` inside the archive |
+| WCLAP | the archive's root, beside `module.wasm` |
 
 Read a file with `core::readResource("/sounds/kick.wav")` on the main thread
 (in `init` or `activate`, never while processing audio). GPU views can use

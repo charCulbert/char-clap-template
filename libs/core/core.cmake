@@ -47,7 +47,7 @@ endfunction()
 # (TARGET_NAME <name>), where core/resources.cpp reads it:
 #   macOS and VST3 bundles   <bundle>/Contents/Resources/
 #   loose binaries           <binary>.resources/ (Windows and Linux CLAPs)
-#   WCLAP                    <name>.wclap.tar.gz: module.wasm and resources/
+#   WCLAP                    <name>.wclap.tar.gz, beside module.wasm
 # The project's LICENSE and THIRD_PARTY_NOTICES.md, where they exist, go with
 # it (at the WCLAP's root), and so does THIRD_PARTY_LICENSES/: the licence of
 # every library the build downloaded and every git submodule (see
@@ -118,30 +118,25 @@ function(core_ship_resources name folder)
     if(TARGET ${name}_wclap)
         # Browsers download the module, so leave debug info out of Release builds.
         target_link_options(${name}_wclap PRIVATE $<$<CONFIG:Release,MinSizeRel>:-Wl,--strip-debug>)
-        # A WCLAP is a .tar.gz of module.wasm plus its files, at the archive root.
+        # A WCLAP is a .tar.gz of module.wasm plus its files, all at the archive
+        # root: hosts that read the page straight from the archive (openDAW)
+        # look for get_uri's path there, rather than asking get_resource.
         set(bundle "$<TARGET_FILE_DIR:${name}_wclap>/${name}.wclap")
-        set(contents module.wasm)
         set(copy "")
         if(folder)
-            list(APPEND contents resources)
-            set(copy COMMAND ${CMAKE_COMMAND} -E copy_directory "${folder}" "${bundle}/resources")
+            set(copy COMMAND ${CMAKE_COMMAND} -E copy_directory "${folder}" "${bundle}")
         endif()
+        list(APPEND copy COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:${name}_wclap>" "${bundle}/module.wasm")
         list(APPEND copy COMMAND ${CMAKE_COMMAND} -E copy_directory "${licenses}" "${bundle}/THIRD_PARTY_LICENSES")
-        list(APPEND contents THIRD_PARTY_LICENSES)
         if(notices)
             list(APPEND copy COMMAND ${CMAKE_COMMAND} -E copy ${notices} "${bundle}")
-            foreach(file ${notices})
-                get_filename_component(file "${file}" NAME)
-                list(APPEND contents "${file}")
-            endforeach()
         endif()
         add_custom_target(${name}_wclap_bundle ALL
             COMMAND ${CMAKE_COMMAND} -E rm -rf "${bundle}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${bundle}"
-            COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:${name}_wclap>" "${bundle}/module.wasm"
             ${copy}
-            COMMAND ${CMAKE_COMMAND} -E chdir "${bundle}"
-                    ${CMAKE_COMMAND} -E tar czf "../${name}.wclap.tar.gz" --format=gnutar ${contents}
+            COMMAND ${CMAKE_COMMAND} -DBUNDLE=${bundle} -DARCHIVE=${bundle}.tar.gz
+                    -P "${CORE_DIR}/wclap_tar.cmake"
             DEPENDS ${name}_wclap
             VERBATIM)
         if(ARG_DEPENDS)

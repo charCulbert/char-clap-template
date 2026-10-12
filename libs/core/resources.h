@@ -11,7 +11,7 @@
 // Where the folder lives:
 //   macOS bundles, VST3 bundles     <bundle>/Contents/Resources/
 //   loose binaries (Win/Linux .clap) <binary>.resources/
-//   WCLAP                           <bundle>/resources/
+//   WCLAP                           <bundle>/ (beside module.wasm)
 namespace core {
 
 // Call from clap_entry.init. Native builds find the binary that contains this
