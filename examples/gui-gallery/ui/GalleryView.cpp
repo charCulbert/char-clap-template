@@ -40,7 +40,7 @@ constexpr const char *stripes = R"(
 // before chardraw had a Spectrum view: the C++ side writes the cell's place
 // and colours to a uniform buffer and the values to plot to a storage
 // buffer, and the shader works out each pixel from them.
-constexpr const char *plot = R"(
+constexpr const char *plotShader = R"(
 struct Uniforms {
     rect: vec4f,  // the cell: left, top, width, height (pixels)
     line: vec4f,  // the curve's colour
@@ -266,7 +266,7 @@ private:
     {
         plotDevice = device;
         wgpu::ShaderSourceWGSL source;
-        source.code = plot;
+        source.code = plotShader;
         wgpu::ShaderModuleDescriptor moduleDescriptor;
         moduleDescriptor.nextInChain = &source;
         const wgpu::ShaderModule module = device.CreateShaderModule(&moduleDescriptor);
@@ -696,7 +696,7 @@ private:
                     }
                     CLAY({.layout = {.childGap = 12, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
                     {
-                        if (ui.segmented(scrolls, 2, inTime, 9)) o.pixelsPerSecond = inTime ? 100 : 0, o.columns = inTime ? 1024 : 512;
+                        if (ui.segmented(scrolls, 2, inTime, 9)) o.pixelsPerSecond = inTime ? 100.0f : 0.0f, o.columns = inTime ? 1024 : 512;
                         ui.label("Scroll");
                         ui.toggle("Snap", snapPeaks, 2);
                     }
@@ -705,11 +705,11 @@ private:
                                   : gpu::ColourScheme{{ui.theme.background, ui.theme.accent, ui.theme.text}};
                     spectrogram.configure(o); // (the same options again change nothing)
                     const Clay_ElementId sweep = ui.id("Sweep");
-                    void *plot = ui.paint([this, sweep](gpu::Rect r) { drawSweep(r, sweep); });
+                    void *plotBox = ui.paint([this, sweep](gpu::Rect r) { drawSweep(r, sweep); });
                     void *bar = ui.paint([this](gpu::Rect r) { drawRamp(r); });
                     CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(180)}, .childGap = 6}})
                     {
-                        CLAY({.id = sweep, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = plot}}) {}
+                        CLAY({.id = sweep, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = plotBox}}) {}
                         CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(12), CLAY_SIZING_GROW(0)}}, .custom = {.customData = bar}}) {}
                     }
                 }
@@ -828,20 +828,20 @@ private:
     // with check marks and a submenu.
     void plotWithDrawer(int n, const char *title, bool &open, float &size, gpu::DrawerOptions options, const std::function<void()> &contents)
     {
-        const Clay_ElementId plot = ui.id("DrawerPlot", n);
-        const bool ring = ui.tabStop(plot, gpu::Accessible::Role::image, "Plot"); // Tab to it, then the Menu key
+        const Clay_ElementId plotId = ui.id("DrawerPlot", n);
+        const bool ring = ui.tabStop(plotId, gpu::Accessible::Role::image, "Plot"); // Tab to it, then the Menu key
         void *box = ui.paint([this, ring](gpu::Rect r) {
             drawPlot(r);
             if (ring) ui.draw.rect(r.x, r.y, r.w, r.h, 0, {0, 0, 0, 0}, 2 * ui.s, ui.theme.accent);
         });
-        CLAY({.id = plot, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = box}})
+        CLAY({.id = plotId, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = box}})
         {
             ui.drawer(title, open, size, contents, options);
         }
         using Item = gpu::Ui::MenuItem;
         const Item lines[] = {{"4 across", 4, gridLines == 4}, {"8 across", 8, gridLines == 8}, {"16 across", 16, gridLines == 16}};
         const Item items[] = {{"Grid", 0, plotGrid}, {"Grid lines", -1, -1, lines, 3}, {}, {open ? "Close the drawer" : "Open the drawer", 1}};
-        const int chosen = ui.contextMenu(plot, items, 4);
+        const int chosen = ui.contextMenu(plotId, items, 4);
         if (chosen == 0) plotGrid = !plotGrid;
         if (chosen == 1) open = !open;
         if (chosen >= 4) gridLines = chosen, plotGrid = true; // (a submenu item's id is its count)
