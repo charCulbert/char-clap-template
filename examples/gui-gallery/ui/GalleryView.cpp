@@ -659,8 +659,19 @@ private:
         });
         row([&] {
             cell("Spectrum: the sweep's levels over a log axis, tilted 4.5 dB an octave, so the noise floor rises to the right; "
-                 "the curve dims near the floor", [&] {
-                gpu::spectrum(ui, "Sweep spectrum", binDb.data(), binHz.data(), binDb.size(), {.tilt = 4.5f}, 180);
+                 "the curve dims near the floor. Own colours sets the curve's and the fill's", [&] {
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 8, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+                {
+                    ui.toggle("Own colours", ownSpectrumColours, 10);
+                    gpu::SpectrumView view{.tilt = 4.5f};
+                    if (ownSpectrumColours)
+                    {
+                        const gpu::Color teal{0, 0.6f, 0.7f}, &b = ui.theme.background;
+                        view.curveColour = teal;
+                        view.fillColour = gpu::Color{b.r + (teal.r - b.r) * 0.25f, b.g + (teal.g - b.g) * 0.25f, b.b + (teal.b - b.b) * 0.25f};
+                    }
+                    gpu::spectrum(ui, "Sweep spectrum", binDb.data(), binHz.data(), binDb.size(), view, 180);
+                }
             });
         });
         row([&] {
@@ -1139,6 +1150,7 @@ private:
     std::vector<float> stepValues = {0.8f, 0.2f, 0.5f, 0.2f, 1.0f, 0.2f, 0.5f, 0.3f, 0.7f, 0.2f, 0.5f, 0.2f, 0.9f, 0.4f, 0.6f, 0.3f};
     bool sync = false, advancedOpen = true, oversample = false, linearPhase = true;
     bool detailsOpen = false, relativeDrag = false, seeThrough = true, snapPeaks = true, plotGrid = true;
+    bool ownSpectrumColours = false;
     int scheme = 0; // the spectrogram's colours: a preset, or past them the theme's
     int tab = 0; // the Tabs cell's
     // The Drawers page's overlays: whether each is open, and its size (points; unused when fitted).

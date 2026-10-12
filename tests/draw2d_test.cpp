@@ -273,6 +273,25 @@ int main(int argc, char **argv)
         CHECK(draw.changed()); // version 0: always
     }
 
+    // A spectrum in colours of its own: a flat curve at -50 dB, halfway up,
+    // in the curve's, the fill under it in the fill's, no grid; unset, the
+    // curve is the theme's accent.
+    {
+        Ui ui;
+        CHECK(ui.draw.prepare(gpu.device, format, font));
+        const float frequencies[] = {20, 20000}, decibels[] = {-50, -50};
+        gpu::SpectrumView view{.scales = false, .curveColour = Color{1, 0, 0}, .fillColour = Color{0, 1, 0}, .gridColour = Color{0, 0, 0, 0}};
+        auto shot = [&] { return gpu.render(ui.draw, [&] { gpu::spectrum(ui, "Spectrum", decibels, frequencies, 2, {0.5f, 0.5f, float(size), float(size)}, view); }); };
+        px = shot();
+        const int x = size / 2;
+        CHECK(is(px, x, size / 2, {1, 0, 0}) && is(px, x, size / 4, ui.theme.background));
+        const uint8_t *under = &px[(size_t(size / 2 + 3) * size + size_t(x)) * 4];
+        CHECK(under[1] > 120 && under[0] < 60 && under[2] < 60);
+        view = {.scales = false};
+        px = shot();
+        CHECK(is(px, x, size / 2, ui.theme.accent));
+    }
+
     // A spectrogram: the newest column on the right, low frequencies at the
     // bottom, coloured from its scheme (Magma); a later column goes up on its own.
     {

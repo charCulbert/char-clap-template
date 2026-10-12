@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <deque>
+#include <optional>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -185,6 +186,11 @@ struct SpectrumView
     float minDecibels = -100, maxDecibels = 0;
     float tilt = 0, pivot = 1000; // dB per octave, around pivot (Hz)
     bool scales = true;
+    // Colours, the theme's where unset: the curve 30 dB up from the floor
+    // (accent), the fill at its top, fading to the background below (a tint
+    // of the accent; keep it opaque), the grid (the text, faint), and the
+    // scales' labels and long ticks (dim).
+    std::optional<Color> curveColour, fillColour, gridColour, labelColour;
 
     // Where the levels' range falls in r (pixels; s is pixels per point): all
     // of it, or with scales, less room for the top label and the frequencies.
@@ -265,7 +271,8 @@ inline void spectrum(Ui &ui, const char *name, const float *decibels, const floa
 
     // The fill: a strip a pixel wide under each step of the curve, opaque and
     // a little wider than the step, so strips overlap without seams.
-    const Draw2D::Gradient shade{mix(t.background, t.accent, 0.16f), mix(t.background, t.accent, 0.03f), 0, p.y, 0, p.y + p.h};
+    const Color fill = view.fillColour.value_or(mix(t.background, t.accent, 0.16f));
+    const Draw2D::Gradient shade{fill, mix(t.background, fill, 0.1875f), 0, p.y, 0, p.y + p.h}; // the theme's: 16% to 3% accent
     for (size_t i = 0; i + 3 < xy.size(); i += 2)
     {
         const float top = (xy[i + 1] + xy[i + 3]) / 2;
@@ -282,8 +289,9 @@ inline void spectrum(Ui &ui, const char *name, const float *decibels, const floa
     float step = 1;
     for (int i = 0; step * p.h / range < 16 * s && i < 12; ++i) step *= i % 3 == 1 ? 2.5f : 2; // 1, 2, 5, 10, 20, 50...
     for (float d = std::floor(view.maxDecibels / step) * step; d >= view.minDecibels - 1e-3f; d -= step) db.push_back(d);
-    for (float f : hz) ui.draw.line(view.x(p, f), r.y, view.x(p, f), bottom, 1 * s, ink(0.07f));
-    for (float d : db) ui.draw.line(r.x, view.y(p, d), r.x + r.w, view.y(p, d), 1 * s, ink(0.07f));
+    const Color grid = view.gridColour.value_or(ink(0.07f));
+    for (float f : hz) ui.draw.line(view.x(p, f), r.y, view.x(p, f), bottom, 1 * s, grid);
+    for (float d : db) ui.draw.line(r.x, view.y(p, d), r.x + r.w, view.y(p, d), 1 * s, grid);
 
     // The curve, from the theme's dim colour at the floor to its accent 30 dB
     // up: a polyline per run of points of one shade, of eight.
@@ -295,14 +303,15 @@ inline void spectrum(Ui &ui, const char *name, const float *decibels, const floa
         if (i + 2 >= xy.size() || shadeOf(i) != shadeOf(from))
         {
             const float f = float(shadeOf(from)) / 7;
-            ui.draw.polyline(&xy[from], (i - from) / 2 + 1, 1.5f * s, mix(t.dim, t.accent, f * f * (3 - 2 * f)));
+            ui.draw.polyline(&xy[from], (i - from) / 2 + 1, 1.5f * s, mix(t.dim, view.curveColour.value_or(t.accent), f * f * (3 - 2 * f)));
             from = i;
         }
 
     if (view.scales)
     {
+        const Color labels = view.labelColour.value_or(t.dim);
         auto label = [&](float x, float y, const char *text, Draw2D::Align align) {
-            return ui.draw.text(std::round(x), std::round(y), 11 * s, text, t.dim, align, t.valueFont);
+            return ui.draw.text(std::round(x), std::round(y), 11 * s, text, labels, align, t.valueFont);
         };
         // Frequencies along the bottom: a short tick at each of 1 to 9 times a
         // power of ten, a longer one and a label at the round ones, where it fits.
@@ -316,7 +325,7 @@ inline void spectrum(Ui &ui, const char *name, const float *decibels, const floa
             char text[16];
             std::snprintf(text, sizeof text, f >= 1000 ? "%gk" : "%g", f >= 1000 ? f / 1000 : f);
             const float x = view.x(p, f), half = ui.draw.measure(11 * s, text, t.valueFont) / 2;
-            ui.draw.line(x, bottom, x, bottom - 6 * s, 1 * s, t.dim);
+            ui.draw.line(x, bottom, x, bottom - 6 * s, 1 * s, labels);
             if (x - half < right + 8 * s || x + half > r.x + r.w - 2 * s) continue;
             label(x, bottom - 10 * s, text, Draw2D::Align::center);
             right = x + half;
@@ -326,7 +335,7 @@ inline void spectrum(Ui &ui, const char *name, const float *decibels, const floa
         for (float d = db.empty() ? 0 : db.front(); d >= view.minDecibels - 1e-3f; d -= step / 2)
         {
             const bool major = std::abs(std::remainder(d, step)) < 1e-3f;
-            ui.draw.line(r.x, view.y(p, d), r.x + (major ? 4 : 2) * s, view.y(p, d), 1 * s, major ? t.dim : t.edge);
+            ui.draw.line(r.x, view.y(p, d), r.x + (major ? 4 : 2) * s, view.y(p, d), 1 * s, major ? labels : t.edge);
             char text[16];
             std::snprintf(text, sizeof text, "%g", d == 0 ? 0.0f : d);
             if (major) label(r.x + 10 * s, view.y(p, d) + 4 * s, text, Draw2D::Align::left);
