@@ -1,8 +1,8 @@
 # WebView Synth: a sine synth whose interface is a web page.
 #
 #   cmake -B build && cmake --build build     CLAP, VST3, AU (macOS), standalone
-#   More formats, each with one extra flag (see README.md): WCLAP, AUv3 (macOS,
-#   with -G Xcode), iOS (AUv3 and app), AAX (with your AAX SDK).
+#   More formats, each with one extra flag (see README.md): WCLAP, the iOS app
+#   (with its AUv3), AAX (with your AAX SDK).
 cmake_minimum_required(VERSION 3.28)
 
 # macOS plugins here are universal (Apple silicon and Intel).
@@ -65,9 +65,6 @@ endif()
 set(formats CLAP VST3)
 if(APPLE)
     list(APPEND formats AUV2)
-    if(CMAKE_GENERATOR STREQUAL "Xcode") # AUv3 needs an app extension, which only Xcode builds
-        list(APPEND formats AUV3)
-    endif()
 endif()
 if(AAX_SDK_ROOT) # -DAAX_SDK_ROOT=<your AAX SDK>: not redistributable, so never fetched
     if(NOT EXISTS "${AAX_SDK_ROOT}/Interfaces/AAX.h")

@@ -6,7 +6,7 @@ Example CLAP plugins to start new ones from. Each builds, with
 - **CLAP, VST3 and a standalone app**, on macOS, Windows and Linux
 - **AUv2**, on macOS
 - **WCLAP**, for browser hosts
-- **AUv3, iOS and AAX**, not tested -- TODO: currently partially set up in the WebView Synth only
+- **The iOS app (AUv3) and AAX**, set up in the WebView Synth only and not built in CI
 
 | Example | Type | Interface |
 |---|---|---|
@@ -152,8 +152,7 @@ Each needs its own build folder:
 | Format | Needs | Configure |
 |---|---|---|
 | WCLAP | [WASI SDK 33](https://github.com/WebAssembly/wasi-sdk/releases); for GPU interfaces also [Emscripten 4.0.11](https://emscripten.org) | `cmake -B build-wclap -DCMAKE_TOOLCHAIN_FILE=<wasi-sdk>/share/cmake/wasi-sdk-p1.cmake` |
-| AUv3 | Xcode | `cmake -B build-xcode -G Xcode` |
-| iOS | Xcode | `cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS` |
+| iOS app (AUv3) | Xcode | `cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS` |
 | AAX | Avid's AAX SDK | `cmake -B build-aax -DAAX_SDK_ROOT=<path to the SDK>` |
 
 A WCLAP comes out as `build-wclap/<Name>.wclap.tar.gz`. Load it in a browser

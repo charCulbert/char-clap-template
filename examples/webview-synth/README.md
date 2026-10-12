@@ -42,7 +42,6 @@ cmake --build build-wclap        # makes build-wclap/WebViewSynth.wclap.tar.gz
 
 | Format | Configure with |
 |---|---|
-| AUv3 (macOS) | `cmake -B build-xcode -G Xcode` |
 | iOS app with AUv3 | `cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS` (signing for a device needs your team in Xcode) |
 | AAX | `cmake -B build-aax -DAAX_SDK_ROOT=<your AAX SDK>` (the SDK comes from Avid; shipping needs PACE signing) |
 
