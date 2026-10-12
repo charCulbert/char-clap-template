@@ -408,7 +408,7 @@ Window *create(const Parent &parent, uint32_t width, uint32_t height, Callbacks 
 {
     NSView *host = (__bridge NSView *)parent.handle;
     if (!host) return nullptr;
-    auto *window = new Window{nil, nil, nil, nil, std::move(callbacks)};
+    auto *window = new Window{nil, nil, nil, nil, std::move(callbacks), nullptr, {}};
     window->view = [[GpuView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     window->view.wantsLayer = YES;
     window->view.callbacks = &window->callbacks;

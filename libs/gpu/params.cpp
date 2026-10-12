@@ -22,7 +22,9 @@ bool Params::receive(const core::Value &message)
                 auto p = std::find_if(params.begin(), params.end(), [&](const Param &q) { return q.id == id; });
                 if (p == params.end())
                 {
-                    params.push_back(Param{.id = id});
+                    Param added;
+                    added.id = id;
+                    params.push_back(added);
                     listed.push_back(false);
                     p = std::prev(params.end());
                 }
