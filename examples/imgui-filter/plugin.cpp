@@ -605,7 +605,7 @@ static const clap_plugin_t pluginClass = {
         {
             clap_param_info_t information = {};
             extensionParams.get_info(_plugin, i, &information);
-            float defaultValue = information.default_value;
+            float defaultValue = (float)information.default_value;
             plugin->mainParameters[i].store(defaultValue, std::memory_order_relaxed);
             plugin->parameters[i].store(defaultValue, std::memory_order_relaxed);
         }
@@ -620,7 +620,7 @@ static const clap_plugin_t pluginClass = {
     .activate = [](const clap_plugin *_plugin, double sampleRate, uint32_t minimumFramesCount, uint32_t maximumFramesCount) -> bool
     {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-        plugin->sampleRate = sampleRate;
+        plugin->sampleRate = (float)sampleRate;
         plugin->filterL.prepare((float)sampleRate);
         plugin->filterR.prepare((float)sampleRate);
         return true;

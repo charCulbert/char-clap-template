@@ -410,7 +410,7 @@ static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
     }
 
     const double id = message["id"].number(-1);
-    if (!(id >= 0 && id < S_COUNT))
+    if (!(id >= 0 && id < (int)S_COUNT))
         return false;
     if (type == "change")
     {

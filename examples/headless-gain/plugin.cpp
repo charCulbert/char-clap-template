@@ -336,7 +336,7 @@ static const clap_plugin_t pluginClass = {
         {
             clap_param_info_t information = {};
             extensionParams.get_info(_plugin, i, &information);
-            float defaultValue = information.default_value;
+            float defaultValue = (float)information.default_value;
             plugin->mainParameters[i].store(defaultValue, std::memory_order_relaxed);
             plugin->parameters[i].store(defaultValue, std::memory_order_relaxed);
         }
