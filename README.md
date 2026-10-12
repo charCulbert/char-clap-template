@@ -218,8 +218,9 @@ and says what it should look like.
 ## CI
 
 Each example has a workflow in `.github/workflows/` that runs when the example,
-a library it uses, or the workflow changes; `tests.yml` runs the unit tests
-and `gallery.yml` builds the GUI Gallery. Each run builds on macOS, Windows
+a library it uses, or the workflow changes; `tests.yml` runs the unit tests,
+`gallery.yml` builds the GUI Gallery, and `new-plugin.yml` builds projects made
+with `new-plugin.py` against the checkout. Each run builds on macOS, Windows
 and Linux, checks the plugins with clap-validator, pluginval and auval, builds
 the WCLAP, and uploads the plugins under the run's Artifacts. A project made
 with `new-plugin.py` has one workflow, `build.yml`, that runs on every push.

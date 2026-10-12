@@ -1,0 +1,65 @@
+name: New Plugin
+
+# Makes projects with tools/new-plugin.py and builds them the way a plugin
+# does, fetching the template, but from this checkout
+# (FETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE) rather than the tag they pin.
+on:
+  push:
+    branches: [main] # other branches run through their pull request
+    paths:
+      - tools/new-plugin.py
+      - CMakeLists.txt
+      - CHANGELOG.md
+      - libs/core/**
+      - libs/webview/**
+      - examples/headless-gain/**
+      - examples/webview-synth/**
+      - .github/workflows/new-plugin.yml
+  pull_request:
+    paths:
+      - tools/new-plugin.py
+      - CMakeLists.txt
+      - CHANGELOG.md
+      - libs/core/**
+      - libs/webview/**
+      - examples/headless-gain/**
+      - examples/webview-synth/**
+      - .github/workflows/new-plugin.yml
+  workflow_dispatch:
+
+# A newer push cancels the run still going for an older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.example }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [headless-gain, webview-synth]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux packages
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Make the project
+        run: python3 tools/new-plugin.py --from ${{ matrix.example }} --name "New Plugin" --vendor "Some Vendor" --dest build-new-plugin
+
+      - name: Build
+        working-directory: build-new-plugin
+        run: |
+          cmake -B build -DFETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE="$GITHUB_WORKSPACE"
+          cmake --build build --parallel 4 --target NewPlugin_clap
+
+      - name: Check the licences ship
+        working-directory: build-new-plugin
+        run: |
+          ls "build/New Plugin.clap.resources/THIRD_PARTY_LICENSES/"
+          test -f "build/New Plugin.clap.resources/THIRD_PARTY_LICENSES/clap_template.txt"
