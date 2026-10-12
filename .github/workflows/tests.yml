@@ -4,7 +4,6 @@ name: Tests
 # the analyzer's and spectrogram's DSP. The plugins' own workflows build and validate them.
 on:
   push:
-    branches: [main] # other branches run through their pull request
     paths:
       - tests/**
       - libs/core/messages.*

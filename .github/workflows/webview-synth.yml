@@ -5,7 +5,6 @@ name: WebView Synth
 # it uses changes.
 on:
   push:
-    branches: [main] # other branches run through their pull request
     paths:
       - examples/webview-synth/**
       - libs/core/**

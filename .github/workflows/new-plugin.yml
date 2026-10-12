@@ -5,11 +5,9 @@ name: New Plugin
 # (FETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE) rather than the tag they pin.
 on:
   push:
-    branches: [main] # other branches run through their pull request
     paths:
       - tools/new-plugin.py
       - CMakeLists.txt
-      - CHANGELOG.md
       - libs/core/**
       - libs/webview/**
       - examples/headless-gain/**
@@ -19,7 +17,6 @@ on:
     paths:
       - tools/new-plugin.py
       - CMakeLists.txt
-      - CHANGELOG.md
       - libs/core/**
       - libs/webview/**
       - examples/headless-gain/**
@@ -50,7 +47,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev
 
       - name: Make the project
-        run: python3 tools/new-plugin.py --from ${{ matrix.example }} --name "New Plugin" --vendor "Some Vendor" --dest build-new-plugin
+        run: python3 tools/new-plugin.py --from ${{ matrix.example }} --name "New Plugin" --vendor "Some Vendor" --template-version 0.1.0 --dest build-new-plugin
 
       - name: Build
         working-directory: build-new-plugin

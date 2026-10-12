@@ -5,7 +5,6 @@ name: Headless Gain
 # it uses changes.
 on:
   push:
-    branches: [main] # other branches run through their pull request
     paths:
       - examples/headless-gain/**
       - libs/core/**

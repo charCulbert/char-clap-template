@@ -5,7 +5,6 @@ name: GPU Spectrogram
 # it uses changes.
 on:
   push:
-    branches: [main] # other branches run through their pull request
     paths:
       - examples/gpu-spectrogram/**
       - libs/core/**

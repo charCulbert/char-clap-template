@@ -7,7 +7,7 @@
 Anything left out is asked for. The new folder gets the example's files with
 its names swapped for yours, a GitHub Actions workflow, a README, a licence and
 the third-party notices. Its CMakeLists.txt fetches this template's libraries
-(libs/) at a release tag, --template-version (the newest in CHANGELOG.md). It
+(libs/) at a release tag, --template-version (the newest tag here). It
 builds with `cmake -B build && cmake --build build --config Release`. It is not
 made a git repository: do that yourself when you're ready.
 
@@ -109,7 +109,7 @@ SOFTWARE.
 
 # Where a project gets the template's libraries: in place of the example's
 # set(LIBS ".../../libs"), so before the GPU_PAGE branch that uses them too.
-FETCH = """# This template's libraries (libs/), at a release: read its CHANGELOG.md before
+FETCH = """# This template's libraries (libs/), at a release: read its release notes before
 # changing GIT_TAG. To build against a local checkout of it instead:
 #   cmake -B build -DFETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE=<checkout>
 include(FetchContent)
@@ -124,9 +124,14 @@ EXAMPLE_LIBS = 'set(LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../../libs")'
 
 
 def newest_version():
-    """The newest release in CHANGELOG.md: its first "## [x.y.z]" heading."""
-    found = re.search(r"^## \[(\d+\.\d+\.\d+)\]", (REPO / "CHANGELOG.md").read_text(encoding="utf-8"), re.M)
-    return found.group(1) if found else None
+    """The newest release: this checkout's highest vX.Y.Z tag (None outside a git checkout)."""
+    try:
+        tags = subprocess.run(["git", "-C", str(REPO), "tag", "--list", "v*", "--sort=-v:refname"],
+                              capture_output=True, text=True, check=True).stdout.split()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    found = next((t[1:] for t in tags if re.fullmatch(r"v\d+\.\d+\.\d+", t)), None)
+    return found
 
 
 def warn_if_not_at(version):
@@ -182,7 +187,7 @@ def main():
     parser.add_argument("--license", default="MIT", help='"MIT" (default), or "none" to add no LICENSE file')
     parser.add_argument("--template-version", default=newest_version(),
                         help="the template release the project fetches its libraries at (default: the newest "
-                             "in CHANGELOG.md, %(default)s)")
+                             "tag in this checkout, %(default)s)")
     args = parser.parse_args()
 
     example = Path(args.example or ask(f"Example ({', '.join(EXAMPLES)})", "imgui-filter")).name

@@ -28,8 +28,8 @@ python3 tools/new-plugin.py --from imgui-filter --name "My Plugin" --vendor "You
 
 `--from` is the example's folder in `examples/`. Leave an option out and it asks. It also
 takes `--id`, `--au-subtype`, `--au-manufacturer`, `--url`, `--license`
-(MIT unless `none`) and `--template-version` (the newest in
-[CHANGELOG.md](CHANGELOG.md) unless given). It needs Python 3.8 or later (`py` on Windows).
+(MIT unless `none`) and `--template-version` (the newest release tag
+unless given). It needs Python 3.8 or later (`py` on Windows).
 
 You get the example renamed to your plugin, a CI workflow, a LICENSE and
 THIRD_PARTY_NOTICES.md. Its `CMakeLists.txt` fetches this repository's
@@ -100,8 +100,9 @@ include(${LIBS}/core/core.cmake)   # and gpu, chardraw or webview
 `SOURCE_SUBDIR none` keeps this repository's own `CMakeLists.txt` out of your
 build; it stops with an error if added with `add_subdirectory`.
 
-**To update,** read [CHANGELOG.md](CHANGELOG.md) from your version up: each
-release's Breaking section says what your code, CMake or CI must change. Then
+**To update,** read the [release notes](https://github.com/charCulbert/char-clap-template/releases)
+from your version up: a release that needs your code, CMake or CI to change
+says so under Breaking. Then
 set `GIT_TAG` to the new tag. Versions start at 0.x, so a minor bump (0.1 to
 0.2) may break your plugin; a patch bump won't.
 

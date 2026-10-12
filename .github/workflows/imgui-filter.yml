@@ -5,7 +5,6 @@ name: ImGui Filter
 # it uses changes.
 on:
   push:
-    branches: [main] # other branches run through their pull request
     paths:
       - examples/imgui-filter/**
       - libs/core/**
