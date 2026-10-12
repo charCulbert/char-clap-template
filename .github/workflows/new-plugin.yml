@@ -49,6 +49,9 @@ jobs:
       - name: Make the project
         run: python3 tools/new-plugin.py --from ${{ matrix.example }} --name "New Plugin" --vendor "Some Vendor" --template-version 0.1.0 --dest build-new-plugin
 
+      - name: Check the generated workflow runs for the new project
+        run: "! grep -q examples/ build-new-plugin/.github/workflows/build.yml"
+
       - name: Build
         working-directory: build-new-plugin
         run: |

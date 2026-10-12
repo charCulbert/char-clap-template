@@ -29,7 +29,9 @@ python3 tools/new-plugin.py --from imgui-filter --name "My Plugin" --vendor "You
 `--from` is the example's folder in `examples/`. Leave an option out and it asks. It also
 takes `--id`, `--au-subtype`, `--au-manufacturer`, `--url`, `--license`
 (MIT unless `none`) and `--template-version` (the newest release tag
-unless given). It needs Python 3.8 or later (`py` on Windows).
+unless given; from a GitHub archive download, which has no tags, the version
+in the folder's name, like `char-clap-template-0.1.0`, else you must pass it).
+It needs Python 3.8 or later (`py` on Windows).
 
 You get the example renamed to your plugin, a CI workflow, a LICENSE and
 THIRD_PARTY_NOTICES.md. Its `CMakeLists.txt` fetches this repository's
@@ -230,7 +232,8 @@ a library it uses, or the workflow changes; `tests.yml` runs the unit tests,
 with `new-plugin.py` against the checkout. Each run builds on macOS, Windows
 and Linux, checks the plugins with clap-validator, pluginval and auval, builds
 the WCLAP, and uploads the plugins under the run's Artifacts. A project made
-with `new-plugin.py` has one workflow, `build.yml`, that runs on every push.
+with `new-plugin.py` has one workflow, `build.yml`, that runs on pushes to `main` and on
+pull requests.
 
 ## Updating dependencies
 

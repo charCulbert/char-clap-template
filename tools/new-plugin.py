@@ -123,19 +123,36 @@ set(LIBS "${{clap_template_SOURCE_DIR}}/libs")"""
 EXAMPLE_LIBS = 'set(LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../../libs")'
 
 
-def newest_version():
-    """The newest release: this checkout's highest vX.Y.Z tag (None outside a git checkout)."""
+def in_own_checkout():
+    """True when REPO is itself a git checkout's top (not an archive unpacked inside someone else's repo)."""
     try:
-        tags = subprocess.run(["git", "-C", str(REPO), "tag", "--list", "v*", "--sort=-v:refname"],
-                              capture_output=True, text=True, check=True).stdout.split()
+        top = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
-        return None
-    found = next((t[1:] for t in tags if re.fullmatch(r"v\d+\.\d+\.\d+", t)), None)
-    return found
+        return False
+    return Path(top).resolve() == REPO.resolve()
+
+
+def newest_version():
+    """The newest release: this checkout's highest vX.Y.Z tag, else the version in the
+    folder's name (a GitHub archive: char-clap-template-0.1.0), else None."""
+    if in_own_checkout():
+        try:
+            tags = subprocess.run(["git", "-C", str(REPO), "tag", "--list", "v*", "--sort=-v:refname"],
+                                  capture_output=True, text=True, check=True).stdout.split()
+        except (OSError, subprocess.CalledProcessError):
+            tags = []
+        found = next((t[1:] for t in tags if re.fullmatch(r"v\d+\.\d+\.\d+", t)), None)
+        if found:
+            return found
+    named = re.fullmatch(r"char-clap-template-v?(\d+\.\d+\.\d+)", REPO.name)
+    return named.group(1) if named else None
 
 
 def warn_if_not_at(version):
     """The examples copied are this checkout's; the libraries fetched are the tag's."""
+    if not in_own_checkout():
+        return
     try:
         tags = subprocess.run(["git", "-C", str(REPO), "tag", "--points-at", "HEAD"],
                               capture_output=True, text=True, check=True).stdout.split()
@@ -187,7 +204,7 @@ def main():
     parser.add_argument("--license", default="MIT", help='"MIT" (default), or "none" to add no LICENSE file')
     parser.add_argument("--template-version", default=newest_version(),
                         help="the template release the project fetches its libraries at (default: the newest "
-                             "tag in this checkout, %(default)s)")
+                             "tag in this checkout, else the version in the folder's name; default %(default)s)")
     args = parser.parse_args()
 
     example = Path(args.example or ask(f"Example ({', '.join(EXAMPLES)})", "imgui-filter")).name
@@ -195,7 +212,9 @@ def main():
         sys.exit(f"unknown example: {example} (one of {', '.join(EXAMPLES)})")
     old = EXAMPLES[example]
     version = re.sub(r"^v", "", args.template_version or "")  # v0.1.0 or 0.1.0
-    if not version or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+    if not version:
+        sys.exit("no vX.Y.Z tag here (downloaded without git?): pass --template-version")
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         sys.exit(f"--template-version must be a release, like 0.1.0: {version!r}")
     name = args.name or ask("Name")
     vendor = args.vendor or ask("Vendor")
@@ -265,9 +284,12 @@ def main():
 
     # The workflow: the project is the repository's root, and every push runs it.
     def fix_workflow(text):
-        text = re.sub(r"on:\n  push:\n    branches: .*\n    paths:\n(?:      - .*\n)+  pull_request:\n    paths:\n(?:      - .*\n)+",
-                      "on:\n  push:\n    branches: [main] # other branches run through their pull request\n  pull_request:\n", text)
-        text = text.replace(f"PROJECT: examples/{example}", "PROJECT: .")
+        replaced = re.sub(r"on:\n  push:\n(?:    branches: .*\n)?    paths:\n(?:      - .*\n)+  pull_request:\n    paths:\n(?:      - .*\n)+",
+                          "on:\n  push:\n    branches: [main] # other branches run through their pull request\n  pull_request:\n", text)
+        if replaced == text:
+            sys.exit(f".github/workflows/{example}.yml has no paths filter to replace: the project's CI would never run")
+        text = replaced.replace(f"PROJECT: examples/{example}", "PROJECT: .")
+        text = text.replace(" -DWARNINGS_AS_ERRORS=ON", "")  # a newer compiler's warning in pinned third-party code shouldn't turn your CI red
         return text.replace(" Runs when the plugin or a library\n# it uses changes.", "")
     copy(REPO / ".github" / "workflows" / f"{example}.yml",
          dest / ".github" / "workflows" / "build.yml", fix_workflow)
