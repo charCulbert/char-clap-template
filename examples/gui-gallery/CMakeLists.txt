@@ -45,6 +45,13 @@ gpu_add_to(GuiGallery_impl)
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI") # a WCLAP's interface is the page, built with Emscripten
     chardraw_add_to(GuiGallery_impl)
     target_sources(GuiGallery_impl PRIVATE ui/GalleryView.cpp)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        # GCC 13 at -O2 reports a write past the end of the 2-element
+        # core::Value array of an initializer list in data(), from inside
+        # std::map's move constructor (stl_tree.h:199). It isn't there: a
+        # false positive on std::map and std::variant, so off for this file only.
+        set_source_files_properties(ui/GalleryView.cpp PROPERTIES COMPILE_OPTIONS -Wno-array-bounds)
+    endif()
 endif()
 
 set(formats CLAP VST3) # VST3 for the hosts without CLAP (Ableton Live)
