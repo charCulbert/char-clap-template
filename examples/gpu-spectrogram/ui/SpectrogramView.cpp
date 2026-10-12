@@ -108,7 +108,7 @@ public:
         modifiers = event.modifiers;
         ui.pointer(event);
     }
-    bool key(Key key, unsigned modifiers) override { return ui.key(key, modifiers); }
+    bool key(Key key, unsigned mods) override { return ui.key(key, mods); }
     bool text(const char *utf8) override { return ui.text(utf8); }
     bool animating() const override { return ui.animating(); }
     const gpu::Accessibility *accessibility() const override { return ui.accessibility(); }
@@ -330,17 +330,17 @@ private:
                 if (ui.contextMenu(menu, 1) == 0) params.begin(*q), params.change(*q, q->defaultValue), params.end(*q);
             }
         };
-        const auto column = Clay_LayoutConfig{.sizing = {CLAY_SIZING_FIXED(cell), CLAY_SIZING_FIT(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM};
+        const auto stack = Clay_LayoutConfig{.sizing = {CLAY_SIZING_FIXED(cell), CLAY_SIZING_FIT(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM};
         CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}, .childGap = 16}})
         {
             // CQT chosen: the CQT's settings in place of the FFT's, unless the
             // sample rate leaves the FFT running.
-            CLAY({.layout = column})
+            CLAY({.layout = stack})
             {
                 if (runsCqt) group("Analysis", analysisCqt, int(std::size(analysisCqt)));
                 else group("Analysis", analysis, int(std::size(analysis)));
             }
-            if (wantsCqt) CLAY({.layout = column})
+            if (wantsCqt) CLAY({.layout = stack})
             {
                 group("CQT", cqt, int(std::size(cqt)));
                 // What it costs in time, or why it isn't running.
@@ -359,7 +359,7 @@ private:
                                                                        .fontSize = uint16_t(ui.theme.textSize)}));
                 }
             }
-            CLAY({.layout = column}) { group("Display", display, int(std::size(display))); }
+            CLAY({.layout = stack}) { group("Display", display, int(std::size(display))); }
         }
     }
 
@@ -437,19 +437,19 @@ private:
         heldNote = note;
         sendTone();
     }
-    void playHz(double hz)
+    void playHz(double freq)
     {
-        if (hz == heldHz) return;
-        heldHz = hz;
+        if (freq == heldHz) return;
+        heldHz = freq;
         sendTone();
     }
     double toneHz() const { return heldNote >= 0 ? p[tuning]->value * std::pow(2.0, (heldNote - 69) / 12.0) : heldHz; }
     void sendTone()
     {
-        const double hz = toneHz();
-        if (hz == sentHz) return;
-        sentHz = hz;
-        send(core::Value::Map{{"type", "tone"}, {"hz", hz}});
+        const double tone = toneHz();
+        if (tone == sentHz) return;
+        sentHz = tone;
+        send(core::Value::Map{{"type", "tone"}, {"hz", tone}});
     }
 
     // Click tone: held on the plot (right of the piano strip, off the
@@ -474,13 +474,13 @@ private:
     // A line across the plot at the pitch playing (a held key's or a click's), and its name.
     void drawGuide(gpu::Rect r)
     {
-        const double hz = toneHz();
-        const float y = spectrogram.yAt(r, float(hz)), s = ui.s;
+        const double tone = toneHz();
+        const float y = spectrogram.yAt(r, float(tone)), s = ui.s;
         if (y < r.y || y > r.y + r.h) return;
         ui.draw.line(r.x + stripWidth(), y, r.x + r.w, y, 1.5f * s, ui.theme.accent);
-        char pitch[24], text[48];
-        pitchName(float(hz), p[tuning]->value, pitch, sizeof pitch);
-        std::snprintf(text, sizeof text, "%s  %.1f Hz", pitch, hz);
+        char pitch[32], text[48];
+        pitchName(float(tone), p[tuning]->value, pitch, sizeof pitch);
+        std::snprintf(text, sizeof text, "%s  %.1f Hz", pitch, tone);
         tag(r.x + r.w - 8 * s, y > r.y + r.h - 40 * s ? y - 6 * s : y + 16 * s, text, gpu::Draw2D::Align::right); // below it, above it near the bottom
     }
 
@@ -514,7 +514,7 @@ private:
         {
             const float x = right - i * step * rate * s;
             if (x < x0 + 48 * s) break;
-            char text[16];
+            char text[24];
             std::snprintf(text, sizeof text, "\xe2\x88\x92%g s", i * step);
             ui.draw.line(x, bottom, x, bottom - 5 * s, 1 * s, tick);
             tag(x, bottom - 9 * s, text, gpu::Draw2D::Align::center);
@@ -533,7 +533,7 @@ private:
         if (heldHz > 0) ui.draw.line(r.x + stripWidth(), at.y, r.x + r.w, at.y, 1.5f * s, ui.theme.accent); // sounding (Click tone)
         else ui.draw.line(r.x + stripWidth(), at.y, r.x + r.w, at.y, 1 * s, guide);
         if (at.peak) ui.draw.rect(pointerX - 3 * s, at.y - 3 * s, 6 * s, 6 * s, 3 * s, ui.theme.accent);
-        char pitch[24], text[80];
+        char pitch[32], text[80];
         pitchName(at.frequency, p[tuning]->value, pitch, sizeof pitch);
         std::snprintf(text, sizeof text, at.frequency < 10000 ? "%.1f Hz  %s  %.1f dB" : "%.0f Hz  %s  %.1f dB", at.frequency, pitch,
                       at.decibels);
