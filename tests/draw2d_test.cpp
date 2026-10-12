@@ -14,6 +14,7 @@
 #include <iterator>
 
 using gpu::Color;
+using gpu::ColourScheme;
 using gpu::Draw2D;
 using gpu::Spectrogram;
 using gpu::Ui;
@@ -273,14 +274,13 @@ int main(int argc, char **argv)
     }
 
     // A spectrogram: the newest column on the right, low frequencies at the
-    // bottom, coloured from its palette; a later column goes up on its own.
+    // bottom, coloured from its scheme (Magma); a later column goes up on its own.
     {
         Ui ui;
         CHECK(ui.draw.prepare(gpu.device, format, font));
         Spectrogram spectrogram({.minFrequency = 0, .maxFrequency = 1000, .scale = Spectrogram::Scale::linear,
-                                 .palette = Spectrogram::Palette::inferno, .columns = 4, .rows = 2,
-                                 .smooth = false}); // a column at a time: pixels to check
-        const Color quiet{0, 0, 0.016f}, loud{0.988f, 1, 0.643f}; // inferno's ends, #000004 and #fcffa4
+                                 .columns = 4, .rows = 2, .smooth = false}); // a column at a time: pixels to check
+        const Color quiet{0, 0, 0.016f}, loud{0.988f, 0.992f, 0.749f}; // magma's ends, #000004 and #fcfdbf
         const float frequencies[] = {250, 750};
         const float lowLoud[] = {0, -100}, highLoud[] = {-100, 0};
         spectrogram.add(lowLoud, frequencies, 2);
@@ -292,18 +292,34 @@ int main(int argc, char **argv)
         spectrogram.add(highLoud, frequencies, 2);
         px = shot();
         CHECK(is(px, newest, top, loud) && is(px, newest, bottom, quiet) && is(px, before, bottom, loud));
-        // Another palette recolours what's kept.
+        // Another scheme recolours what's kept.
         auto settings = spectrogram.settings();
-        settings.palette = Spectrogram::Palette::bone;
+        settings.colours = ColourScheme::named("Viridis");
         spectrogram.configure(settings);
         px = shot();
-        CHECK(is(px, newest, top, {0.961f, 0.922f, 0.831f})); // bone's loudest, #f5ebd4
+        const Color quieter{0.267f, 0.004f, 0.329f}, louder{0.992f, 0.906f, 0.145f}; // viridis's ends, #440154 and #fde725
+        CHECK(is(px, newest, top, louder));
         // Another range redraws what's kept: up to 500 Hz, the 250 Hz bin
         // fills the top row, loud in the column before (it was 0 dB there).
         settings.maxFrequency = 500;
         spectrogram.configure(settings);
         px = shot();
-        CHECK(is(px, before, top, {0.961f, 0.922f, 0.831f}) && is(px, newest, top, {0.039f, 0.043f, 0.047f}));
+        CHECK(is(px, before, top, louder) && is(px, newest, top, quieter));
+        // A scheme of its own is blended into the nine, and a change redraws.
+        const Color red{1, 0, 0}, blue{0, 0, 1};
+        settings.colours = {{red, blue}};
+        spectrogram.configure(settings);
+        Color ramp[Spectrogram::rampColours];
+        spectrogram.ramp(ramp);
+        CHECK(ramp[0].r == 1 && ramp[4].r == 0.5f && ramp[4].b == 0.5f && ramp[8].b == 1);
+        ColourScheme{{red, blue, red}}.ramp(ramp); // three: the middle one halfway
+        CHECK(ramp[4].b == 1 && ramp[2].r == 0.5f && ramp[8].r == 1);
+        px = shot();
+        CHECK(is(px, before, top, blue) && is(px, newest, top, red));
+        settings.colours = {{blue, red}};
+        spectrogram.configure(settings);
+        px = shot();
+        CHECK(is(px, before, top, red) && is(px, newest, top, blue));
     }
 
     // A spectrogram resized: more columns than it began with take columns
@@ -313,8 +329,8 @@ int main(int argc, char **argv)
         Ui ui;
         CHECK(ui.draw.prepare(gpu.device, format, font));
         Spectrogram spectrogram({.minFrequency = 0, .maxFrequency = 1000, .scale = Spectrogram::Scale::linear,
-                                 .palette = Spectrogram::Palette::inferno, .columns = 4, .rows = 2, .smooth = false});
-        const Color quiet{0, 0, 0.016f}, loud{0.988f, 1, 0.643f};
+                                 .columns = 4, .rows = 2, .smooth = false});
+        const Color quiet{0, 0, 0.016f}, loud{0.988f, 0.992f, 0.749f};
         const float frequencies[] = {250, 750};
         const float lowLoud[] = {0, -100}, highLoud[] = {-100, 0};
         auto shot = [&] { return gpu.render(ui.draw, [&] { spectrogram.draw(ui, "Spectrum", {0.5f, 0.5f, float(size), float(size)}); }); };

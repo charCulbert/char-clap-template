@@ -665,18 +665,21 @@ private:
         });
         row([&] {
             cell("Spectrogram: newest on the right, a column a frame or 100 points a second; frequencies marked up the side; "
-                 "hover for the level, on the nearest peak (a dot) with Snap. The bar is the palette's nine colours, quiet at the bottom", [&] {
+                 "hover for the level, on the nearest peak (a dot) with Snap. The bar is the colour scheme's nine colours, quiet at the bottom", [&] {
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 8, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
                 {
-                    static const char *const palettes[] = {"System", "Bone", "Inferno", "Viridis", "Magma"};
+                    // Every ready-made scheme, and one of the gallery's own: the theme's colours.
+                    static const char *schemes[gpu::ColourScheme::presetCount + 1];
+                    for (int i = 0; i < gpu::ColourScheme::presetCount; ++i) schemes[i] = gpu::ColourScheme::presets[i].name;
+                    schemes[gpu::ColourScheme::presetCount] = "Theme";
                     static const char *const scales[] = {"Linear", "Log", "Mel"};
                     static const char *const scrolls[] = {"A column a frame", "100 pt/s"};
                     gpu::Spectrogram::Options o = spectrogram.settings();
-                    int palette = int(o.palette), scale = int(o.scale), inTime = o.pixelsPerSecond > 0;
+                    int scale = int(o.scale), inTime = o.pixelsPerSecond > 0;
                     CLAY({.layout = {.childGap = 12, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
                     {
-                        if (ui.segmented(palettes, 5, palette, 7)) o.palette = gpu::Spectrogram::Palette(palette);
-                        ui.label("Palette");
+                        ui.dropdown(schemes, gpu::ColourScheme::presetCount + 1, scheme, 7);
+                        ui.label("Colours");
                         if (ui.segmented(scales, 3, scale, 8)) o.scale = gpu::Spectrogram::Scale(scale);
                         ui.label("Frequency scale");
                     }
@@ -686,6 +689,9 @@ private:
                         ui.label("Scroll");
                         ui.toggle("Snap", snapPeaks, 2);
                     }
+                    o.colours = scheme < gpu::ColourScheme::presetCount
+                                  ? gpu::ColourScheme::preset(scheme)
+                                  : gpu::ColourScheme{{ui.theme.background, ui.theme.accent, ui.theme.text}};
                     spectrogram.configure(o); // (the same options again change nothing)
                     const Clay_ElementId sweep = ui.id("Sweep");
                     void *plot = ui.paint([this, sweep](gpu::Rect r) { drawSweep(r, sweep); });
@@ -741,14 +747,14 @@ private:
     void drawRamp(gpu::Rect r)
     {
         gpu::Color colours[gpu::Spectrogram::rampColours];
-        spectrogram.ramp(ui.theme, colours);
+        spectrogram.ramp(colours);
         const int n = gpu::Spectrogram::rampColours;
         for (int i = 0; i < n; ++i)
         {
             const float top = std::round(r.y + r.h * float(n - 1 - i) / n), bottom = std::round(r.y + r.h * float(n - i) / n);
             ui.draw.rect(r.x, top, r.w, bottom - top, 0, colours[i]);
         }
-        ui.accessible(gpu::Accessible::Role::image, "Colour ramp", nullptr, r, "The palette's nine colours, quiet at the bottom");
+        ui.accessible(gpu::Accessible::Role::image, "Colour ramp", nullptr, r, "The colour scheme's nine colours, quiet at the bottom");
     }
 
     // The Views page's views as dockable windows, as ImGui's: the
@@ -1133,6 +1139,7 @@ private:
     std::vector<float> stepValues = {0.8f, 0.2f, 0.5f, 0.2f, 1.0f, 0.2f, 0.5f, 0.3f, 0.7f, 0.2f, 0.5f, 0.2f, 0.9f, 0.4f, 0.6f, 0.3f};
     bool sync = false, advancedOpen = true, oversample = false, linearPhase = true;
     bool detailsOpen = false, relativeDrag = false, seeThrough = true, snapPeaks = true, plotGrid = true;
+    int scheme = 0; // the spectrogram's colours: a preset, or past them the theme's
     int tab = 0; // the Tabs cell's
     // The Drawers page's overlays: whether each is open, and its size (points; unused when fitted).
     bool topOpen = true, leftOpen = false, bottomOpen = false, rightOpen = true;

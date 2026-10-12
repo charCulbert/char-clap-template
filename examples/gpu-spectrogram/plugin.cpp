@@ -52,7 +52,7 @@ enum SettingId
     S_LOW, S_HIGH,       // the frequency range, Hz (the interface stops at Nyquist); the upper from 100 Hz, to zoom in on the bass
     S_FLOOR, S_CEILING,  // the level range, dB
     S_SCALE,             // gpu::Spectrogram::Scale: linear, log, mel
-    S_PALETTE,           // the colour map: 0 magma, 1 viridis
+    S_PALETTE,           // the colour map: gpu::ColourScheme::presets, 0 magma, 1 viridis
     S_SCROLL_RATE,       // points a second, whatever the hop
     S_PIANO, S_SNAP, S_CURSOR, // on or off: the piano strip, snapping to peaks, and the readout under the pointer
     // The transform, and the constant-Q settings (chardsp::ConstantQSpectrogram).
@@ -77,7 +77,7 @@ static const Setting settings[S_COUNT] = {
     {"Floor", -160, -20, -100}, // the interface keeps it 10 dB under the ceiling
     {"Ceiling", -20, 12, 0},
     {"Scale", 0, 2, 1},
-    {"Colour map", 0, 1, 0}, // a new name: an earlier state's "Palette" (five maps) is left unread
+    {"Colour map", 0, 6, 0}, // a new name: an earlier state's "Palette" (five maps) is left unread
     {"Scroll rate", 25, 200, 100},
     {"Piano", 0, 1, 1},
     {"Snap", 0, 1, 1}, // a new name: an earlier state's "Peak snap" is left unread

@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Modelled on, where named below:
@@ -106,6 +107,67 @@ inline void scope(Ui &ui, const char *name, const float *samples, size_t count, 
     CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(heightPoints)}},
           .custom = {.customData = ui.paint([&ui, name, samples, count, view](Rect r) { scope(ui, name, samples, count, r, view); })}}) {}
 }
+
+// A colour scheme: colours from quiet to loud, 2 to 9 of them, which a view
+// blends evenly into nine (ramp). Take a ready-made one (preset, named) or
+// list your own, as {{theme.background, theme.accent}}.
+struct ColourScheme
+{
+    std::vector<Color> colours;
+
+    // The ready-made ones, nine even steps of each. Magma is the default; a
+    // new one is a line here.
+    struct Preset { const char *name; uint32_t colours[9]; };
+    static constexpr Preset presets[] = {
+        // Magma, Viridis, Inferno and Plasma: Nathaniel Smith and Stéfan van der Walt's, from matplotlib (CC0)
+        {"Magma", {0x000004, 0x1d1147, 0x51127c, 0x832681, 0xb73779, 0xe75263, 0xfc8961, 0xfec488, 0xfcfdbf}},
+        {"Viridis", {0x440154, 0x472d7b, 0x3b528b, 0x2c728e, 0x21918c, 0x28ae80, 0x5ec962, 0xaddc30, 0xfde725}},
+        {"Inferno", {0x000004, 0x210c4a, 0x57106e, 0x8a226a, 0xbc3754, 0xe45a31, 0xf98e09, 0xf9cb35, 0xfcffa4}},
+        {"Plasma", {0x0d0887, 0x4c02a1, 0x7e03a8, 0xaa2395, 0xcc4778, 0xe66c5c, 0xf89540, 0xfdc527, 0xf0f921}},
+        // Cividis: Nuñez, Anderton and Renslow's, from matplotlib (Battelle Memorial Institute, BSD-style)
+        {"Cividis", {0x00224e, 0x1a386f, 0x434e6c, 0x61656f, 0x7d7c78, 0x9b9476, 0xbcae6c, 0xdec958, 0xfee838}},
+        // Turbo: Anton Mikhailov's, Google (Apache-2.0)
+        {"Turbo", {0x30123b, 0x466be3, 0x28bceb, 0x32f298, 0xa4fc3c, 0xeecf3a, 0xfb7e21, 0xd02f05, 0x7a0403}},
+        {"Grayscale", {0x000000, 0x202020, 0x404040, 0x606060, 0x808080, 0x9f9f9f, 0xbfbfbf, 0xdfdfdf, 0xffffff}},
+    };
+    static constexpr int presetCount = int(sizeof presets / sizeof presets[0]);
+
+    // A ready-made one by its place in presets, or its name; Magma if there's none.
+    static ColourScheme preset(int index)
+    {
+        const Preset &p = presets[index >= 0 && index < presetCount ? index : 0];
+        ColourScheme scheme;
+        for (uint32_t c : p.colours) scheme.colours.push_back({float(c >> 16 & 255) / 255, float(c >> 8 & 255) / 255, float(c & 255) / 255});
+        return scheme;
+    }
+    static ColourScheme named(std::string_view name)
+    {
+        for (int i = 0; i < presetCount; ++i)
+            if (name == presets[i].name) return preset(i);
+        return preset(0);
+    }
+
+    // Nine colours from quiet to loud, blended evenly from these; Magma's
+    // with fewer than two.
+    static constexpr int rampColours = 9;
+    void ramp(Color out[rampColours]) const
+    {
+        const int n = int(colours.size());
+        if (n < 2)
+        {
+            preset(0).ramp(out);
+            return;
+        }
+        for (int i = 0; i < rampColours; ++i)
+        {
+            const float position = float(i) * float(n - 1) / (rampColours - 1);
+            const int lower = std::min(n - 2, int(position));
+            const float f = position - float(lower);
+            const Color &a = colours[size_t(lower)], &b = colours[size_t(lower) + 1];
+            out[i] = {a.r + (b.r - a.r) * f, a.g + (b.g - a.g) * f, a.b + (b.b - a.b) * f};
+        }
+    }
+};
 
 // A live magnitude spectrum, as an analyzer shows one: levels in decibels at
 // frequencies (an FFT's bins, or an analyzer's bands), drawn as a curve
@@ -293,7 +355,7 @@ inline void spectrum(Ui &ui, const char *name, const float *decibels, const floa
 // decibels per frequency, as an FFT gives), newest on the right, and it keeps
 // the last columns that fit. Frequencies go up the side on a linear, log or
 // mel scale. It keeps the values it was given, so a new scale, range or
-// palette redraws the whole history, and it sends the GPU only new columns.
+// colour scheme redraws the whole history, and it sends the GPU only new columns.
 // Time goes across one column per add(), or (pixelsPerSecond) at a steady
 // rate whatever the columns' rate. probe() says what's under the pointer.
 // Keep one per view (it's the history); add from the UI thread.
@@ -301,13 +363,12 @@ class Spectrogram
 {
 public:
     enum class Scale { linear, log, mel };
-    enum class Palette { system, bone, inferno, viridis, magma }; // system: the theme's background to its text
     struct Options
     {
         float minFrequency = 20, maxFrequency = 24000;
         Scale scale = Scale::log;
         float minDecibels = -100, maxDecibels = 0;
-        Palette palette = Palette::system;
+        ColourScheme colours = ColourScheme::preset(0);
         int columns = 512, rows = 256; // the history kept, and its resolution up the side
         // 0: each add() is a column, the history stretched across the width.
         // Else time goes across at this many points a second: each add()
@@ -335,7 +396,7 @@ public:
         const bool resized = o.columns != options.columns, restart = o.pixelsPerSecond != options.pixelsPerSecond;
         const bool remap = resized || o.rows != options.rows || o.scale != options.scale || o.minFrequency != options.minFrequency
                         || o.maxFrequency != options.maxFrequency;
-        const bool recolour = o.palette != options.palette || o.minDecibels != options.minDecibels || o.maxDecibels != options.maxDecibels;
+        const bool recolour = o.minDecibels != options.minDecibels || o.maxDecibels != options.maxDecibels;
         options = o;
         if (restart || before <= 0) clear();
         else if (resized) keep(before);
@@ -382,44 +443,10 @@ public:
 
     const Options &settings() const { return options; }
 
-    // Nine colours from quiet to loud; levels between the floor and the
-    // ceiling are spread evenly across them (a level bar draws the same).
-    // Inferno, viridis and magma are matplotlib's, sampled at nine even
-    // steps: perceptually even, and readable with colour blindness. Bone
-    // and system have five, a colour between each two added.
-    static constexpr int rampColours = 9;
-    void ramp(const Theme &theme, Color out[rampColours]) const
-    {
-        auto hex = [](uint32_t c) { return Color{float(c >> 16 & 255) / 255, float(c >> 8 & 255) / 255, float(c & 255) / 255}; };
-        static const uint32_t maps[][rampColours] = {
-            {0x000004, 0x1f0c48, 0x550f6d, 0x88226a, 0xba3655, 0xe35933, 0xf98e09, 0xf8c932, 0xfcffa4}, // inferno
-            {0x440154, 0x472d7b, 0x3b528b, 0x2c728e, 0x21918c, 0x28ae80, 0x5ec962, 0xaddc30, 0xfde725}, // viridis
-            {0x000004, 0x1c1044, 0x4f127b, 0x812581, 0xb5367a, 0xe55964, 0xfb8761, 0xfec287, 0xfcfdbf}, // magma
-        };
-        if (options.palette == Palette::inferno || options.palette == Palette::viridis || options.palette == Palette::magma)
-        {
-            for (int i = 0; i < rampColours; ++i) out[i] = hex(maps[int(options.palette) - 2][i]);
-            return;
-        }
-        Color five[5];
-        if (options.palette == Palette::system) // the text mixed into the background: 0, 14, 34, 66, 100%
-        {
-            const float mix[] = {0, 0.14f, 0.34f, 0.66f, 1};
-            for (int i = 0; i < 5; ++i)
-                five[i] = {theme.background.r + (theme.text.r - theme.background.r) * mix[i],
-                           theme.background.g + (theme.text.g - theme.background.g) * mix[i],
-                           theme.background.b + (theme.text.b - theme.background.b) * mix[i]};
-        }
-        else
-        {
-            static const uint32_t bone[] = {0x0a0b0c, 0x191918, 0x45433e, 0x8e897d, 0xf5ebd4};
-            for (int i = 0; i < 5; ++i) five[i] = hex(bone[i]);
-        }
-        for (int i = 0; i < 4; ++i)
-            out[2 * i] = five[i], out[2 * i + 1] = {(five[i].r + five[i + 1].r) / 2, (five[i].g + five[i + 1].g) / 2,
-                                                   (five[i].b + five[i + 1].b) / 2};
-        out[8] = five[4];
-    }
+    // The colours' nine (ColourScheme::ramp); levels between the floor and
+    // the ceiling are spread evenly across them (a level bar draws the same).
+    static constexpr int rampColours = ColourScheme::rampColours;
+    void ramp(Color out[rampColours]) const { options.colours.ramp(out); }
 
     // Draws it at r (pixels).
     void draw(Ui &ui, const char *name, Rect r)
@@ -727,7 +754,7 @@ private:
     void upload(Ui &ui)
     {
         Color now[rampColours];
-        ramp(ui.theme, now);
+        ramp(now);
         bool all = !mapped || redraw || image < 0 || prepared != ui.draw.prepared() || imageColumns != options.columns || imageRows != options.rows;
         for (int i = 0; i < rampColours; ++i) all |= now[i].r != shown[i].r || now[i].g != shown[i].g || now[i].b != shown[i].b;
         if (all)
@@ -769,7 +796,7 @@ private:
         changed.clear();
     }
 
-    Options options{0, 0, Scale::log, 0, 0, Palette::system, 0, 0};
+    Options options{0, 0, Scale::log, 0, 0, {}, 0, 0};
     std::vector<float> bins;    // the frequencies of the values added
     std::vector<float> pending; // across time: the column being filled, the loudest of what fell in it
     double filled = 0;          // and how much of it is (0..1)

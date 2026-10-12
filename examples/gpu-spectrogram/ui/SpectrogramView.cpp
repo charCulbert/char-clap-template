@@ -143,7 +143,7 @@ public:
         o.minDecibels = float(p[floorLevel]->value);
         o.maxDecibels = float(p[ceiling]->value);
         o.scale = gpu::Spectrogram::Scale(std::lround(p[frequencyScale]->value));
-        o.palette = p[palette]->value >= 0.5 ? gpu::Spectrogram::Palette::viridis : gpu::Spectrogram::Palette::magma;
+        o.colours = gpu::ColourScheme::preset(int(std::lround(p[palette]->value)));
         // A new scroll rate starts the history again, so paused it waits for
         // the resume, which starts it again anyway.
         if (!paused) o.pixelsPerSecond = float(p[scrollRate]->value);
@@ -223,10 +223,11 @@ private:
     {
         static const Setting switches[] = {piano, clickTone, snap, cursor, labels};
         static const char *const names[] = {"Piano strip", "Click tone", "Snap", "Cursor readout", "Labels"};
-        static const char *const scales[] = {"Linear", "Log", "Mel"}, *const colours[] = {"Magma", "Viridis"};
+        static const char *const scales[] = {"Linear", "Log", "Mel"};
         constexpr int count = int(std::size(switches));
         for (int i = 0; i < count; ++i) menuText[i] = (p[switches[i]]->value >= 0.5 ? "\xe2\x9c\x93 " : "  ") + std::string(names[i]); // a check when on
-        menuText[count] = std::string("Colours: ") + colours[p[palette]->value >= 0.5 ? 1 : 0];
+        const int scheme = std::clamp(int(std::lround(p[palette]->value)), 0, gpu::ColourScheme::presetCount - 1);
+        menuText[count] = std::string("Colours: ") + gpu::ColourScheme::presets[scheme].name;
         menuText[count + 1] = std::string("Scale: ") + scales[std::clamp(int(std::lround(p[frequencyScale]->value)), 0, 2)];
         menuText[count + 2] = paused ? "Resume" : "Pause";
         const char *items[count + 5];
@@ -238,7 +239,7 @@ private:
         const int chosen = ui.contextMenu(plot, items, count + 5);
         auto set = [this](gpu::Param &q, double value) { params.begin(q), params.change(q, value), params.end(q); };
         if (chosen >= 0 && chosen < count) set(*p[switches[chosen]], p[switches[chosen]]->value >= 0.5 ? 0 : 1);
-        else if (chosen == count + 1) set(*p[palette], p[palette]->value >= 0.5 ? 0 : 1);
+        else if (chosen == count + 1) set(*p[palette], double((scheme + 1) % gpu::ColourScheme::presetCount));
         else if (chosen == count + 2) set(*p[frequencyScale], double((int(std::lround(p[frequencyScale]->value)) + 1) % 3));
         else if (chosen == count + 4) setPaused(!paused);
     }

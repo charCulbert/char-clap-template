@@ -52,7 +52,7 @@ automating them.
 | Frequency range | lower 0 to 500 Hz, upper 100 Hz to Nyquist | 20 Hz to 24 kHz |
 | Level range | floor −160 to −20 dB, ceiling −20 to 12 dB, the floor 10 dB under the ceiling at least | −100 to 0 dB |
 | Scale | linear, log or mel | log |
-| Colours | Magma or Viridis | Magma |
+| Colours | Magma, Viridis, Inferno, Plasma, Cividis, Turbo or Grayscale | Magma |
 | Scroll rate | 25 to 200 points a second, whatever the hop | 100 |
 | Piano strip, snap, cursor readout, labels, click tone | on or off | on |
 | Transform | FFT or CQT | FFT |
@@ -136,8 +136,9 @@ With **Click tone** on, holding the pointer anywhere on the plot plays the
 same sine at the pitch under it, snapped to a peak as the cursor readout is
 (Command bypasses the snap); drag to change it, and let go to stop.
 
-**Labels** turns the frequency and time scales off. Magma and Viridis are
-matplotlib's colour maps, sampled at nine steps: perceptually even, and
+**Labels** turns the frequency and time scales off. The colours are
+chardraw's ready-made schemes (`gpu::ColourScheme`), each sampled at nine
+steps. All but Turbo and Grayscale are matplotlib's: perceptually even, and
 readable with colour blindness.
 
 A short hop with a large FFT is more work than the main thread can do in

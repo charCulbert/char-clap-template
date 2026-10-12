@@ -42,6 +42,10 @@ file(WRITE "${CMAKE_BINARY_DIR}/stb-patched/stb_textedit.h.new" "${textedit}")
 file(COPY_FILE "${CMAKE_BINARY_DIR}/stb-patched/stb_textedit.h.new" "${CMAKE_BINARY_DIR}/stb-patched/stb_textedit.h" ONLY_IF_DIFFERENT)
 set(CHARDRAW_PATCHED "${CMAKE_BINARY_DIR}/stb-patched")
 
+# Two of views.h's colour schemes come with licences to ship.
+set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_LICENSES
+    "cividis=${CHARDRAW_DIR}/licenses/cividis.txt" "turbo=${CHARDRAW_DIR}/licenses/turbo.txt")
+
 function(chardraw_add_to target)
     target_sources(${target} PRIVATE "${CHARDRAW_DIR}/draw2d.cpp" "${CHARDRAW_DIR}/layout.cpp" "${CHARDRAW_DIR}/ui.cpp"
         "${CHARDRAW_DIR}/ui_access.cpp" "${CHARDRAW_DIR}/ui_controls.cpp" "${CHARDRAW_DIR}/ui_panels.cpp" "${CHARDRAW_DIR}/ui_text.cpp")

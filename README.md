@@ -221,6 +221,14 @@ libc++, libc++abi, the LLVM runtime and dlmalloc (licences in
 (MIT), RtAudio and RtMidi (MIT-style), and on macOS the AudioUnit SDK
 (Apache-2.0) and ghc::filesystem (MIT).
 
+chardraw's colour schemes (`libs/chardraw/views.h`) are sampled from
+matplotlib's data: Magma, Viridis, Inferno and Plasma by Nathaniel Smith and
+Stéfan van der Walt (CC0); Cividis by Jamie Nuñez, Christopher Anderton and
+Ryan Renslow (Copyright (c) 2017, Battelle Memorial Institute, BSD-style, from
+[pnnl/cmaputil](https://github.com/pnnl/cmaputil)); and Turbo by Anton
+Mikhailov (Copyright 2019 Google LLC, Apache-2.0). The last two's licences
+are in `libs/chardraw/licenses/`.
+
 The examples' `plugin.cpp` follows the layout of nakst's
 [CLAP tutorial](https://nakst.gitlab.io/tutorial/clap-part-1.html).
 
