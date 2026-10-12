@@ -12,7 +12,8 @@ A polyphonic sine synth (Volume, Release) whose interface is a web page.
   `core::readResource("/path")` (on the main thread).
 - Hosts that support `clap.webview` (like WCLAP browser hosts) show the page
   themselves; elsewhere `libs/webview` shows it in a WebView inside the host's
-  window: CHOC's on macOS and Windows, WebKitGTK in a helper process on Linux. On iOS there is no interface yet.
+  window: CHOC's on macOS and Windows, WebKitGTK in a helper process on Linux.
+  On iOS there is no interface yet.
 
 ## Build
 
