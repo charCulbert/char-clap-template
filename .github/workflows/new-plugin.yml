@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Linux packages
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
 
       - name: Make the project
         run: python3 tools/new-plugin.py --from ${{ matrix.example }} --name "New Plugin" --vendor "Some Vendor" --template-version 0.1.0 --dest build-new-plugin

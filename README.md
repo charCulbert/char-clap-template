@@ -50,8 +50,14 @@ You need CMake 3.28 or newer and a C++20 compiler (Xcode, Visual Studio 2022,
 or GCC or Clang). On Linux, also:
 
 ```sh
-sudo apt install libasound2-dev libx11-dev libxrandr-dev libgtk-3-dev libwebkit2gtk-4.1-dev
+sudo apt install libasound2-dev libx11-dev libxrandr-dev
 ```
+
+A web page interface needs no GTK or WebKit to build. To show the page, the
+machine running the plugin needs WebKitGTK (`libwebkit2gtk-4.1-0` on Debian
+and Ubuntu) and glibc: the page runs in a helper process, started through
+glibc's dynamic loader. Without WebKitGTK the plugin still loads, with no
+interface.
 
 `cmake -B build && cmake --build build --config Release` builds CLAP, VST3,
 the standalone app, and AU on macOS, into `build/` (on Windows into

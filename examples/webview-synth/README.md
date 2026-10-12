@@ -11,8 +11,8 @@ A polyphonic sine synth (Volume, Release) whose interface is a web page.
   images, sounds or anything else beside it and read them with
   `core::readResource("/path")` (on the main thread).
 - Hosts that support `clap.webview` (like WCLAP browser hosts) show the page
-  themselves; elsewhere `libs/webview` shows it in a WebView (CHOC) inside the
-  host's window. On iOS there is no interface yet.
+  themselves; elsewhere `libs/webview` shows it in a WebView inside the host's
+  window: CHOC's on macOS and Windows, WebKitGTK in a helper process on Linux. On iOS there is no interface yet.
 
 ## Build
 
@@ -21,7 +21,7 @@ cmake -B build && cmake --build build --config Release
 ```
 
 That builds CLAP, VST3, AU (macOS) and a standalone app. It needs CMake 3.28+
-and a C++20 compiler (on Linux also `libasound2-dev`, `libgtk-3-dev` and `libwebkit2gtk-4.1-dev`). `--config Release` is for
+and a C++20 compiler (on Linux also `libasound2-dev` and `libx11-dev`; to show its page, a Linux machine needs `libwebkit2gtk-4.1-0` and glibc). `--config Release` is for
 Windows, where Visual Studio would build Debug; elsewhere the build is Release
 already. The plugins land here:
 
