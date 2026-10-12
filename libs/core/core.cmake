@@ -10,6 +10,10 @@ include_guard(DIRECTORY)
 include(FetchContent)
 
 set(CORE_DIR "${CMAKE_CURRENT_LIST_DIR}")
+# The template's own licence ships too: from its download, or from a local
+# checkout (FETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE), which isn't in _deps.
+get_filename_component(CORE_TEMPLATE_LICENSE "${CORE_DIR}/../../LICENSE" ABSOLUTE)
+set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_LICENSES "clap_template=${CORE_TEMPLATE_LICENSE}")
 
 FetchContent_Declare(clap
     GIT_REPOSITORY https://github.com/free-audio/clap.git
@@ -147,8 +151,9 @@ endfunction()
 
 # Gathers third-party licences into <build>/THIRD_PARTY_LICENSES/<name>.txt and
 # sets <out> to that folder: the licence file at the top of every library
-# FetchContent or CPM downloaded and of every git submodule (recursively), and
-# in a WCLAP the WASI SDK's runtime (licenses/wasi-sdk/, for WASI SDK 33).
+# FetchContent or CPM downloaded and of every git submodule (recursively), the
+# template's own (clap_template, registered above), and in a WCLAP the WASI
+# SDK's runtime (licenses/wasi-sdk/, for WASI SDK 33).
 # <name>=<file> arguments name a licence by hand, and win over what is found;
 # so do entries libraries add to the global property CORE_THIRD_PARTY_LICENSES.
 # <name>= (no file) marks a download another entry covers. A library with no
