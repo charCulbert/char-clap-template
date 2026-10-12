@@ -217,31 +217,33 @@ private:
     }
 
     // The plot's context menu: what's shown over it, checked when on, which
-    // choosing switches; the colours and scale with their values, which
-    // choosing steps; and Pause (or Resume).
+    // choosing switches; the colours and the scale, each a submenu with the
+    // one in use checked; and Pause (or Resume).
     void plotMenu(Clay_ElementId plot)
     {
+        using Item = gpu::Ui::MenuItem;
         static const Setting switches[] = {piano, clickTone, snap, cursor, labels};
         static const char *const names[] = {"Piano strip", "Click tone", "Snap", "Cursor readout", "Labels"};
-        static const char *const scales[] = {"Linear", "Log"};
-        constexpr int count = int(std::size(switches));
-        for (int i = 0; i < count; ++i) menuText[i] = (p[switches[i]]->value >= 0.5 ? "\xe2\x9c\x93 " : "  ") + std::string(names[i]); // a check when on
-        const int scheme = std::clamp(int(std::lround(p[palette]->value)), 0, gpu::ColourScheme::presetCount - 1);
-        menuText[count] = std::string("Colours: ") + gpu::ColourScheme::presets[scheme].name;
-        menuText[count + 1] = std::string("Scale: ") + scales[std::clamp(int(std::lround(p[frequencyScale]->value)), 0, 1)];
-        menuText[count + 2] = paused ? "Resume" : "Pause";
-        const char *items[count + 5];
-        for (int i = 0; i < count; ++i) items[i] = menuText[i].c_str();
-        items[count] = nullptr;
-        items[count + 1] = menuText[count].c_str(), items[count + 2] = menuText[count + 1].c_str();
-        items[count + 3] = nullptr;
-        items[count + 4] = menuText[count + 2].c_str();
+        static const char *const scaleNames[] = {"Linear", "Log"};
+        constexpr int count = int(std::size(switches)), schemes = gpu::ColourScheme::presetCount;
+        const int scheme = std::clamp(int(std::lround(p[palette]->value)), 0, schemes - 1);
+        const int scale = std::clamp(int(std::lround(p[frequencyScale]->value)), 0, 1);
+        // Ids: a switch its index, a scheme 100 on, a scale 200 on, Pause 300.
+        Item colours[schemes], scales[2], items[count + 5];
+        for (int i = 0; i < schemes; ++i) colours[i] = {gpu::ColourScheme::presets[i].name, 100 + i, i == scheme};
+        for (int i = 0; i < 2; ++i) scales[i] = {scaleNames[i], 200 + i, i == scale};
+        for (int i = 0; i < count; ++i) items[i] = {names[i], i, p[switches[i]]->value >= 0.5};
+        items[count] = {};
+        items[count + 1] = {"Colours", -1, -1, colours, schemes};
+        items[count + 2] = {"Scale", -1, -1, scales, 2};
+        items[count + 3] = {};
+        items[count + 4] = {paused ? "Resume" : "Pause", 300};
         const int chosen = ui.contextMenu(plot, items, count + 5);
         auto set = [this](gpu::Param &q, double value) { params.begin(q), params.change(q, value), params.end(q); };
         if (chosen >= 0 && chosen < count) set(*p[switches[chosen]], p[switches[chosen]]->value >= 0.5 ? 0 : 1);
-        else if (chosen == count + 1) set(*p[palette], double((scheme + 1) % gpu::ColourScheme::presetCount));
-        else if (chosen == count + 2) set(*p[frequencyScale], double((int(std::lround(p[frequencyScale]->value)) + 1) % 2));
-        else if (chosen == count + 4) setPaused(!paused);
+        else if (chosen >= 100 && chosen < 100 + schemes) set(*p[palette], double(chosen - 100));
+        else if (chosen >= 200 && chosen < 202) set(*p[frequencyScale], double(chosen - 200));
+        else if (chosen == 300) setPaused(!paused);
     }
 
     // The settings drawer, down from the plot's top edge (see record), as
@@ -555,7 +557,6 @@ private:
     int heldNote = -1; // the piano key held, or -1
     double heldHz = 0, sentHz = 0; // the pitch held on the plot (Click tone), and the last sent to the plugin
     bool clickOnDrawer = false;    // the press held began on the drawer, so it plays nothing
-    std::string menuText[10];      // the plot menu's items, kept while it's open
     gpu::Params params; // the plugin's settings (not CLAP parameters; see plugin.cpp)
     gpu::Param *p[settingCount] = {};
     gpu::Ui ui;

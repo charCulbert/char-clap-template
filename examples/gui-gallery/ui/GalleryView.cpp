@@ -807,8 +807,9 @@ private:
         d.rect(r.x, r.y, r.w, r.h, 0, ui.theme.background);
         if (plotGrid)
         {
-            for (int i = 1; i < 8; ++i) d.line(r.x + r.w * i / 8, r.y, r.x + r.w * i / 8, r.y + r.h, 1 * s, {t.r, t.g, t.b, 0.15f});
-            for (int i = 1; i < 4; ++i) d.line(r.x, r.y + r.h * i / 4, r.x + r.w, r.y + r.h * i / 4, 1 * s, {t.r, t.g, t.b, 0.15f});
+            const int across = gridLines, down = gridLines / 2;
+            for (int i = 1; i < across; ++i) d.line(r.x + r.w * i / across, r.y, r.x + r.w * i / across, r.y + r.h, 1 * s, {t.r, t.g, t.b, 0.15f});
+            for (int i = 1; i < down; ++i) d.line(r.x, r.y + r.h * i / down, r.x + r.w, r.y + r.h * i / down, 1 * s, {t.r, t.g, t.b, 0.15f});
         }
         std::vector<float> curve;
         for (int i = 0; i <= 64; ++i)
@@ -823,7 +824,8 @@ private:
         ui.accessible(gpu::Accessible::Role::image, "Plot", nullptr, r, "A made-up curve for a drawer to float over");
     }
 
-    // A plot with an overlay drawer declared in its box, and a context menu.
+    // A plot with an overlay drawer declared in its box, and a context menu
+    // with check marks and a submenu.
     void plotWithDrawer(int n, const char *title, bool &open, float &size, gpu::DrawerOptions options, const std::function<void()> &contents)
     {
         const Clay_ElementId plot = ui.id("DrawerPlot", n);
@@ -836,10 +838,13 @@ private:
         {
             ui.drawer(title, open, size, contents, options);
         }
-        const char *const items[] = {plotGrid ? "Hide the grid" : "Show the grid", open ? "Close the drawer" : "Open the drawer"};
-        const int chosen = ui.contextMenu(plot, items, 2);
+        using Item = gpu::Ui::MenuItem;
+        const Item lines[] = {{"4 across", 4, gridLines == 4}, {"8 across", 8, gridLines == 8}, {"16 across", 16, gridLines == 16}};
+        const Item items[] = {{"Grid", 0, plotGrid}, {"Grid lines", -1, -1, lines, 3}, {}, {open ? "Close the drawer" : "Open the drawer", 1}};
+        const int chosen = ui.contextMenu(plot, items, 4);
         if (chosen == 0) plotGrid = !plotGrid;
         if (chosen == 1) open = !open;
+        if (chosen >= 4) gridLines = chosen, plotGrid = true; // (a submenu item's id is its count)
     }
 
     void drawersPage()
@@ -1150,6 +1155,7 @@ private:
     std::vector<float> stepValues = {0.8f, 0.2f, 0.5f, 0.2f, 1.0f, 0.2f, 0.5f, 0.3f, 0.7f, 0.2f, 0.5f, 0.2f, 0.9f, 0.4f, 0.6f, 0.3f};
     bool sync = false, advancedOpen = true, oversample = false, linearPhase = true;
     bool detailsOpen = false, relativeDrag = false, seeThrough = true, snapPeaks = true, plotGrid = true;
+    int gridLines = 8; // the plots' grid lines across (half as many down)
     bool ownSpectrumColours = false;
     int scheme = 0; // the spectrogram's colours: a preset, or past them the theme's
     int tab = 0; // the Tabs cell's
