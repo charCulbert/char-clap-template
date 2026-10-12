@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -29,6 +30,49 @@ constexpr const char *stripes = R"(
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let on = step(0.5, fract((pos.x + pos.y) / 16.0));
     return vec4f(vec3f(0.3, 0.5, 1.0) * on, 1.0);
+}
+)";
+
+// A plot drawn by a shader of its own, as GPU Analyzer drew its spectrum
+// before chardraw had a Spectrum view: the C++ side writes the cell's place
+// and colours to a uniform buffer and the values to plot to a storage
+// buffer, and the shader works out each pixel from them.
+constexpr const char *plot = R"(
+struct Uniforms {
+    rect: vec4f,  // the cell: left, top, width, height (pixels)
+    line: vec4f,  // the curve's colour
+    fill: vec4f,  // the colour under it, alpha included
+    width: vec4f, // the curve's width (pixels), then unused
+};
+@group(0) @binding(0) var<uniform> u: Uniforms;
+@group(0) @binding(1) var<storage, read> values: array<f32>; // 0..1 up, evenly across the cell
+
+// One triangle covering the whole target; Draw2D's clip cuts it to the cell.
+@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+    let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+    return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
+}
+
+// The curve's height at x (pixels): an S-shaped blend of the values either side.
+fn curveY(x: f32) -> f32 {
+    let last = arrayLength(&values) - 1u;
+    let t = clamp((x - u.rect.x) / u.rect.z, 0.0, 1.0) * f32(last);
+    let i = min(u32(t), last);
+    let v = mix(values[i], values[min(i + 1u, last)], smoothstep(0.0, 1.0, fract(t)));
+    return u.rect.y + u.rect.w * (1.0 - v);
+}
+
+@fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+    let y = curveY(pos.x);
+    // Distance to the curve: the height above or below it, shortened where it's
+    // steep, so the line is as wide on a slope as on the flat.
+    let slope = (curveY(pos.x + 1.0) - curveY(pos.x - 1.0)) / 2.0;
+    let distance = abs(pos.y - y) / sqrt(1.0 + slope * slope);
+    let line = clamp(u.width.x / 2.0 + 0.5 - distance, 0.0, 1.0); // antialiased over a pixel
+    let under = select(0.0, u.fill.a, pos.y > y);
+    // Straight alpha, blended over what's drawn before (see the pipeline's blend).
+    let alpha = max(line, under);
+    return vec4f(mix(u.fill.rgb, u.line.rgb, line / max(alpha, 1e-4)), alpha);
 }
 )";
 
@@ -62,6 +106,7 @@ public:
         pipelineDescriptor.vertex.module = module;
         pipelineDescriptor.fragment = &fragment;
         stripePipeline = device.CreateRenderPipeline(&pipelineDescriptor);
+        preparePlot(device, format);
         params.send = send;
         ui.lockPointer = lockPointer;
         ui.setCursor = setCursor;
@@ -208,7 +253,60 @@ public:
 
 private:
     // Custom cells: what drawCell draws in each.
-    enum Cell { radii, borders, circles, arcs, widths, polyline, lineUnderBox, alpha, sizes, aligned, clipped, customPass, gradients, shadows, fills };
+    enum Cell { radii, borders, circles, arcs, widths, polyline, lineUnderBox, alpha, sizes, aligned, clipped, customPass, gradients, shadows, fills,
+                customShader };
+
+    // The plot shader's pipeline and its buffers, made once: the values it
+    // plots go up now, the cell's place and colours when it's drawn.
+    struct PlotUniforms { float rect[4], line[4], fill[4], width[4]; }; // as the shader's Uniforms
+    void preparePlot(const wgpu::Device &device, wgpu::TextureFormat format)
+    {
+        plotDevice = device;
+        wgpu::ShaderSourceWGSL source;
+        source.code = plot;
+        wgpu::ShaderModuleDescriptor moduleDescriptor;
+        moduleDescriptor.nextInChain = &source;
+        const wgpu::ShaderModule module = device.CreateShaderModule(&moduleDescriptor);
+        // Blended over what's under it, as Draw2D's shapes are (straight alpha).
+        wgpu::BlendState blend;
+        blend.color = {wgpu::BlendOperation::Add, wgpu::BlendFactor::SrcAlpha, wgpu::BlendFactor::OneMinusSrcAlpha};
+        blend.alpha = {wgpu::BlendOperation::Add, wgpu::BlendFactor::One, wgpu::BlendFactor::OneMinusSrcAlpha};
+        wgpu::ColorTargetState target;
+        target.format = format;
+        target.blend = &blend;
+        wgpu::FragmentState fragment;
+        fragment.module = module;
+        fragment.targetCount = 1;
+        fragment.targets = &target;
+        wgpu::RenderPipelineDescriptor pipelineDescriptor;
+        pipelineDescriptor.vertex.module = module;
+        pipelineDescriptor.fragment = &fragment;
+        plotPipeline = device.CreateRenderPipeline(&pipelineDescriptor);
+
+        // A few bumps and a dip, 0..1 up.
+        const float values[] = {0.2f, 0.35f, 0.3f, 0.7f, 0.9f, 0.55f, 0.25f, 0.15f, 0.4f, 0.6f, 0.45f, 0.2f};
+        wgpu::BufferDescriptor bufferDescriptor;
+        bufferDescriptor.size = sizeof values;
+        bufferDescriptor.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
+        const wgpu::Buffer valueBuffer = device.CreateBuffer(&bufferDescriptor);
+        device.GetQueue().WriteBuffer(valueBuffer, 0, values, sizeof values);
+        bufferDescriptor.size = sizeof(PlotUniforms);
+        bufferDescriptor.usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst;
+        plotUniforms = device.CreateBuffer(&bufferDescriptor);
+
+        // Both buffers bound as the shader's @group(0): binding 0 and 1.
+        wgpu::BindGroupEntry entries[2];
+        entries[0].binding = 0;
+        entries[0].buffer = plotUniforms;
+        entries[1].binding = 1;
+        entries[1].buffer = valueBuffer;
+        wgpu::BindGroupDescriptor groupDescriptor;
+        groupDescriptor.layout = plotPipeline.GetBindGroupLayout(0);
+        groupDescriptor.entryCount = 2;
+        groupDescriptor.entries = entries;
+        plotBindGroup = device.CreateBindGroup(&groupDescriptor);
+        plotShown = {};
+    }
 
     template <typename F> void row(F &&cells)
     {
@@ -274,6 +372,7 @@ private:
             custom("Gradients: linear, radial; even, no banding", gradients);
             custom("Shadows: soft, offset, under the box", shadows);
             custom("Fills: a concave L; the area under a curve", fills);
+            custom("Shader of its own: a curve through 12 values, over a faint fill", customShader);
             cell("Clay box with Layout::shadow", [&] {
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .backgroundColor = gpu::clayColor(ui.theme.background),
                       .cornerRadius = CLAY_CORNER_RADIUS(6), .userData = ui.layout.shadow(ui.theme.shadow, 12, 0, 4)}) {}
@@ -995,6 +1094,27 @@ private:
             d.popClip();
             d.circle(cx, cy, std::min(r.w, r.h) / 4, a);
             break;
+        case customShader:
+        {
+            // New uniforms (the cell moved, or the theme changed) go up now,
+            // before the frame is drawn, and a new version tells Draw2D the
+            // custom draw changed, so the frame isn't skipped.
+            const PlotUniforms now{{r.x, r.y, r.w, r.h}, {a.r, a.g, a.b, 1}, {a.r, a.g, a.b, 0.15f}, {1.5f * s}};
+            if (std::memcmp(&now, &plotShown, sizeof now))
+            {
+                plotDevice.GetQueue().WriteBuffer(plotUniforms, 0, &now, sizeof now);
+                plotShown = now;
+                ++plotVersion;
+            }
+            d.pushClip(r.x, r.y, r.w, r.h);
+            d.custom([this](const wgpu::RenderPassEncoder &pass) {
+                pass.SetPipeline(plotPipeline);
+                pass.SetBindGroup(0, plotBindGroup);
+                pass.Draw(3);
+            }, plotVersion);
+            d.popClip();
+            break;
+        }
         }
     }
 
@@ -1026,6 +1146,12 @@ private:
     gpu::Params local; // the gallery's own settings (see prepare)
     gpu::Ui ui;
     wgpu::RenderPipeline stripePipeline;
+    wgpu::Device plotDevice;
+    wgpu::RenderPipeline plotPipeline;
+    wgpu::Buffer plotUniforms;
+    wgpu::BindGroup plotBindGroup;
+    PlotUniforms plotShown{}; // what plotUniforms holds
+    uint64_t plotVersion = 1; // Draw2D::custom's: one more each time they change
 };
 
 }
