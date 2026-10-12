@@ -27,16 +27,16 @@ add_executable(spectrogram_test spectrogram_test.cpp)
 target_include_directories(spectrogram_test PRIVATE ${SIGNALSMITH_DSP_INCLUDE})
 add_test(NAME spectrogram COMMAND spectrogram_test)
 
-# The GPU interface's drawing, layout and controls (libs/draw2d). draw2d_test
+# The GPU interface's drawing, layout and controls (libs/chardraw). draw2d_test
 # needs a WebGPU adapter (a software one will do) and skips without one.
 include(../libs/gpu/gpu.cmake)
-include(../libs/draw2d/draw2d.cmake)
+include(../libs/chardraw/chardraw.cmake)
 add_executable(ui_test ui_test.cpp ../libs/gpu/params.cpp ../libs/core/messages.cpp)
-draw2d_add_to(ui_test)
+chardraw_add_to(ui_test)
 target_link_libraries(ui_test PRIVATE dawn::webgpu_dawn)
 add_test(NAME ui COMMAND ui_test)
 add_executable(draw2d_test draw2d_test.cpp ../libs/gpu/context.cpp ../libs/gpu/params.cpp ../libs/core/messages.cpp)
-draw2d_add_to(draw2d_test)
+chardraw_add_to(draw2d_test)
 target_link_libraries(draw2d_test PRIVATE dawn::webgpu_dawn)
 add_test(NAME draw2d COMMAND draw2d_test "${CMAKE_CURRENT_SOURCE_DIR}/gallery/resources/fonts/BarlowSemiCondensed-Medium.ttf")
 set_tests_properties(draw2d PROPERTIES SKIP_RETURN_CODE 77)

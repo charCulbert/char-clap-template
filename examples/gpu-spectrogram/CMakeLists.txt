@@ -1,4 +1,4 @@
-# GPU Spectrogram: a scrolling spectrogram made only of libs/draw2d's parts.
+# GPU Spectrogram: a scrolling spectrogram made only of libs/chardraw's parts.
 #
 #   cmake -B build && cmake --build build     CLAP, VST3, AU (macOS), standalone
 #   WCLAP: see README.md for the one extra flag (the WASI SDK toolchain).
@@ -28,7 +28,7 @@ endif()
 
 set(LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../../libs")
 include(${LIBS}/gpu/gpu.cmake)
-include(${LIBS}/draw2d/draw2d.cmake)
+include(${LIBS}/chardraw/chardraw.cmake)
 include(signalsmith-dsp.cmake)
 # chardsp_ConstantQ.h follows CiCueTea (MIT): its licence ships with the others.
 set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_LICENSES "cicuetea=${CMAKE_CURRENT_SOURCE_DIR}/licenses/CiCueTea.txt")
@@ -36,7 +36,7 @@ set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_LICENSES "cicuetea=${CMAKE_
 # WCLAP builds this file a second time with Emscripten, for the page the host shows.
 if(GPU_PAGE)
     gpu_add_page(page ASSETS resources) # the font, built into the page
-    draw2d_add_to(page)
+    chardraw_add_to(page)
     target_sources(page PRIVATE ui/SpectrogramView.cpp)
     return()
 endif()
@@ -48,7 +48,7 @@ target_include_directories(GpuSpectrogram_impl SYSTEM PRIVATE ${SIGNALSMITH_DSP_
 core_add_to(GpuSpectrogram_impl)
 gpu_add_to(GpuSpectrogram_impl)
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")
-    draw2d_add_to(GpuSpectrogram_impl)
+    chardraw_add_to(GpuSpectrogram_impl)
     target_sources(GpuSpectrogram_impl PRIVATE ui/SpectrogramView.cpp)
 endif()
 

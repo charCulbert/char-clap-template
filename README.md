@@ -12,8 +12,8 @@ Example CLAP plugins to start new ones from. Each builds, with
 |---|---|---|
 | [`examples/headless-gain`](examples/headless-gain) | Gain and pan | None: the host shows its own controls |
 | [`examples/webview-synth`](examples/webview-synth) | Polyphonic sine synth | Webview/HTML |
-| [`examples/gpu-analyzer`](examples/gpu-analyzer) | Spectrum analyzer | draw2d/WebGPU|
-| [`examples/gpu-spectrogram`](examples/gpu-spectrogram) | Scrolling spectrogram | draw2d/WebGPU|
+| [`examples/gpu-analyzer`](examples/gpu-analyzer) | Spectrum analyzer | chardraw/WebGPU |
+| [`examples/gpu-spectrogram`](examples/gpu-spectrogram) | Scrolling spectrogram | chardraw/WebGPU |
 | [`examples/imgui-filter`](examples/imgui-filter) | Lowpass, bandpass and highpass filter | Dear ImGui/WebGPU |
 
 
@@ -88,16 +88,16 @@ libs/
   core/             CLAP SDK, clap-wrapper, the message codec, resources
   webview/          a web page interface
   gpu/              a WebGPU interface: Dawn natively, a web page in WCLAP
-  draw2d/           drawing, layout and controls for a GPU interface
-tests/              unit tests, and the GUI Gallery (a page per draw2d feature)
+  chardraw/         drawing, layout and controls for a GPU interface
+tests/              unit tests, and the GUI Gallery (a page per chardraw feature)
 tools/              new-plugin.py, check-templates.py
 ```
 
 Each `libs/*/*.cmake` says at the top what it does, pins its own
 dependencies, and gives you a function to add it to a plugin (`core_add_to`,
-`webview_add_to`, `gpu_add_to`, `draw2d_add_to`).
+`webview_add_to`, `gpu_add_to`, `chardraw_add_to`).
 
-## draw2d
+## chardraw
 
 A small immediate-mode GUI lib for a WebGPU interface, the same code natively and
 in the browser:
@@ -116,7 +116,7 @@ in the browser:
 Linux GPU builds are x86_64 only: Dawn's and AccessKit's prebuilt libraries
 have no other Linux architecture.
 
-Check the GUI Gallery for some draw2D examples. 
+Check the GUI Gallery for some chardraw examples.
 
 ## How the interface talks to the plugin
 
@@ -171,7 +171,7 @@ python3 tools/check-templates.py                             # a project from ea
 ```
 
 The tests cover the resource reader, the message codec (C++ and JavaScript),
-the analyzer's DSP, draw2d's layout and controls, and draw2d's drawing
+the analyzer's DSP, chardraw's layout and controls, and its drawing
 (checked pixel by pixel; needs a WebGPU adapter, a software one will do).
 The GUI Gallery (`tests/gallery`) is for looking: each cell draws one feature
 and says what it should look like.
@@ -196,7 +196,7 @@ Every version is pinned in one place:
 | CHOC | `libs/webview/webview.cmake` | a commit |
 | Dawn | `libs/gpu/gpu.cmake` | v20260922.191850 |
 | AccessKit | `libs/gpu/gpu.cmake` | 0.23.1 |
-| stb, Clay, nanosvg | `libs/draw2d/draw2d.cmake` | commits |
+| stb, Clay, nanosvg | `libs/chardraw/chardraw.cmake` | commits |
 | Emscripten | each GPU example's workflow; a licence in `libs/gpu/licenses/` | 4.0.11 |
 | WASI SDK | each workflow; its runtime's licences in `libs/core/licenses/wasi-sdk/` | 33 |
 | Dear ImGui | `examples/imgui-filter/CMakeLists.txt` | v1.92.9b |

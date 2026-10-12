@@ -1,5 +1,5 @@
-// GPU Spectrogram's interface, made only of libs/draw2d's parts: a
-// gpu::Spectrogram (draw2d/views.h) fills the window, its scales drawn over
+// GPU Spectrogram's interface, made only of libs/chardraw's parts: a
+// gpu::Spectrogram (chardraw/views.h) fills the window, its scales drawn over
 // its edges, and the settings drawer's tab (Ui::drawer, an overlay) on its
 // top edge. Open, the drawer's panel comes down over the plot, see-through,
 // with the analysis and display settings in columns: lists as readouts
@@ -9,8 +9,8 @@
 // key of the piano strip (or, with Click tone, the plot) plays its pitch
 // (through the plugin) and marks it across the plot. The columns arrive from
 // the plugin as "column" messages (see plugin.cpp).
-#include "draw2d/ui.h"
-#include "draw2d/views.h"
+#include "chardraw/ui.h"
+#include "chardraw/views.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>

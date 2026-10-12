@@ -1,7 +1,7 @@
 # GPU Spectrogram
 
 A scrolling spectrogram, as Listener's: it passes audio through and shows
-how its spectrum changes over time. The interface uses only `libs/draw2d`'s
+how its spectrum changes over time. The interface uses only `libs/chardraw`'s
 parts, with no drawing code of its own; for a drawing of your own, see
 `examples/gpu-analyzer`.
 
@@ -24,7 +24,7 @@ parts, with no drawing code of its own; for a drawing of your own, see
   Sierra): `licenses/CiCueTea.txt` is its licence, which ships with the
   plugin's other third-party licences.
 - `ui/SpectrogramView.cpp`: the interface, a `gpu::View`: a
-  `gpu::Spectrogram` (`draw2d/views.h`) fills the window, frequencies up its
+  `gpu::Spectrogram` (`chardraw/views.h`) fills the window, frequencies up its
   left edge and seconds along the bottom drawn over it, and the settings
   drawer's tab (`Ui::drawer`, an overlay) on its top edge. Open, the
   drawer's panel comes down over the plot, see-through, with the analysis

@@ -2,12 +2,12 @@
 # WebGPU (draw2d.h), flexbox-style layout with Clay (layout.h), and knobs,
 # sliders and drag areas bound to the plugin's parameters (ui.h).
 #
-#   include(libs/draw2d/draw2d.cmake)
-#   draw2d_add_to(<target>)      the impl target natively, the page target in WCLAP
+#   include(libs/chardraw/chardraw.cmake)
+#   chardraw_add_to(<target>)      the impl target natively, the page target in WCLAP
 include_guard(DIRECTORY)
 include(FetchContent)
 
-set(DRAW2D_DIR "${CMAKE_CURRENT_LIST_DIR}")
+set(CHARDRAW_DIR "${CMAKE_CURRENT_LIST_DIR}")
 # stb_truetype rasterizes the font, stb_image decodes images; Clay lays out
 # boxes. All single headers.
 FetchContent_Declare(stb
@@ -35,23 +35,23 @@ file(READ "${stb_SOURCE_DIR}/stb_textedit.h" textedit)
 set(overrun "(size_t) ((STB_TEXTEDIT_UNDOSTATECOUNT - state->redo_point)*sizeof(state->undo_rec[0]))")
 string(FIND "${textedit}" "${overrun}" at)
 if(at EQUAL -1)
-    message(FATAL_ERROR "stb_textedit.h changed: check whether discard_redo still needs the patch in draw2d.cmake")
+    message(FATAL_ERROR "stb_textedit.h changed: check whether discard_redo still needs the patch in chardraw.cmake")
 endif()
 string(REPLACE "${overrun}" "(size_t) ((STB_TEXTEDIT_UNDOSTATECOUNT - state->redo_point - 1)*sizeof(state->undo_rec[0]))" textedit "${textedit}")
 file(WRITE "${CMAKE_BINARY_DIR}/stb-patched/stb_textedit.h.new" "${textedit}")
 file(COPY_FILE "${CMAKE_BINARY_DIR}/stb-patched/stb_textedit.h.new" "${CMAKE_BINARY_DIR}/stb-patched/stb_textedit.h" ONLY_IF_DIFFERENT)
-set(DRAW2D_PATCHED "${CMAKE_BINARY_DIR}/stb-patched")
+set(CHARDRAW_PATCHED "${CMAKE_BINARY_DIR}/stb-patched")
 
-function(draw2d_add_to target)
-    target_sources(${target} PRIVATE "${DRAW2D_DIR}/draw2d.cpp" "${DRAW2D_DIR}/layout.cpp" "${DRAW2D_DIR}/ui.cpp"
-        "${DRAW2D_DIR}/ui_access.cpp" "${DRAW2D_DIR}/ui_controls.cpp" "${DRAW2D_DIR}/ui_panels.cpp" "${DRAW2D_DIR}/ui_text.cpp")
+function(chardraw_add_to target)
+    target_sources(${target} PRIVATE "${CHARDRAW_DIR}/draw2d.cpp" "${CHARDRAW_DIR}/layout.cpp" "${CHARDRAW_DIR}/ui.cpp"
+        "${CHARDRAW_DIR}/ui_access.cpp" "${CHARDRAW_DIR}/ui_controls.cpp" "${CHARDRAW_DIR}/ui_panels.cpp" "${CHARDRAW_DIR}/ui_text.cpp")
     if(MSVC) # a role with no name (roleName's switch) is an error
-        set_source_files_properties("${DRAW2D_DIR}/ui_access.cpp" PROPERTIES COMPILE_OPTIONS /we4062)
+        set_source_files_properties("${CHARDRAW_DIR}/ui_access.cpp" PROPERTIES COMPILE_OPTIONS /we4062)
     else()
-        set_source_files_properties("${DRAW2D_DIR}/ui_access.cpp" PROPERTIES COMPILE_OPTIONS -Werror=switch)
+        set_source_files_properties("${CHARDRAW_DIR}/ui_access.cpp" PROPERTIES COMPILE_OPTIONS -Werror=switch)
     endif()
     # Third-party headers: their own warnings aren't the plugin's to fix.
-    target_include_directories(${target} SYSTEM PRIVATE "${DRAW2D_PATCHED}" "${stb_SOURCE_DIR}" "${clay_SOURCE_DIR}" "${nanosvg_SOURCE_DIR}/src")
+    target_include_directories(${target} SYSTEM PRIVATE "${CHARDRAW_PATCHED}" "${stb_SOURCE_DIR}" "${clay_SOURCE_DIR}" "${nanosvg_SOURCE_DIR}/src")
     # Clay's API is designated initializers that leave the rest of a struct at
     # zero (CLAY({.layout = ...}), CLAY_SIZING_FIT(0)); every use would warn.
     if(NOT MSVC)

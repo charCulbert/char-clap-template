@@ -1,8 +1,8 @@
 // GPU Analyzer's interface: the live spectrum, drawn by one fragment shader,
-// with labels and three knobs (Smoothing, Colour, Tilt) from draw2d's gpu::Ui on top,
+// with labels and three knobs (Smoothing, Colour, Tilt) from chardraw's gpu::Ui on top,
 // laid out with Clay. The spectrum arrives from the plugin as "spectrum"
 // messages; the knobs edit the plugin's settings (see plugin.cpp).
-#include "draw2d/ui.h"
+#include "chardraw/ui.h"
 #include <algorithm>
 #include <cmath>
 #include <vector>

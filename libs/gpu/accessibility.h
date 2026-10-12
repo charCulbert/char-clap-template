@@ -5,7 +5,7 @@
 
 // What a screen reader sees of a view: a tree of elements, each with a role,
 // a name, a value and what can be done with it, as ARIA gives HTML. A View
-// fills one while it records a frame (draw2d's Ui does it from its controls);
+// fills one while it records a frame (chardraw's Ui does it from its controls);
 // the presenter hands it to the system's accessibility API and turns the
 // screen reader's requests back into View::accessAction calls.
 namespace gpu {

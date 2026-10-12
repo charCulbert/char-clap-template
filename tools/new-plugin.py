@@ -28,10 +28,10 @@ EXAMPLES = {
                   id="com.charlieculbert.webviewsynth", subtype="WvSy", libs=["core", "webview"],
                   notices=["clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "choc"]),
     "gpu-analyzer": dict(name="GPU Analyzer", target="GpuAnalyzer",
-                     id="com.charlieculbert.gpuanalyzer", subtype="GpAn", libs=["core", "gpu", "draw2d"],
+                     id="com.charlieculbert.gpuanalyzer", subtype="GpAn", libs=["core", "gpu", "chardraw"],
                      notices=["clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "signalsmith-basics", "inter", "emscripten"]),
     "gpu-spectrogram": dict(name="GPU Spectrogram", target="GpuSpectrogram",
-                        id="com.charlieculbert.gpuspectrogram", subtype="GpSg", libs=["core", "gpu", "draw2d"],
+                        id="com.charlieculbert.gpuspectrogram", subtype="GpSg", libs=["core", "gpu", "chardraw"],
                         notices=["clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "cicuetea", "plex", "emscripten"]),
     "imgui-filter": dict(name="ImGui Filter", target="ImGuiFilter",
                    id="com.charlieculbert.imguifilter", subtype="ImFl", libs=["core", "gpu"],
@@ -126,7 +126,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--from", dest="example",
                         help="an example's folder in examples/: headless-gain (no UI), webview-synth (a web page), "
-                             "gpu-analyzer (Draw2D and Clay on WebGPU, its own drawing), gpu-spectrogram (Draw2D's "
+                             "gpu-analyzer (chardraw and Clay on WebGPU, its own drawing), gpu-spectrogram (chardraw's "
                              "views and controls), imgui-filter (Dear ImGui)")
     parser.add_argument("--name", help='the plugin\'s name, e.g. "My Plugin"')
     parser.add_argument("--vendor", help="you or your company")

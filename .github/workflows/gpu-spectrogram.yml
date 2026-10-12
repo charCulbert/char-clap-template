@@ -10,14 +10,14 @@ on:
       - examples/gpu-spectrogram/**
       - libs/core/**
       - libs/gpu/**
-      - libs/draw2d/**
+      - libs/chardraw/**
       - .github/workflows/gpu-spectrogram.yml
   pull_request:
     paths:
       - examples/gpu-spectrogram/**
       - libs/core/**
       - libs/gpu/**
-      - libs/draw2d/**
+      - libs/chardraw/**
       - .github/workflows/gpu-spectrogram.yml
   workflow_dispatch:
 

@@ -4,8 +4,8 @@
 // antialiased edges, so they hold on any GPU, the software ones included.
 // Skips (exit code 77) where there's no WebGPU adapter at all.
 // Usage: draw2d_test <font.ttf>
-#include "../libs/draw2d/draw2d.h"
-#include "../libs/draw2d/views.h"
+#include "../libs/chardraw/draw2d.h"
+#include "../libs/chardraw/views.h"
 #include "../libs/gpu/context.h"
 #include <cmath>
 #include <cstdio>

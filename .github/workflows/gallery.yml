@@ -10,14 +10,14 @@ on:
       - tests/gallery/**
       - libs/core/**
       - libs/gpu/**
-      - libs/draw2d/**
+      - libs/chardraw/**
       - .github/workflows/gallery.yml
   pull_request:
     paths:
       - tests/gallery/**
       - libs/core/**
       - libs/gpu/**
-      - libs/draw2d/**
+      - libs/chardraw/**
       - .github/workflows/gallery.yml
   workflow_dispatch:
 

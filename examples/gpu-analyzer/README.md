@@ -18,7 +18,7 @@ WebGPU by our own drawing code.
   example's `dsp/fft.h`. The buffer brings both channels from the audio
   thread; the spectrum is each window's FFT.
 - `ui/AnalyzerView.cpp`: the interface, a `gpu::View`: one fragment shader for
-  the spectrum, and knobs and labels from `libs/draw2d`, laid out with Clay.
+  the spectrum, and knobs and labels from `libs/chardraw`, laid out with Clay.
 - The display matches FabFilter Pro-Q's: a logarithmic frequency axis
   (10 Hz to 30 kHz), levels in dB from 0 to -100, and a tilt of 4.5 dB per
   octave around 1 kHz by default, so music looks roughly level.

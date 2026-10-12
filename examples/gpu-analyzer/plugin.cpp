@@ -1,5 +1,5 @@
 // GPU Analyzer: passes stereo audio through unchanged and shows its spectrum,
-// drawn with our own WebGPU code (ui/AnalyzerView.cpp, libs/draw2d).
+// drawn with our own WebGPU code (ui/AnalyzerView.cpp, libs/chardraw).
 //
 // This file is the whole CLAP plugin: its descriptor, audio ports, state, the
 // clap.webview and clap.gui extensions its interface uses, and the audio

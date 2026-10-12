@@ -1,4 +1,4 @@
-# GPU Analyzer: a spectrum analyzer drawn with our own WebGPU code (libs/draw2d).
+# GPU Analyzer: a spectrum analyzer drawn with our own WebGPU code (libs/chardraw).
 #
 #   cmake -B build && cmake --build build     CLAP, VST3, AU (macOS), standalone
 #   WCLAP: see README.md for the one extra flag (the WASI SDK toolchain).
@@ -28,7 +28,7 @@ endif()
 
 set(LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../../libs")
 include(${LIBS}/gpu/gpu.cmake)
-include(${LIBS}/draw2d/draw2d.cmake)
+include(${LIBS}/chardraw/chardraw.cmake)
 include(signalsmith-dsp.cmake)
 # AnalyzerSpectrum.h follows Signalsmith Audio's analyser (Signalsmith Basics, MIT): its licence ships with the others.
 set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_LICENSES "signalsmith-basics=${CMAKE_CURRENT_SOURCE_DIR}/licenses/SignalsmithBasics.txt")
@@ -36,7 +36,7 @@ set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_LICENSES "signalsmith-basic
 # WCLAP builds this file a second time with Emscripten, for the page the host shows.
 if(GPU_PAGE)
     gpu_add_page(page ASSETS resources) # the font, built into the page
-    draw2d_add_to(page)
+    chardraw_add_to(page)
     target_sources(page PRIVATE ui/AnalyzerView.cpp)
     return()
 endif()
@@ -48,7 +48,7 @@ target_include_directories(GpuAnalyzer_impl SYSTEM PRIVATE ${SIGNALSMITH_DSP_INC
 core_add_to(GpuAnalyzer_impl)
 gpu_add_to(GpuAnalyzer_impl)
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")
-    draw2d_add_to(GpuAnalyzer_impl)
+    chardraw_add_to(GpuAnalyzer_impl)
     target_sources(GpuAnalyzer_impl PRIVATE ui/AnalyzerView.cpp)
 endif()
 

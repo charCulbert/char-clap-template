@@ -10,14 +10,14 @@ on:
       - examples/gpu-analyzer/**
       - libs/core/**
       - libs/gpu/**
-      - libs/draw2d/**
+      - libs/chardraw/**
       - .github/workflows/gpu-analyzer.yml
   pull_request:
     paths:
       - examples/gpu-analyzer/**
       - libs/core/**
       - libs/gpu/**
-      - libs/draw2d/**
+      - libs/chardraw/**
       - .github/workflows/gpu-analyzer.yml
   workflow_dispatch:
 

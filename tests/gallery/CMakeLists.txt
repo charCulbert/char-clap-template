@@ -1,4 +1,4 @@
-# GUI Gallery: every feature of the GPU interface (libs/gpu, libs/draw2d), one
+# GUI Gallery: every feature of the GPU interface (libs/gpu, libs/chardraw), one
 # page each, for checking it in real hosts. CLAP, VST3 and a standalone app natively, and a WCLAP.
 #
 #   cmake -B build && cmake --build build
@@ -27,12 +27,12 @@ endif()
 
 set(LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../../libs")
 include(${LIBS}/gpu/gpu.cmake)
-include(${LIBS}/draw2d/draw2d.cmake)
+include(${LIBS}/chardraw/chardraw.cmake)
 
 # WCLAP builds this file a second time with Emscripten, for the page the host shows.
 if(GPU_PAGE)
     gpu_add_page(page ASSETS resources) # its fonts and images, built into the page
-    draw2d_add_to(page)
+    chardraw_add_to(page)
     target_sources(page PRIVATE ui/GalleryView.cpp)
     return()
 endif()
@@ -43,7 +43,7 @@ add_library(GuiGallery_impl STATIC plugin.cpp)
 core_add_to(GuiGallery_impl)
 gpu_add_to(GuiGallery_impl)
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI") # a WCLAP's interface is the page, built with Emscripten
-    draw2d_add_to(GuiGallery_impl)
+    chardraw_add_to(GuiGallery_impl)
     target_sources(GuiGallery_impl PRIVATE ui/GalleryView.cpp)
 endif()
 

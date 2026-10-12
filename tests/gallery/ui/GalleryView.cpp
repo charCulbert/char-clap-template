@@ -1,9 +1,9 @@
 // GUI Gallery's interface: tabs, a theme switch, and one page per area of the
 // framework. Every cell draws one feature and says underneath what it should
 // look like, so a wrong drawing is visible at a glance.
-#include "draw2d/ui.h"
-#include "draw2d/views.h"
-#include "draw2d/dock.h"
+#include "chardraw/ui.h"
+#include "chardraw/views.h"
+#include "chardraw/dock.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>

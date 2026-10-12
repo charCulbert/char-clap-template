@@ -314,7 +314,7 @@ void Ui::finishDescribing()
             static std::vector<uint64_t> warned;
             if (std::find(warned.begin(), warned.end(), n.id) != warned.end()) continue;
             warned.push_back(n.id);
-            std::fprintf(stderr, "draw2d: a %s has no name for screen readers: give it ui.label(\"...\")\n", roleName(n.role));
+            std::fprintf(stderr, "chardraw: a %s has no name for screen readers: give it ui.label(\"...\")\n", roleName(n.role));
         }
 #endif
     const bool unchanged = tree.focus == accessTree.focus && tree.nodes.size() == accessTree.nodes.size()

@@ -1,9 +1,9 @@
-// The layout and the controls (libs/draw2d) without a GPU: synthetic pointer
+// The layout and the controls (libs/chardraw) without a GPU: synthetic pointer
 // and key events in, element rectangles, values and parameter messages out.
 // Draw2D records draws but never flushes them, having no device.
-#include "../libs/draw2d/ui.h"
-#include "../libs/draw2d/views.h"
-#include "../libs/draw2d/dock.h"
+#include "../libs/chardraw/ui.h"
+#include "../libs/chardraw/views.h"
+#include "../libs/chardraw/dock.h"
 #include <set>
 #include <thread>
 #include <chrono>
@@ -2143,7 +2143,7 @@ static void keysBackToHost()
 }
 
 // Long pastes over selections, undone and redone over and over: stb_textedit's
-// undo history fills and discards records, the path draw2d.cmake patches. (Its
+// undo history fills and discards records, the path chardraw.cmake patches. (Its
 // overrun lands inside the same struct, which ASan doesn't see.)
 static void longUndoHistory()
 {

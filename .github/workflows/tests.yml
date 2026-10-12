@@ -1,6 +1,6 @@
 name: Tests
 
-# Unit tests for the shared code (libs/core, libs/webview/js, libs/draw2d) and
+# Unit tests for the shared code (libs/core, libs/webview/js, libs/chardraw) and
 # the analyzer's and spectrogram's DSP. The plugins' own workflows build and validate them.
 on:
   push:
@@ -11,7 +11,7 @@ on:
       - libs/core/resources.*
       - libs/webview/js/**
       - libs/gpu/**
-      - libs/draw2d/**
+      - libs/chardraw/**
       - examples/gpu-analyzer/*.h
       - examples/gpu-analyzer/signalsmith-dsp.cmake
       - examples/gpu-spectrogram/*.h
@@ -23,7 +23,7 @@ on:
       - libs/core/resources.*
       - libs/webview/js/**
       - libs/gpu/**
-      - libs/draw2d/**
+      - libs/chardraw/**
       - examples/gpu-analyzer/*.h
       - examples/gpu-analyzer/signalsmith-dsp.cmake
       - examples/gpu-spectrogram/*.h

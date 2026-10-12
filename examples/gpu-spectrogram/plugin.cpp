@@ -1,5 +1,5 @@
 // GPU Spectrogram: passes stereo audio through and shows a scrolling
-// spectrogram of it, as Listener's, drawn with libs/draw2d's views
+// spectrogram of it, as Listener's, drawn with libs/chardraw's views
 // (ui/SpectrogramView.cpp): no drawing code of its own. Holding a key of its
 // piano strip mixes a quiet sine at that pitch into the plugin's output (a
 // plugin has no audio device of its own), which the spectrogram never sees.
