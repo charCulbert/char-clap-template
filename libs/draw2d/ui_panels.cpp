@@ -140,6 +140,7 @@ bool Ui::drawer(const char *title, bool &open, float &size, const std::function<
     const Clay_BoundingBox box = laidOut.boundingBox;
     if (!laidOut.found && (open || !options.overlay)) settle = true; // (a closed overlay has only its tab)
     // Its handle resizes it, measured from the docked edge: inwards is bigger.
+    if (options.fit) options.resizable = false;
     if (open && options.resizable)
     {
         const bool fromEnd = options.edge == Edge::bottom || options.edge == Edge::right;
@@ -164,19 +165,26 @@ bool Ui::drawer(const char *title, bool &open, float &size, const std::function<
         // it (z 8, the panel 9), so it's drawn first and comes first in
         // reading and Tab order.
         using P = Clay_FloatingAttachPointType;
-        const P edgePoint = options.edge == Edge::left ? CLAY_ATTACH_POINT_LEFT_CENTER : options.edge == Edge::right ? CLAY_ATTACH_POINT_RIGHT_CENTER
-                          : options.edge == Edge::top ? CLAY_ATTACH_POINT_CENTER_TOP : CLAY_ATTACH_POINT_CENTER_BOTTOM;
+        using A = DrawerOptions::Align;
+        const A at = options.align;
+        const P edgePoint = options.edge == Edge::left  ? (at == A::start ? CLAY_ATTACH_POINT_LEFT_TOP : at == A::end ? CLAY_ATTACH_POINT_LEFT_BOTTOM : CLAY_ATTACH_POINT_LEFT_CENTER)
+                          : options.edge == Edge::right ? (at == A::start ? CLAY_ATTACH_POINT_RIGHT_TOP : at == A::end ? CLAY_ATTACH_POINT_RIGHT_BOTTOM : CLAY_ATTACH_POINT_RIGHT_CENTER)
+                          : options.edge == Edge::top   ? (at == A::start ? CLAY_ATTACH_POINT_LEFT_TOP : at == A::end ? CLAY_ATTACH_POINT_RIGHT_TOP : CLAY_ATTACH_POINT_CENTER_TOP)
+                                                        : (at == A::start ? CLAY_ATTACH_POINT_LEFT_BOTTOM : at == A::end ? CLAY_ATTACH_POINT_RIGHT_BOTTOM : CLAY_ATTACH_POINT_CENTER_BOTTOM);
         const int opens = across ? (towardsEnd ? chevronRightBox : chevronLeftBox) : (towardsEnd ? chevronBox : chevronUpBox);
         const int closes = across ? (towardsEnd ? chevronLeftBox : chevronRightBox) : (towardsEnd ? chevronUpBox : chevronBox);
         const bool wasOpen = open;
-        const float extent = wasOpen ? size + (options.resizable ? 7 : 0) : 0, inwards = towardsEnd ? extent : -extent;
+        const float fitted = across ? box.width : box.height; // (a fitted panel: its size last frame)
+        const float extent = !wasOpen ? 0 : options.fit ? (laidOut.found ? fitted : 0) : size + (options.resizable ? 7 : 0);
+        const float inwards = towardsEnd ? extent : -extent;
         if (drawerHeader(title, open, index, wasOpen ? closes : opens, across,
                          {.offset = {across ? inwards : 0, across ? 0 : inwards}, .zIndex = 8, .attachPoints = {edgePoint, edgePoint},
-                          .attachTo = CLAY_ATTACH_TO_PARENT}))
+                          .attachTo = CLAY_ATTACH_TO_PARENT}, options.tab, options.quietTab))
             settle = true; // opened: the panel comes next frame
         if (!wasOpen) return open;
         overlaysNow.push_back({xid.id, tid.id});
-        CLAY({.id = xid, .layout = {.sizing = {across ? CLAY_SIZING_FIT(0) : grow, across ? grow : CLAY_SIZING_FIT(0)},
+        const auto along = options.fit ? CLAY_SIZING_FIT(0) : grow, deep = options.fit ? CLAY_SIZING_FIT(0) : fixed;
+        CLAY({.id = xid, .layout = {.sizing = {across ? CLAY_SIZING_FIT(0) : along, across ? along : CLAY_SIZING_FIT(0)},
                                     .layoutDirection = across ? CLAY_LEFT_TO_RIGHT : CLAY_TOP_TO_BOTTOM},
               .floating = {.zIndex = 9, .attachPoints = {edgePoint, edgePoint}, .attachTo = CLAY_ATTACH_TO_PARENT}})
         {
@@ -185,9 +193,10 @@ bool Ui::drawer(const char *title, bool &open, float &size, const std::function<
             // the wheel), and a control focused from the keys is scrolled into view.
             const Clay_ElementId bid = id("DrawerBody", xid.id);
             scrollToFocus(bid);
-            CLAY({.id = bid, .layout = {.sizing = {across ? fixed : grow, across ? grow : fixed}, .padding = CLAY_PADDING_ALL(6), .childGap = 6,
+            CLAY({.id = bid, .layout = {.sizing = {across ? deep : along, across ? along : deep}, .padding = CLAY_PADDING_ALL(6), .childGap = 6,
                                         .layoutDirection = CLAY_TOP_TO_BOTTOM},
-                  .backgroundColor = clayColor(theme.background), .clip = {.vertical = true, .childOffset = Clay_GetScrollOffset()}})
+                  .backgroundColor = clayColor({theme.background.r, theme.background.g, theme.background.b, theme.background.a * options.opacity}),
+                  .clip = {.vertical = true, .childOffset = Clay_GetScrollOffset()}})
             {
                 // The wheel scrolls it, and turns only a focused control (as a
                 // page's number fields): not a value changed by scrolling past it.
@@ -361,7 +370,8 @@ bool Ui::window(const char *title, Rect &frame, bool &open, const std::function<
 // ImGui's collapsing header). Declare the section only while it returns true.
 bool Ui::drawer(const char *title, bool &open, int index) { return drawerHeader(title, open, index, 0); }
 
-bool Ui::drawerHeader(const char *title, bool &open, int index, int arrow, bool tall, Clay_FloatingElementConfig floating)
+bool Ui::drawerHeader(const char *title, bool &open, int index, int arrow, bool tall, Clay_FloatingElementConfig floating, float tab,
+                      bool quiet)
 {
     // Its id from its title, as a window's: two drawers need no index to
     // differ. (Not the title's own id: a docked drawer's box has that.)
@@ -375,15 +385,17 @@ bool Ui::drawerHeader(const char *title, bool &open, int index, int arrow, bool 
     const bool hot = Clay_PointerOver(did);
     if (arrow)
     {
-        // An overlay drawer's tab: 24 by 48 points (WCAG 2.5.8 asks 24 at
-        // least), opaque over what's under it; the title as its tooltip.
-        CLAY({.id = did, .layout = {.sizing = {CLAY_SIZING_FIXED(tall ? 24.0f : 48.0f), CLAY_SIZING_FIXED(tall ? 48.0f : 24.0f)},
+        // An overlay drawer's tab: 24 by 48 points unless DrawerOptions::tab
+        // says (WCAG 2.5.8 asks 24 at least), opaque over what's under it;
+        // the title as its tooltip.
+        CLAY({.id = did, .layout = {.sizing = {CLAY_SIZING_FIXED(tall ? tab : 2 * tab), CLAY_SIZING_FIXED(tall ? 2 * tab : tab)},
                                     .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
-              .backgroundColor = clayColor(theme.panel), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
-              .floating = floating,
-              .border = {.color = clayColor(focusShown(did) ? theme.accent : hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
+              .backgroundColor = clayColor(quiet && !hot && !focusShown(did) ? Color{theme.panel.r, theme.panel.g, theme.panel.b, 0.35f} : theme.panel),
+              .cornerRadius = CLAY_CORNER_RADIUS(theme.radius), .floating = floating,
+              .border = {.color = clayColor(focusShown(did) ? theme.accent : hot ? theme.text : quiet ? Color{0, 0, 0, 0} : theme.edge),
+                         .width = CLAY_BORDER_OUTSIDE(1)}})
         {
-            CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(8), CLAY_SIZING_FIXED(8)}}, .custom = {.customData = layout.custom(arrow)}}) {}
+            CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(tab / 3), CLAY_SIZING_FIXED(tab / 3)}}, .custom = {.customData = layout.custom(arrow)}}) {}
         }
         lastElement = did.id;
         tooltip(title);

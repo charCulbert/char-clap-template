@@ -280,7 +280,7 @@ int main(int argc, char **argv)
         Spectrogram spectrogram({.minFrequency = 0, .maxFrequency = 1000, .scale = Spectrogram::Scale::linear,
                                  .palette = Spectrogram::Palette::inferno, .columns = 4, .rows = 2,
                                  .smooth = false}); // a column at a time: pixels to check
-        const Color quiet = black, loud{1, 0.973f, 0.263f}; // inferno's ends
+        const Color quiet{0, 0, 0.016f}, loud{0.988f, 1, 0.643f}; // inferno's ends, #000004 and #fcffa4
         const float frequencies[] = {250, 750};
         const float lowLoud[] = {0, -100}, highLoud[] = {-100, 0};
         spectrogram.add(lowLoud, frequencies, 2);
@@ -314,7 +314,7 @@ int main(int argc, char **argv)
         CHECK(ui.draw.prepare(gpu.device, format, font));
         Spectrogram spectrogram({.minFrequency = 0, .maxFrequency = 1000, .scale = Spectrogram::Scale::linear,
                                  .palette = Spectrogram::Palette::inferno, .columns = 4, .rows = 2, .smooth = false});
-        const Color quiet = black, loud{1, 0.973f, 0.263f};
+        const Color quiet{0, 0, 0.016f}, loud{0.988f, 1, 0.643f};
         const float frequencies[] = {250, 750};
         const float lowLoud[] = {0, -100}, highLoud[] = {-100, 0};
         auto shot = [&] { return gpu.render(ui.draw, [&] { spectrogram.draw(ui, "Spectrum", {0.5f, 0.5f, float(size), float(size)}); }); };

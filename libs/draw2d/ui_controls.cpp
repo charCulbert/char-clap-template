@@ -461,7 +461,8 @@ int Ui::popup(Clay_ElementId menu, const char *itemName, int itemBase, const cha
     int clicked = -1;
     CLAY({.id = menu, .layout = {.sizing = {.width = CLAY_SIZING_FIT(minWidth)}, .padding = CLAY_PADDING_ALL(1),
                                  .layoutDirection = CLAY_TOP_TO_BOTTOM},
-          .backgroundColor = clayColor(theme.background), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius), .floating = floating,
+          .backgroundColor = clayColor({theme.background.r, theme.background.g, theme.background.b, theme.background.a * menuOpacity}),
+          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius), .floating = floating,
           .border = {.color = clayColor(theme.edge), .width = CLAY_BORDER_OUTSIDE(1)},
           .userData = layout.shadow(theme.shadow, 10, 0, 3)})
     {

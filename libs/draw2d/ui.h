@@ -96,14 +96,31 @@ struct DrawerOptions
     // opens. Its header is then a tab, 24 by 48 points, with an arrow
     // pointing the way it opens: centred on the edge of the box the drawer is
     // declared in while closed, and riding on the panel's inner edge while
-    // open, the arrow turned to close it. The panel is opaque and fills that
-    // box along the edge; what's in it scrolls (the wheel turns a knob or
-    // readout in it only while that's focused), and a control the keys
-    // focus is scrolled into view. The title is the tab's name to screen
+    // open, the arrow turned to close it. The panel (opaque unless opacity
+    // says) fills that box along the edge; what's in it scrolls (the wheel
+    // turns a knob or readout in it only while that's focused), and a
+    // control the keys focus is scrolled into view. The title is the tab's name to screen
     // readers and its tooltip. Escape, with focus on the tab or in the
     // panel, closes it and focuses the tab (unless something in it uses it
     // first: a text edit, a value being typed, an open menu, a drag).
     bool overlay = false;
+    // An overlay panel's background opacity: under 1, what's under it shows
+    // through (a plot it floats on).
+    float opacity = 1;
+    // An overlay's tab: its short side in points, the long side twice it.
+    // Under 24 is under WCAG 2.5.8's target size: for a tab that would
+    // otherwise hide too much of a plot.
+    float tab = 24;
+    // An overlay's panel as big as what's in it, both ways, not the box's
+    // length and a size: it has no resize handle then.
+    bool fit = false;
+    // Where along its edge an overlay's tab (and a fitted panel) sits: the
+    // start (left, or top), the centre, or the end (right, or bottom).
+    enum class Align { start, centre, end };
+    Align align = Align::centre;
+    // An overlay's tab without its border, its background faint, until the
+    // pointer is over it or it has focus: for a plot it sits on.
+    bool quietTab = false;
 };
 
 // How a Ui::split lays out and limits its two areas (points).
@@ -123,6 +140,7 @@ public:
     Theme theme;
     std::function<void(bool)> lockPointer;      // View::lockPointer: knob and slider drags lock the pointer
     std::function<void(View::Cursor)> setCursor; // View::setCursor: a resize arrow over a divider, an I-beam over text
+    float menuOpacity = 1; // dropdowns' and context menus' background: under 1, what's under them shows through
     std::function<void(float, float)> resizeTo; // View::resizeTo: for resizeGrip
     std::function<void(const std::string &)> copyText; // View::copyText: for copy and cut in text fields
     std::function<void(const std::vector<std::string> &)> dragFiles; // View::dragFiles: for dragSource
@@ -451,7 +469,7 @@ private:
     // Builtin) an overlay drawer's tab with that arrow, upright (tall) or
     // lying along a top or bottom edge, floating where it's told.
     bool drawerHeader(const char *title, bool &open, int index, int arrow = 0, bool tall = true,
-                      Clay_FloatingElementConfig floating = {});
+                      Clay_FloatingElementConfig floating = {}, float tab = 24, bool quiet = false);
     // Scrolls a scroll container (declared next) so the focused control,
     // if it's in it and focus moved with the keys, is in view.
     void scrollToFocus(Clay_ElementId container);

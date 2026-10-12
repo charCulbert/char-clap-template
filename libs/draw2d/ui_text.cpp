@@ -481,22 +481,23 @@ void Ui::numberBox(Params &params, Param *p, const char *format, bool log, float
         const float caretX = box.x + (box.width - textWidth) / 2 + draw.measure(theme.textSize, draft.substr(0, caret), theme.valueFont);
         caretAt = {caretX * s, box.y * s, box.height * s};
     }
-    const Color fill = {theme.accent.r, theme.accent.g, theme.accent.b, 0.3f};
-    CLAY({.id = nid, .layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_FIXED(lineHeight + 4)}},
-          .backgroundColor = clayColor(theme.background), .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+    // Its background and the fill to its value are painted, and the value
+    // laid out over them as its child: a floating child would draw under
+    // anything floating that holds the box (an overlay drawer's panel).
+    const Color fill = {theme.accent.r, theme.accent.g, theme.accent.b, 0.3f}, back = theme.background;
+    const float unit = editNow ? 0 : float(std::clamp(toUnit(*p, p->value, log), 0.0, 1.0)), radius = theme.radius;
+    CLAY({.id = nid, .layout = {.sizing = {CLAY_SIZING_FIXED(widthPoints), CLAY_SIZING_FIXED(lineHeight + 4)}, .padding = {5, 5, 0, 0},
+                                .childAlignment = {CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
+          .cornerRadius = CLAY_CORNER_RADIUS(theme.radius),
+          .custom = {.customData = paint([this, fill, back, unit, radius](Rect r) {
+              const float c = radius * s, end = unit >= 1 ? c : 0;
+              draw.rect(r.x, r.y, r.w, r.h, c, back);
+              if (unit > 0) draw.rect(r.x, r.y, r.w * unit, r.h, Draw2D::Corners{c, end, end, c}, fill);
+          })},
           .clip = {.horizontal = true},
           .border = {.color = clayColor(editNow || a.held || focusShown(nid) ? theme.accent : hot ? theme.text : theme.edge), .width = CLAY_BORDER_OUTSIDE(1)}})
     {
-        if (!editNow)
-            CLAY({.layout = {.sizing = {CLAY_SIZING_PERCENT(float(std::clamp(toUnit(*p, p->value, log), 0.0, 1.0))), CLAY_SIZING_GROW(0)}},
-                  .backgroundColor = clayColor(fill)}) {}
-        CLAY({.layout = {.padding = {5, 5, 0, 0}},
-              .floating = {.attachPoints = {CLAY_ATTACH_POINT_CENTER_CENTER, CLAY_ATTACH_POINT_CENTER_CENTER},
-                           .pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH,
-                           .attachTo = CLAY_ATTACH_TO_PARENT, .clipTo = CLAY_CLIP_TO_ATTACHED_PARENT}})
-        {
-            fieldText(shown, editNow);
-        }
+        fieldText(shown, editNow);
     }
     lastElement = nid.id;
 }

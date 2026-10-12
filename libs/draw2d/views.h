@@ -197,6 +197,45 @@ public:
 
     const Options &settings() const { return options; }
 
+    // Nine colours from quiet to loud; levels between the floor and the
+    // ceiling are spread evenly across them (a level bar draws the same).
+    // Inferno, viridis and magma are matplotlib's, sampled at nine even
+    // steps: perceptually even, and readable with colour blindness. Bone
+    // (Listener's) and system have five, a colour between each two added.
+    static constexpr int rampColours = 9;
+    void ramp(const Theme &theme, Color out[rampColours]) const
+    {
+        auto hex = [](uint32_t c) { return Color{float(c >> 16 & 255) / 255, float(c >> 8 & 255) / 255, float(c & 255) / 255}; };
+        static const uint32_t maps[][rampColours] = {
+            {0x000004, 0x1f0c48, 0x550f6d, 0x88226a, 0xba3655, 0xe35933, 0xf98e09, 0xf8c932, 0xfcffa4}, // inferno
+            {0x440154, 0x472d7b, 0x3b528b, 0x2c728e, 0x21918c, 0x28ae80, 0x5ec962, 0xaddc30, 0xfde725}, // viridis
+            {0x000004, 0x1c1044, 0x4f127b, 0x812581, 0xb5367a, 0xe55964, 0xfb8761, 0xfec287, 0xfcfdbf}, // magma
+        };
+        if (options.palette == Palette::inferno || options.palette == Palette::viridis || options.palette == Palette::magma)
+        {
+            for (int i = 0; i < rampColours; ++i) out[i] = hex(maps[int(options.palette) - 2][i]);
+            return;
+        }
+        Color five[5];
+        if (options.palette == Palette::system) // the text mixed into the background: 0, 14, 34, 66, 100%
+        {
+            const float mix[] = {0, 0.14f, 0.34f, 0.66f, 1};
+            for (int i = 0; i < 5; ++i)
+                five[i] = {theme.background.r + (theme.text.r - theme.background.r) * mix[i],
+                           theme.background.g + (theme.text.g - theme.background.g) * mix[i],
+                           theme.background.b + (theme.text.b - theme.background.b) * mix[i]};
+        }
+        else
+        {
+            static const uint32_t bone[] = {0x0a0b0c, 0x191918, 0x45433e, 0x8e897d, 0xf5ebd4}; // Listener's
+            for (int i = 0; i < 5; ++i) five[i] = hex(bone[i]);
+        }
+        for (int i = 0; i < 4; ++i)
+            out[2 * i] = five[i], out[2 * i + 1] = {(five[i].r + five[i + 1].r) / 2, (five[i].g + five[i + 1].g) / 2,
+                                                   (five[i].b + five[i + 1].b) / 2};
+        out[8] = five[4];
+    }
+
     // Draws it at r (pixels).
     void draw(Ui &ui, const char *name, Rect r)
     {
@@ -229,8 +268,6 @@ public:
                 ui.draw.image(image, at.x + w1, at.y, at.w - w1, at.h, {}, {1, 1, 1, 1}, {0, 0, float((count - first) / n), 1});
         }
         drawn = {r, at.x, at.w, end - count, count, ui.s};
-        const Color &t = ui.theme.text;
-        ui.draw.rect(r.x, r.y, r.w, r.h, 0, {0, 0, 0, 0}, 1 * ui.s, Color{t.r, t.g, t.b, 0.3f});
         static const char *const scales[] = {"linear", "log", "mel"};
         char about[200];
         int length = std::snprintf(about, sizeof about, "Spectrogram, newest on the right: %g Hz to %g Hz on a %s scale, %g to %g dB",
@@ -318,9 +355,11 @@ public:
 
     // What's under a point of the last drawing (pixels): the frequency at
     // that height and the level there in the column under it. Snapping, as
-    // Listener's peak snap: the nearest peak in that column within 10 points
-    // above or below (one already followed is kept within 18), its frequency
-    // and level found between the bins around it; y is then its height.
+    // Listener's peak snap: the nearest peak in that column within 6 points
+    // above or below (one already followed counts 2 points nearer, so it
+    // doesn't flicker between two, yet one between others can be reached),
+    // its frequency and level found between the bins around it; y is then
+    // its height.
     // False off the picture, or over columns not yet added.
     struct Probe
     {
@@ -343,19 +382,15 @@ public:
         if (!std::isfinite(out.decibels)) return false;
         if (!snap) return true;
         size_t best = 0;
-        float closest = 10 * drawn.scale;
+        float closest = 6 * drawn.scale;
         for (size_t k = 1; k + 1 < bins.size(); ++k)
         {
             const float v = values[k];
             if (bins[k] < options.minFrequency || bins[k] > options.maxFrequency || !std::isfinite(v) || v < options.minDecibels + 6
                 || v < values[k - 1] || v < values[k + 1] || (v == values[k - 1] && v == values[k + 1]))
                 continue;
-            const float distance = std::abs(yAt(r, bins[k]) - y);
-            if (bins[k] == followed && distance <= 18 * drawn.scale)
-            {
-                best = k;
-                break;
-            }
+            float distance = std::abs(yAt(r, bins[k]) - y);
+            if (bins[k] == followed) distance = std::max(0.0f, distance - 2 * drawn.scale);
             if (distance <= closest) best = k, closest = distance;
         }
         followed = best ? bins[best] : 0;
@@ -475,30 +510,8 @@ private:
         mapped = true;
     }
 
-    // Five colours from quiet to loud, as compost's ramps.
-    void ramp(const Theme &theme, Color out[5]) const
-    {
-        auto hex = [](uint32_t c) { return Color{float(c >> 16 & 255) / 255, float(c >> 8 & 255) / 255, float(c & 255) / 255}; };
-        static const uint32_t palettes[][5] = {
-            {0x0a0b0c, 0x191918, 0x45433e, 0x8e897d, 0xf5ebd4}, // bone (Listener)
-            {0x000000, 0x1d0000, 0x730000, 0xff6100, 0xfff843}, // inferno (Listener)
-            {0x2d14d7, 0x2e33cf, 0x3a8ac7, 0x6ed3a8, 0xfaf255}, // viridis (Listener)
-            {0x000004, 0x51127c, 0xb73779, 0xfc8961, 0xfcfdbf}, // magma (compost)
-        };
-        if (options.palette == Palette::system) // the text mixed into the background: 0, 14, 34, 66, 100%
-        {
-            const float mix[] = {0, 0.14f, 0.34f, 0.66f, 1};
-            for (int i = 0; i < 5; ++i)
-                out[i] = {theme.background.r + (theme.text.r - theme.background.r) * mix[i],
-                          theme.background.g + (theme.text.g - theme.background.g) * mix[i],
-                          theme.background.b + (theme.text.b - theme.background.b) * mix[i]};
-            return;
-        }
-        for (int i = 0; i < 5; ++i) out[i] = hex(palettes[int(options.palette) - 1][i]);
-    }
-
     // Colours one column of pixels from its values.
-    void colour(int column, const Color ramp[5])
+    void colour(int column, const Color ramp[rampColours])
     {
         const float span = std::max(options.maxDecibels - options.minDecibels, 1e-6f);
         const float *values = bins.empty() ? nullptr : &history[size_t(column) * bins.size()];
@@ -512,8 +525,8 @@ private:
                 if (b.between >= 0) value = values[b.from - 1] + (values[b.from] - values[b.from - 1]) * b.between;
             }
             const float level = std::isfinite(value) ? std::clamp((value - options.minDecibels) / span, 0.0f, 1.0f) : 0;
-            const float position = level * 4;
-            const int lower = std::min(3, int(position));
+            const float position = level * (rampColours - 1);
+            const int lower = std::min(rampColours - 2, int(position));
             const float f = position - float(lower);
             const Color &a = ramp[lower], &b = ramp[lower + 1];
             uint8_t *p = &pixels[(size_t(row) * size_t(options.columns) + size_t(column)) * 4];
@@ -528,16 +541,16 @@ private:
     // lost, or the size, mapping or colours changed), else the columns added since.
     void upload(Ui &ui)
     {
-        Color now[5];
+        Color now[rampColours];
         ramp(ui.theme, now);
         bool all = !mapped || redraw || image < 0 || prepared != ui.draw.prepared() || imageColumns != options.columns || imageRows != options.rows;
-        for (int i = 0; i < 5; ++i) all |= now[i].r != shown[i].r || now[i].g != shown[i].g || now[i].b != shown[i].b;
+        for (int i = 0; i < rampColours; ++i) all |= now[i].r != shown[i].r || now[i].g != shown[i].g || now[i].b != shown[i].b;
         if (all)
         {
             if (!mapped) map();
             pixels.assign(size_t(options.columns) * size_t(options.rows) * 4, 0);
             for (int c = 0; c < options.columns; ++c) colour(c, now);
-            std::copy(now, now + 5, shown);
+            std::copy(now, now + rampColours, shown);
             redraw = false;
             if (prepared != ui.draw.prepared()) images.clear(), image = -1, prepared = ui.draw.prepared();
             if (image < 0 || imageColumns != options.columns || imageRows != options.rows)
@@ -592,7 +605,7 @@ private:
     std::vector<Sized> images; // every texture made, by size, for reuse
     unsigned prepared = 0; // Draw2D::prepared() when the image was added
     bool mapped = false, redraw = true; // the rows' bins are known; the whole picture is to be coloured again
-    Color shown[5] = {};
+    Color shown[rampColours] = {};
 };
 
 }
