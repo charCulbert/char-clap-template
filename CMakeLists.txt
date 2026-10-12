@@ -4,6 +4,14 @@
 #   cmake -B build && cmake --build build && ctest --test-dir build
 cmake_minimum_required(VERSION 3.28)
 
+# A plugin uses the template's libs/, not this file: see README.md, "Using the
+# template as a dependency".
+if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    message(FATAL_ERROR "char-clap-template isn't built as part of another project. Fetch it "
+        "with SOURCE_SUBDIR none, so this file doesn't run, and include its "
+        "libs/<lib>/<lib>.cmake files (see its README.md, \"Using the template as a dependency\").")
+endif()
+
 if(CMAKE_HOST_APPLE AND NOT CMAKE_SYSTEM_NAME AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
 endif()
