@@ -17,13 +17,16 @@ WebGPU by our own drawing code.
   (commit 87bfc1e), with only the include of Signalsmith's FFT changed to this
   example's `dsp/fft.h`. The buffer brings both channels from the audio
   thread; the spectrum is each window's FFT.
-- `ui/AnalyzerView.cpp`: the interface, a `gpu::View`: one fragment shader for
-  the spectrum, and knobs and labels from `libs/chardraw`, laid out with Clay.
+- `ui/AnalyzerView.cpp`: the interface, a `gpu::View`: chardraw's Spectrum
+  view (`libs/chardraw/views.h`) for the spectrum and its scales, under a bar
+  with two readouts, laid out with Clay, in chardraw's default theme.
 - The display matches FabFilter Pro-Q's: a logarithmic frequency axis
   (10 Hz to 30 kHz), levels in dB from 0 to -100, and a tilt of 4.5 dB per
-  octave around 1 kHz by default, so music looks roughly level.
-- Smoothing, Colour and Tilt are settings saved in the plugin's state, not
-  CLAP parameters, since they only change the display.
+  octave around 1 kHz by default, so music looks roughly level. Quiet bands
+  dim and fall through the floor, as do those past Nyquist.
+- Smoothing and Tilt are settings saved in the plugin's state, not CLAP
+  parameters, since they only change the display. Drag a readout up or down,
+  scroll over it, or double-click it for its default.
 - `resources/`: the files the plugin ships (its font). Add images, sounds or
   anything else here and read them with `core::readResource("/path")` (on the
   main thread), or `gpu::loadAsset` in the view.

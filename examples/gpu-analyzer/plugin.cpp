@@ -7,7 +7,7 @@
 // reusable parts: the message codec and file loader (core/), and the presenter
 // that shows a gpu::View in the host's window (gpu/).
 //
-// Its three controls, Smoothing, Colour and Tilt, only change how the spectrum looks,
+// Its two controls, Smoothing and Tilt, only change how the spectrum looks,
 // so they are settings saved with the plugin's state, not CLAP parameters:
 // hosts don't list or automate them. The interface edits them with the same
 // messages it would use for parameters.
@@ -36,10 +36,9 @@ struct Setting
 };
 static const Setting settings[] = {
     {"Smoothing", 0, 100, 50}, // how slowly levels fall back, in percent
-    {"Colour", 0, 360, 190},   // the spectrum's hue, in degrees
     {"Tilt", 0, 6, 4.5},       // dB per octave around 1 kHz, as FabFilter Pro-Q shows by default
 };
-#define S_COUNT (3)
+#define S_COUNT (2)
 
 struct MyPlugin
 {
@@ -420,8 +419,14 @@ static const clap_plugin_t pluginClass = {
         if (!plugin->spectrumPending.exchange(false, std::memory_order_acq_rel) || !plugin->uiReady)
             return;
         std::vector<double> bands;
-        if (plugin->spectrum.analyze(plugin->sampleRate, 10.0f, 30000.0f, 512, bands))
-            plugin->gui.send(core::Value::Map{{"type", "spectrum"}, {"db", core::Value::Array(bands.begin(), bands.end())}});
+        if (!plugin->spectrum.analyze(plugin->sampleRate, 10.0f, 30000.0f, 512, bands))
+            return;
+        // The analysis holds its top band's level past Nyquist; nothing is up
+        // there, so those bands fall through the floor, as Pro-Q's do.
+        for (size_t i = 0; i < bands.size(); ++i)
+            if (10 * std::pow(3000.0, (i + 0.5) / bands.size()) > plugin->sampleRate / 2)
+                bands[i] = -140;
+        plugin->gui.send(core::Value::Map{{"type", "spectrum"}, {"db", core::Value::Array(bands.begin(), bands.end())}});
     },
 };
 

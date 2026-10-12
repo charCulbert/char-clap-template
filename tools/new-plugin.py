@@ -126,7 +126,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--from", dest="example",
                         help="an example's folder in examples/: headless-gain (no UI), webview-synth (a web page), "
-                             "gpu-analyzer (chardraw and Clay on WebGPU, its own drawing), gpu-spectrogram (chardraw's "
+                             "gpu-analyzer (chardraw's Spectrum view and readouts), gpu-spectrogram (chardraw's "
                              "views and controls), imgui-filter (Dear ImGui)")
     parser.add_argument("--name", help='the plugin\'s name, e.g. "My Plugin"')
     parser.add_argument("--vendor", help="you or your company")
