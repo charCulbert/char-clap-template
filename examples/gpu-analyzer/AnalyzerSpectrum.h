@@ -187,9 +187,9 @@ private:
                 // The FFT's value at the band's centre, interpolated between bins.
                 const double bin = std::min (hz[b] / binHz, fftSize / 2 - 1.001);
                 const int k = int (bin);
-                const std::complex<double> input = std::complex<double> (bins[k]) * (k + 1 - bin)
+                const std::complex<double> atCentre = std::complex<double> (bins[k]) * (k + 1 - bin)
                                                  + std::complex<double> (bins[k + 1]) * (bin - k);
-                state1[b] = state1[b] * twist[b] + input * gain[b];
+                state1[b] = state1[b] * twist[b] + atCentre * gain[b];
                 state2[b] = state2[b] * twist[b] + state1[b] * gain[b];
             }
         }

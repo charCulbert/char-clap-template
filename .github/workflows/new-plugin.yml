@@ -52,7 +52,7 @@ jobs:
       - name: Build
         working-directory: build-new-plugin
         run: |
-          cmake -B build -DFETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE="$GITHUB_WORKSPACE"
+          cmake -B build -DFETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE="$GITHUB_WORKSPACE" -DWARNINGS_AS_ERRORS=ON
           cmake --build build --parallel 4 --target NewPlugin_clap
 
       - name: Check the licences ship

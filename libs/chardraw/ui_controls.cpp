@@ -795,7 +795,7 @@ int Ui::contextMenu(Clay_ElementId element, const MenuItem *items, int count)
     for (const Accessible &n : accessTree.nodes)
         if (n.id == accessId(menuReturn) && !n.name.empty()) name = n.name.c_str();
     describe(me, Accessible::Role::menu, name).element = menu.id;
-    uint64_t parent = accessId(me), active = 0;
+    uint64_t parent = accessId(me), activeId = 0;
     for (size_t l = 0; l < levels.size(); ++l)
     {
         if (l)
@@ -814,12 +814,12 @@ int Ui::contextMenu(Clay_ElementId element, const MenuItem *items, int count)
             d.element = e.id, d.node.actions |= Accessible::click, d.node.checked = item.checked >= 0 ? int(item.checked == 1) : -1;
             if (item.submenu && item.count > 0)
                 d.node.actions |= Accessible::expand | Accessible::collapse, d.node.expanded = l + 1 < levels.size() && submenuPath[l] == i;
-            if (l + 1 == levels.size() && i == highlight) active = d.node.id;
+            if (l + 1 == levels.size() && i == highlight) activeId = d.node.id;
         }
     }
     // A submenu the pointer opened has nothing highlighted: the item it's from.
-    if (!active && levels.size() > 1) active = accessId(asId(itemId(levels.size() - 2, submenuPath.back())));
-    described[top].node.activeDescendant = active;
+    if (!activeId && levels.size() > 1) activeId = accessId(asId(itemId(levels.size() - 2, submenuPath.back())));
+    described[top].node.activeDescendant = activeId;
     return -1;
 }
 

@@ -43,6 +43,13 @@ function(core_add_to target)
         target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS) # keep the portable C string functions
     else()
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wno-unused-parameter)
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+            target_compile_options(${target} PRIVATE -Wno-maybe-uninitialized) # false alarms on std::variant at -O2
+        endif()
+    endif()
+    # On in this template's CI: the plugin's own code, not the SDKs it builds with.
+    if(WARNINGS_AS_ERRORS)
+        set_target_properties(${target} PROPERTIES COMPILE_WARNING_AS_ERROR ON)
     endif()
 endfunction()
 

@@ -52,7 +52,7 @@ jobs:
 
       - name: Build
         run: |
-          cmake -S "$PROJECT" -B build
+          cmake -S "$PROJECT" -B build -DWARNINGS_AS_ERRORS=ON
           targets="${TARGET}_clap ${TARGET}_vst3"
           if [ "$RUNNER_OS" = macOS ]; then targets="$targets ${TARGET}_auv2"; fi
           cmake --build build --config Release --parallel 4 --target $targets
@@ -124,7 +124,7 @@ jobs:
 
       - name: Build
         run: |
-          cmake -S "$PROJECT" -B build-wclap -DCMAKE_TOOLCHAIN_FILE="$WASI_SDK/share/cmake/wasi-sdk-p1.cmake"
+          cmake -S "$PROJECT" -B build-wclap -DWARNINGS_AS_ERRORS=ON -DCMAKE_TOOLCHAIN_FILE="$WASI_SDK/share/cmake/wasi-sdk-p1.cmake"
           cmake --build build-wclap --parallel 4
 
       - name: Check the archive
