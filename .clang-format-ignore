@@ -1,0 +1,4 @@
+# Other people's code, and chardsp's files, copied as they are upstream.
+third_party/*
+libs/*/third_party/*
+examples/*/chardsp_*
