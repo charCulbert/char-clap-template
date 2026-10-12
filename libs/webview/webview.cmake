@@ -34,7 +34,7 @@ function(webview_add_to target)
         find_package(PkgConfig REQUIRED)
         pkg_check_modules(WEBKIT REQUIRED IMPORTED_TARGET gtk+-3.0 webkit2gtk-4.1 x11)
         target_sources(${target} PRIVATE "${WEBVIEW_DIR}/native_linux.cpp")
-        target_link_libraries(${target} PUBLIC PkgConfig::WEBKIT)
+        target_link_libraries(${target} PUBLIC PkgConfig::WEBKIT ${CMAKE_DL_LIBS})
     endif()
 endfunction()
 

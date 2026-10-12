@@ -8,6 +8,8 @@ namespace webview::platform {
 const char *const windowApi = CLAP_WINDOW_API_WIN32;
 const bool needsTimer = false;
 
+void prepare() {}
+
 void *attach(void *view, const clap_window_t *parent)
 {
     HWND child = (HWND)view, host = (HWND)parent->win32;

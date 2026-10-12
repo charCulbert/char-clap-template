@@ -123,6 +123,7 @@ bool Gui::create(const char *api, bool floating)
         return true;
     }
 #if WEBVIEW_NATIVE
+    platform::prepare();
     auto nativeView = std::make_unique<NativeView>();
     auto *state = nativeView.get();
     choc::ui::WebView::Options options;

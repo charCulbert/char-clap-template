@@ -6,6 +6,8 @@ namespace webview::platform {
 const char *const windowApi = CLAP_WINDOW_API_COCOA;
 const bool needsTimer = false;
 
+void prepare() {}
+
 void *attach(void *view, const clap_window_t *parent)
 {
     NSView *child = (__bridge NSView *)view;

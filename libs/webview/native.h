@@ -9,6 +9,7 @@ namespace webview::platform {
 extern const char *const windowApi; // CLAP_WINDOW_API_COCOA, _WIN32 or _X11
 extern const bool needsTimer;       // true where the plugin must pump UI events
 
+void prepare(); // before a WebView is made
 // Returns platform data that detach() needs, or nullptr on failure.
 void *attach(void *view, const clap_window_t *parent);
 void detach(void *view, void *attachment);
