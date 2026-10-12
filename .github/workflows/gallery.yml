@@ -2,7 +2,7 @@ name: GUI Gallery
 
 # Builds and validates the GUI Gallery (examples/gui-gallery) on macOS, Windows
 # and Linux, and as a WCLAP; uploads the plugins only once they pass. Runs when
-# it or a library it uses changes. It has no AU.
+# it or a library it uses changes.
 on:
   push:
     branches: [main] # other branches run through their pull request
@@ -33,6 +33,7 @@ env:
   PROJECT: examples/gui-gallery  # the folder with the plugin's CMakeLists.txt
   TARGET: GuiGallery      # TARGET_NAME there
   NAME: "GUI Gallery"     # OUTPUT_NAME there: the plugin files' names
+  AU: "aufx GuGa ChCu"    # AUv2 type, subtype, manufacturer (for auval)
 
 jobs:
   native:
@@ -55,7 +56,9 @@ jobs:
       - name: Build
         run: |
           cmake -S "$PROJECT" -B build
-          cmake --build build --config Release --parallel 4 --target ${TARGET}_clap ${TARGET}_vst3
+          targets="${TARGET}_clap ${TARGET}_vst3"
+          if [ "$RUNNER_OS" = macOS ]; then targets="$targets ${TARGET}_auv2"; fi
+          cmake --build build --config Release --parallel 4 --target $targets
 
       - name: Check the licences ship
         run: |
@@ -91,6 +94,14 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then run="xvfb-run -a"; fi
           $run "$binary" --validate "$plugin" --strictness-level 5
 
+      - name: Validate AU
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "build/$NAME.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          auval -v $AU
+
       - name: Upload validated plugins
         uses: actions/upload-artifact@v4
         with:
@@ -100,6 +111,7 @@ jobs:
             build/**/${{ env.NAME }}.clap
             build/**/${{ env.NAME }}.clap.resources
             build/**/${{ env.NAME }}.vst3
+            build/**/${{ env.NAME }}.component
           if-no-files-found: error
 
   wclap:

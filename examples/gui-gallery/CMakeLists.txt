@@ -48,6 +48,9 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI") # a WCLAP's interface is the page, bui
 endif()
 
 set(formats CLAP VST3) # VST3 for the hosts without CLAP (Ableton Live)
+if(APPLE)
+    list(APPEND formats AUV2)
+endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
     set(formats WCLAP)
 endif()
@@ -59,6 +62,10 @@ make_clapfirst_plugins(
     OUTPUT_NAME "GUI Gallery"
     BUNDLE_IDENTIFIER "com.charlieculbert.guigallery"
     BUNDLE_VERSION "${PROJECT_VERSION}"
+    AUV2_MANUFACTURER_NAME "Charlie Culbert"
+    AUV2_MANUFACTURER_CODE "ChCu"
+    AUV2_SUBTYPE_CODE "GuGa"
+    AUV2_INSTRUMENT_TYPE "aufx"
     PLUGIN_FORMATS ${formats}
     WINDOWS_FOLDER_VST3 TRUE # a folder, so its resources can travel inside it
     STANDALONE_CONFIGURATIONS standalone "GUI Gallery" "com.charlieculbert.guigallery"
