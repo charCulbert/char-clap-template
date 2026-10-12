@@ -1,5 +1,7 @@
+// Laid out as nakst's CLAP tutorial: https://nakst.gitlab.io/tutorial/clap-part-1.html
+//
 // GPU Spectrogram: passes stereo audio through and shows a scrolling
-// spectrogram of it, as Listener's, drawn with libs/chardraw's views
+// spectrogram of it, drawn with libs/chardraw's views
 // (ui/SpectrogramView.cpp): no drawing code of its own. Holding a key of its
 // piano strip mixes a quiet sine at that pitch into the plugin's output (a
 // plugin has no audio device of its own), which the spectrogram never sees.
@@ -10,7 +12,7 @@
 // reusable parts: the message codec and file loader (core/), and the presenter
 // that shows a gpu::View in the host's window (gpu/).
 //
-// Its settings (Listener's spectrogram's, the key tone, and the interface's
+// Its settings (the spectrogram's, the key tone, and the interface's
 // settings drawer) change only the analysis and what the interface shows and
 // plays, so they are saved with the plugin's state, not CLAP parameters:
 // hosts don't list or automate them. The interface edits them with the same
@@ -32,7 +34,7 @@
 #include "core/resources.h"
 #include "gpu/gui.h"
 
-// Settings: {name, min, max, default}, with Listener's ranges and defaults.
+// Settings: {name, min, max, default}.
 // Their index is their id in messages; the name is their key in the state.
 struct Setting
 {
@@ -53,7 +55,7 @@ enum SettingId
     S_PALETTE,           // the colour map: 0 magma, 1 viridis
     S_SCROLL_RATE,       // points a second, whatever the hop
     S_PIANO, S_SNAP, S_CURSOR, // on or off: the piano strip, snapping to peaks, and the readout under the pointer
-    // The transform, and Listener's constant-Q settings (chardsp::ConstantQSpectrogram).
+    // The transform, and the constant-Q settings (chardsp::ConstantQSpectrogram).
     S_TRANSFORM,   // 0 FFT, 1 CQT (from 44.1 to 96 kHz; the FFT elsewhere)
     S_CQT_BANDS,   // bands per octave: 0, 1, 2 for 12, 24, 36
     S_TUNING,      // A4, Hz: the CQT's bands, and the piano strip's keys and their tone
@@ -92,11 +94,11 @@ static const Setting settings[S_COUNT] = {
     {"Click tone", 0, 1, 1},
 };
 
-// The CQT runs only from 44.1 to 96 kHz, as Listener's; elsewhere the FFT does.
+// The CQT runs only from 44.1 to 96 kHz; elsewhere the FFT does.
 static bool cqtSupported(float sampleRate) { return sampleRate >= 44100 && sampleRate <= 96000; }
 
 // The key tone: a sine at -18 dBFS, faded in and out over two of its cycles
-// (3 to 20 ms, as Listener's) so it starts and stops without a click.
+// (3 to 20 ms) so it starts and stops without a click.
 static const float toneLevel = 0.125893f; // 10^(-18/20)
 static float toneFade(float hz) { return std::clamp(2 / hz, 0.003f, 0.02f); }
 

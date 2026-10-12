@@ -69,7 +69,7 @@ struct SpectrogramAnalysis
         s.smoothing = std::clamp(s.smoothing, 0.0f, 0.9f);
         if (usingFft && s == fft) return;
         if (!usingFft || s.size != fft.size || s.window != fft.window)
-            spectrum.prepare({.size = s.size, .window = s.window}); // symmetric, as Listener's
+            spectrum.prepare({.size = s.size, .window = s.window}); // symmetric
         fft = s, usingFft = true, started = true;
         startAfresh(s.hop);
     }
@@ -108,7 +108,7 @@ struct SpectrogramAnalysis
             decibels.resize(size_t(size / 2));
             for (int k = 1; k < size / 2; ++k)
                 decibels[size_t(k)] = std::max(-160.0f, 20 * std::log10(spectrum.getMagnitude(k) + 1e-12f));
-            decibels[0] = decibels[1]; // as Listener's: DC shows as its neighbour
+            decibels[0] = decibels[1]; // DC shows as its neighbour
         }
         else
         {

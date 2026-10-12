@@ -1,3 +1,5 @@
+// Laid out as nakst's CLAP tutorial: https://nakst.gitlab.io/tutorial/clap-part-1.html
+//
 // WebView Synth: a polyphonic sine synth whose interface is a web page (ui/),
 // shown by the host itself where it supports clap.webview, otherwise in a
 // WebView inside the host's window.

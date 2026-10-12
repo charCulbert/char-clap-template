@@ -123,7 +123,7 @@ public:
             if (!(p[i] = params.find(settingNames[i]))) return false; // until the plugin has sent its settings
         // The plugin keeps what was chosen; shown here, the hop stops at the
         // FFT size and the ranges at Nyquist (the CQT's at 0.4 x the sample
-        // rate, as Listener's), as the analysis has them.
+        // rate), as the analysis has them.
         p[hopSize]->max = double(1 << int(std::lround(p[fftSize]->value)));
         p[high]->max = std::max(p[high]->min, double(binRate) / 2);
         p[cqtHigh]->max = std::max(p[cqtHigh]->min, double(binRate) * 0.4);
@@ -135,7 +135,7 @@ public:
         o.minFrequency = float(p[low]->value);
         o.maxFrequency = float(p[high]->value);
         o.minFrequency = std::min(o.minFrequency, o.maxFrequency / 2); // an octave at least, with the upper as low as 100 Hz
-        if (cqtShown && !hz.empty()) // no further than its bands go, as Listener's
+        if (cqtShown && !hz.empty()) // no further than its bands go
         {
             o.minFrequency = std::clamp(o.minFrequency, hz.front(), hz.back());
             o.maxFrequency = std::clamp(o.maxFrequency, o.minFrequency, hz.back());
@@ -207,7 +207,7 @@ public:
 private:
     // Paused, the picture holds still while the analysis runs on (columns
     // that arrive are dropped), and the settings that only change how it
-    // looks still apply to it; resuming starts a new history, as Listener's.
+    // looks still apply to it; resuming starts a new history.
     void setPaused(bool on)
     {
         if (on == paused) return;
@@ -340,7 +340,7 @@ private:
             if (wantsCqt) CLAY({.layout = column})
             {
                 group("CQT", cqt, int(std::size(cqt)));
-                // What it costs in time, as Listener says it; or why it isn't running.
+                // What it costs in time, or why it isn't running.
                 char text[96];
                 // The plugin says when it fell back; until the first column
                 // either way (switched, paused, no audio yet) it's starting.
@@ -377,7 +377,7 @@ private:
     float stripWidth() const { return p[piano]->value >= 0.5f ? 12 * ui.s : 0; }
 
     // A piano's keys up the left edge, each at its pitch on the frequency
-    // scale with A4 at the tuning set (as Listener's piano strip). Hold a key
+    // scale with A4 at the tuning set. Hold a key
     // to hear it, drag to another to change note, let go to stop: the held
     // key is lit and drawGuide marks its pitch. To screen readers a picture
     // (its keys are for the pointer only).
@@ -523,7 +523,7 @@ private:
     void drawCursor(gpu::Rect r)
     {
         gpu::Spectrogram::Probe at;
-        const bool snapping = p[snap]->value >= 0.5f && !(modifiers & gpu::View::command); // Command bypasses it, as Listener's
+        const bool snapping = p[snap]->value >= 0.5f && !(modifiers & gpu::View::command); // Command bypasses it
         if (pointerX < r.x + stripWidth() || !spectrogram.probe(pointerX, pointerY, snapping, at)) return;
         const float s = ui.s;
         const gpu::Color guide{ui.theme.text.r, ui.theme.text.g, ui.theme.text.b, 0.45f};

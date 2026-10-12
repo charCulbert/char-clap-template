@@ -11,6 +11,10 @@
 #include <string>
 #include <vector>
 
+// Modelled on, where named below:
+// compost https://github.com/charCulbert/compost
+// char-spectrum https://github.com/charCulbert/char-spectrum
+
 // Immediate-mode controls. Each frame: ui.begin, declare the interface as
 // Clay boxes (layout.h) with controls among them, then ui.end. Forward
 // View::pointer, key and text here.

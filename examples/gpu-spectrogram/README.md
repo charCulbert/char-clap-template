@@ -1,9 +1,9 @@
 # GPU Spectrogram
 
-A scrolling spectrogram, as Listener's: it passes audio through and shows
-how its spectrum changes over time. The interface uses only `libs/chardraw`'s
-parts, with no drawing code of its own; for a drawing of your own, see
-`examples/gpu-analyzer`.
+A scrolling spectrogram: it passes audio through and shows how its spectrum
+changes over time. The interface uses only `libs/chardraw`'s parts, with no
+drawing code of its own; for a drawing of your own, see the Shapes page of
+`examples/gui-gallery` (`Draw2D::custom`).
 
 - `entry.cpp`: the CLAP entry point, which makes the plugin.
 - `plugin.cpp`: the whole CLAP plugin: audio ports, state, the hand-off of
@@ -18,7 +18,7 @@ parts, with no drawing code of its own; for a drawing of your own, see
   `chardsp_ConstantQSpectrogram.h`: copies of chardsp's (commit 87bfc1e), with
   only their include of Signalsmith's FFT changed to this example's
   `dsp/fft.h`. The buffer brings the audio from the audio thread; Spectrum is
-  the windowed FFT (the short-time Fourier transform, as Listener's);
+  the windowed FFT (the short-time Fourier transform);
   ConstantQ and ConstantQSpectrogram are the constant-Q transform, which
   follows [CiCueTea](https://github.com/jdsierral/CiCueTea) (MIT, Juan
   Sierra): `licenses/CiCueTea.txt` is its licence, which ships with the
@@ -39,7 +39,7 @@ parts, with no drawing code of its own; for a drawing of your own, see
 
 ## Settings
 
-Listener's spectrogram settings, with its ranges and defaults. They are saved
+The spectrogram's settings, with their ranges and defaults. They are saved
 in the plugin's state, not CLAP parameters, since hosts have no use for
 automating them.
 
@@ -70,15 +70,14 @@ the cursor readout, snap, piano strip and its tone all go by the same
 bands and tuning. A band's level over each update is its power over that
 time (Mean), its loudest moment (Peak, which shows a click at its own level
 but reads noise higher in the high bands), or its value at the update's
-middle (Centre, as Listener reads it). The panel shows the delay from a
+middle (Centre). The panel shows the delay from a
 sound to its column: half the transform's block, about 341 ms at 48 kHz with
 the defaults (the block holds 24 periods of 55 Hz). A lower floor, down to
 A0 (27.5 Hz), resolves the bass's lowest notes at a cost: the block, and so
 the delay, doubles below about 35 Hz at 24 bands an octave (683 ms). The
 display's upper limit goes down to 100 Hz so the plot can zoom in on them;
-the range stays an octave at least. The CQT runs from 44.1 to 96 kHz, as
-Listener's; at other sample rates the plugin shows the FFT and the panel says
-so. A4 tuning also sets the piano strip's keys and the pitch names with the
+the range stays an octave at least. The CQT runs from 44.1 to 96 kHz; at
+other sample rates the plugin shows the FFT and the panel says so. A4 tuning also sets the piano strip's keys and the pitch names with the
 FFT.
 
 The analysis and display settings are in a drawer. The tab in the window's
@@ -116,8 +115,8 @@ sample rate makes the hop used longer than the one set, Hop shows both:
 
 Hovering over the spectrogram shows the frequency, the nearest pitch in cents
 and the level under the pointer. Snap follows the nearest peak in that
-column within 6 points (favouring one it follows by 2), as Listener's;
-hold Command to bypass it.
+column within 6 points (favouring one it follows by 2); hold
+Command to bypass it.
 
 Pause, from the plot's menu, freezes the display; the analysis keeps
 running. A **Paused** button shows in the top right corner (below the

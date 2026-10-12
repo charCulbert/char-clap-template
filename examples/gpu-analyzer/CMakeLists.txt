@@ -1,4 +1,4 @@
-# GPU Analyzer: a spectrum analyzer drawn with our own WebGPU code (libs/chardraw).
+# GPU Analyzer: a spectrum analyzer drawn with libs/chardraw's Spectrum view.
 #
 #   cmake -B build && cmake --build build     CLAP, VST3, AU (macOS), standalone
 #   WCLAP: see README.md for the one extra flag (the WASI SDK toolchain).

@@ -1,3 +1,4 @@
+// From github.com/charCulbert/chardsp at 3176349 (MIT), reformatted.
 #pragma once
 
 // Follows the topology-preserving-transform state-variable filter in the

@@ -1,6 +1,10 @@
 // The layout and the controls (libs/chardraw) without a GPU: synthetic pointer
 // and key events in, element rectangles, values and parameter messages out.
 // Draw2D records draws but never flushes them, having no device.
+//
+// Modelled on, where named below:
+// compost https://github.com/charCulbert/compost
+// char-spectrum https://github.com/charCulbert/char-spectrum
 #include "../libs/chardraw/ui.h"
 #include "../libs/chardraw/views.h"
 #include "../libs/chardraw/dock.h"

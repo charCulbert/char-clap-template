@@ -1,3 +1,5 @@
+// From github.com/charCulbert/chardsp at 87bfc1e (MIT).
+//
 // A spectrogram from chardsp_ConstantQ.h, whose transform follows CiCueTea
 // (https://github.com/jdsierral/CiCueTea, MIT); its notice is in that header.
 

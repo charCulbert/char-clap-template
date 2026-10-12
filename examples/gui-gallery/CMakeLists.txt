@@ -64,7 +64,8 @@ make_clapfirst_plugins(
     STANDALONE_CONFIGURATIONS standalone "GUI Gallery" "com.charlieculbert.guigallery"
     COPY_AFTER_BUILD FALSE)
 
-# Slide's fonts: Barlow Semi Condensed for names, IBM Plex Mono for numbers.
+# Slide's fonts (https://github.com/charCulbert/slide): Barlow Semi Condensed
+# for names, IBM Plex Mono for numbers.
 if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
     gpu_wclap_resources(resources GuiGallery resources)
     core_ship_resources(GuiGallery "${resources}" DEPENDS GuiGallery_resources)

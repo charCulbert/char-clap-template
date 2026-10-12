@@ -1,3 +1,5 @@
+// Laid out as nakst's CLAP tutorial: https://nakst.gitlab.io/tutorial/clap-part-1.html
+//
 // ImGui Filter: a stereo state-variable filter (lowpass, bandpass or highpass)
 // whose interface is drawn with Dear ImGui (ui/FilterView.cpp) on WebGPU.
 //

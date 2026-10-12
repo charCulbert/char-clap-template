@@ -1,5 +1,7 @@
+// Laid out as nakst's CLAP tutorial: https://nakst.gitlab.io/tutorial/clap-part-1.html
+//
 // GPU Analyzer: passes stereo audio through unchanged and shows its spectrum,
-// drawn with our own WebGPU code (ui/AnalyzerView.cpp, libs/chardraw).
+// drawn with libs/chardraw's Spectrum view (ui/AnalyzerView.cpp).
 //
 // This file is the whole CLAP plugin: its descriptor, audio ports, state, the
 // clap.webview and clap.gui extensions its interface uses, and the audio

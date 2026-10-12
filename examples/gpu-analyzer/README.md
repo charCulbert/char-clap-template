@@ -1,7 +1,7 @@
 # GPU Analyzer
 
 A spectrum analyzer: it passes audio through and shows its spectrum, drawn with
-WebGPU by our own drawing code.
+`libs/chardraw`'s Spectrum view.
 
 - `entry.cpp`: the CLAP entry point, which makes the plugin.
 - `plugin.cpp`: the whole CLAP plugin: audio ports, state, the spectrum

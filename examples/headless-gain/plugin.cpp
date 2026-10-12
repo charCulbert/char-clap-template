@@ -1,3 +1,5 @@
+// Laid out as nakst's CLAP tutorial: https://nakst.gitlab.io/tutorial/clap-part-1.html
+//
 // Headless Gain: stereo gain and pan with no interface of its own. Hosts show
 // their own controls for its parameters.
 //

@@ -1,3 +1,5 @@
+// From github.com/charCulbert/chardsp at 87bfc1e (MIT).
+//
 // The constant-Q transform here follows CiCueTea's NsgfCqtSparse
 // (https://github.com/jdsierral/CiCueTea), under its licence:
 //

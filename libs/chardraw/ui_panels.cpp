@@ -1,4 +1,7 @@
 // Ui panels: resize grip, split, handles, drawers and windows.
+//
+// Modelled on, where named below:
+// compost https://github.com/charCulbert/compost
 #include "ui_internal.h"
 
 namespace gpu {

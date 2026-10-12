@@ -1,4 +1,8 @@
 // Ui controls: buttons, toggles, dropdowns, context menus, tabs, knobs, sliders, pads, meters, piano, envelope, steps, tooltip.
+//
+// Modelled on, where named below:
+// compost https://github.com/charCulbert/compost
+// Slide https://github.com/charCulbert/slide
 #include "ui_internal.h"
 
 namespace gpu {

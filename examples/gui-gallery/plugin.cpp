@@ -1,3 +1,5 @@
+// Laid out as nakst's CLAP tutorial: https://nakst.gitlab.io/tutorial/clap-part-1.html
+//
 // GUI Gallery: a page of every feature of the GPU interface (libs/gpu,
 // libs/chardraw), for checking how it looks and performs in real hosts. Audio
 // passes through; its four parameters exist only for the controls to edit.

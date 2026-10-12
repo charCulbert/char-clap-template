@@ -23,7 +23,7 @@ Example CLAP plugins to start new ones from. Each builds, with
 
 ```sh
 python3 tools/new-plugin.py --from imgui-filter --name "My Plugin" --vendor "Your Name" \
-    --dest ~/Development/my-plugin
+    --dest ../my-plugin
 ```
 
 `--from` is the example's folder in `examples/`. Leave an option out and it asks. It also
@@ -35,7 +35,7 @@ workflow, a LICENSE and THIRD_PARTY_NOTICES.md. Nothing links back to this
 repository.
 
 ```sh
-cd ~/Development/my-plugin
+cd ../my-plugin
 cmake -B build && cmake --build build --config Release
 git init && git add -A && git commit -m "Start My Plugin"
 ```
@@ -73,7 +73,8 @@ All in `plugin.cpp`, unless it says otherwise:
     output; an effect has an audio input too. Copy them from the synth or the
     gain.
   - The AU type, `aumu` or `aufx`: `AUV2_INSTRUMENT_TYPE` in
-    `CMakeLists.txt`, and `AU:` in `.github/workflows/build.yml`.
+    `CMakeLists.txt`, and `AU:` in your project's `.github/workflows/build.yml`
+    (here, the example's own workflow, `.github/workflows/<example>.yml`).
 
 ## What's where
 
@@ -213,9 +214,15 @@ Apache-2.0, with a BSD 3-Clause notice from Chromium), stb (MIT or public
 domain), Clay and nanosvg (zlib), Dear ImGui (MIT), Signalsmith DSP and
 Basics (MIT), CiCueTea (MIT), the Cmajor standard library (ISC), Emscripten's
 runtime and emdawnwebgpu (MIT or NCSA; BSD 3-Clause; musl and libc++), and the
-Inter and IBM Plex Mono fonts (SIL Open Font License). clap-wrapper also
-downloads the VST3 SDK (MIT), RtAudio and RtMidi (MIT-style), and on macOS
-the AudioUnit SDK (Apache-2.0) and ghc::filesystem (MIT).
+Inter, IBM Plex Mono and Barlow Semi Condensed fonts (SIL Open Font License,
+each beside its font). A WCLAP links the WASI SDK's runtime: wasi-libc,
+libc++, libc++abi, the LLVM runtime and dlmalloc (licences in
+`libs/core/licenses/wasi-sdk/`). clap-wrapper also downloads the VST3 SDK
+(MIT), RtAudio and RtMidi (MIT-style), and on macOS the AudioUnit SDK
+(Apache-2.0) and ghc::filesystem (MIT).
+
+The examples' `plugin.cpp` follows the layout of nakst's
+[CLAP tutorial](https://nakst.gitlab.io/tutorial/clap-part-1.html).
 
 Every build copies the licences of what it downloaded into
 `THIRD_PARTY_LICENSES/` beside the plugin, and a project made with

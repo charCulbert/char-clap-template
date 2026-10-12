@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Checks tools/new-plugin.py: makes a project from every example in
 build-templates/, builds each with `cmake -B build && cmake --build build --config Release`,
-and, if clap-host is installed, validates its CLAP. Run it after changing an
-example, a library or the generator. (CI doesn't: it's slow and local.)
+and, if clap-host (https://github.com/charCulbert/char-clap-host) is installed,
+validates its CLAP. Run it after changing an example, a library or the
+generator. (CI doesn't: it's slow and local.)
 
     python3 tools/check-templates.py [example ...]
 """

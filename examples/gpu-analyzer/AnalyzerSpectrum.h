@@ -10,7 +10,8 @@
 
 // A spectrum for display, after the method of Signalsmith Audio's analyser
 // (github.com/Signalsmith-Audio/basics, analyser.h, MIT; Copyright 2022-2025
-// Signalsmith Audio / Geraint Luff), at three resolutions:
+// Signalsmith Audio / Geraint Luff; full notice: licenses/SignalsmithBasics.txt),
+// at three resolutions:
 //
 // - Blackman-Harris-windowed FFTs (chardsp::Spectrum, on Signalsmith's
 //   real-input FFT) every few milliseconds: a long window (16384 samples) for the

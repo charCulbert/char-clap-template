@@ -2,7 +2,7 @@
 """Starts a new CLAP plugin project from one of the examples.
 
     python3 tools/new-plugin.py --from imgui-filter --name "My Plugin" \\
-        --vendor "Your Name" --dest ~/Development/my-plugin
+        --vendor "Your Name" --dest ../my-plugin
 
 Anything left out is asked for. The new folder gets the example's files with
 its names swapped for yours, only the libraries it uses (libs/), a GitHub
@@ -212,7 +212,8 @@ def main():
     copy(REPO / ".github" / "workflows" / f"{example}.yml",
          dest / ".github" / "workflows" / "build.yml", fix_workflow)
 
-    # A VS Code task that builds and opens the plugin in clap-host, if it's installed. The task's
+    # A VS Code task that builds and opens the plugin in clap-host
+    # (https://github.com/charCulbert/char-clap-host), if it's installed. The task's
     # terminal stays a prompt for clap-host commands; the audio stays off until you press Power.
     if shutil.which("clap-host"):
         (dest / ".vscode").mkdir()

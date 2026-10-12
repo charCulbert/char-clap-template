@@ -1,3 +1,4 @@
+// From github.com/charCulbert/chardsp at 87bfc1e (MIT).
 #pragma once
 
 #include <algorithm>

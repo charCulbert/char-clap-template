@@ -9,6 +9,9 @@
 #include <string>
 #include <vector>
 
+// Modelled on, where named below:
+// compost https://github.com/charCulbert/compost
+
 // Views of a signal, as compost's compost-waveform, compost-scope and
 // compost-spectrogram: they draw what they're given, and the analysis
 // (decoding, triggering, FFTs) stays with the caller. Each comes laid out
@@ -307,9 +310,9 @@ public:
         Palette palette = Palette::system;
         int columns = 512, rows = 256; // the history kept, and its resolution up the side
         // 0: each add() is a column, the history stretched across the width.
-        // Else time goes across at this many points a second, as Listener's
-        // scroll rate: each add() covers the seconds it's given, and each
-        // column is a point's worth of time, the loudest of what fell in it.
+        // Else time goes across at this many points a second: each add()
+        // covers the seconds it's given, and each column is a point's worth
+        // of time, the loudest of what fell in it.
         // Then `columns` is the most kept: make it the widest it's drawn, in
         // points, and a few more.
         float pixelsPerSecond = 0;
@@ -383,7 +386,7 @@ public:
     // ceiling are spread evenly across them (a level bar draws the same).
     // Inferno, viridis and magma are matplotlib's, sampled at nine even
     // steps: perceptually even, and readable with colour blindness. Bone
-    // (Listener's) and system have five, a colour between each two added.
+    // and system have five, a colour between each two added.
     static constexpr int rampColours = 9;
     void ramp(const Theme &theme, Color out[rampColours]) const
     {
@@ -409,7 +412,7 @@ public:
         }
         else
         {
-            static const uint32_t bone[] = {0x0a0b0c, 0x191918, 0x45433e, 0x8e897d, 0xf5ebd4}; // Listener's
+            static const uint32_t bone[] = {0x0a0b0c, 0x191918, 0x45433e, 0x8e897d, 0xf5ebd4};
             for (int i = 0; i < 5; ++i) five[i] = hex(bone[i]);
         }
         for (int i = 0; i < 4; ++i)
@@ -536,8 +539,8 @@ public:
     }
 
     // What's under a point of the last drawing (pixels): the frequency at
-    // that height and the level there in the column under it. Snapping, as
-    // Listener's peak snap: the nearest peak in that column within 6 points
+    // that height and the level there in the column under it. Snapping:
+    // the nearest peak in that column within 6 points
     // above or below (one already followed counts 2 points nearer, so it
     // doesn't flicker between two, yet one between others can be reached),
     // its frequency and level found between the bins around it; y is then
