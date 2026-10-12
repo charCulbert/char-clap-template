@@ -18,14 +18,10 @@ Each release lists:
 
 The first release.
 
-### Breaking
-
-None.
-
 ### Added
 
 - `libs/core`: the CLAP SDK and clap-wrapper (CLAP, VST3, AUv2, standalone,
-  WCLAP, AUv3 and AAX from one CLAP plugin), the CBOR message codec, the
+  WCLAP, AAX, and an iOS app with an AUv3, from one CLAP plugin), the CBOR message codec, the
   resource reader, and `core_ship_resources`, which ships each plugin's files
   and the licences of everything it downloads.
 - `libs/webview`: a web page interface, in a CHOC WebView or the host's
@@ -36,10 +32,6 @@ None.
   scope, spectrum, spectrogram) for a GPU interface; colour schemes as data.
 - Five examples to start from, the GUI Gallery, and `tools/new-plugin.py`,
   which makes a project that fetches this template at a release.
-
-### Fixed
-
-Nothing yet.
 
 ### Dependencies
 
