@@ -7,10 +7,10 @@
 // reusable parts: the message codec and file loader (core/), and the presenter
 // that shows a gpu::View in the host's window (gpu/).
 //
-// Its two controls, Smoothing and Tilt, only change how the spectrum looks,
-// so they are settings saved with the plugin's state, not CLAP parameters:
-// hosts don't list or automate them. The interface edits them with the same
-// messages it would use for parameters.
+// Its one control, Smoothing, only changes how the spectrum looks, so it is
+// a setting saved with the plugin's state, not a CLAP parameter: hosts don't
+// list or automate it. The interface edits it with the same messages it
+// would use for parameters.
 #include "clap/clap.h"
 #include "clap/ext/audio-ports.h"
 #include "clap/ext/state.h"
@@ -36,9 +36,8 @@ struct Setting
 };
 static const Setting settings[] = {
     {"Smoothing", 0, 100, 50}, // how slowly levels fall back, in percent
-    {"Tilt", 0, 6, 4.5},       // dB per octave around 1 kHz, as FabFilter Pro-Q shows by default
 };
-#define S_COUNT (2)
+#define S_COUNT (1)
 
 struct MyPlugin
 {

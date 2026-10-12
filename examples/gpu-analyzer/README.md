@@ -19,14 +19,14 @@ WebGPU by our own drawing code.
   thread; the spectrum is each window's FFT.
 - `ui/AnalyzerView.cpp`: the interface, a `gpu::View`: chardraw's Spectrum
   view (`libs/chardraw/views.h`) for the spectrum and its scales, under a bar
-  with two readouts, laid out with Clay, in chardraw's default theme.
+  with the Smoothing readout, laid out with Clay, in chardraw's default theme.
 - The display matches FabFilter Pro-Q's: a logarithmic frequency axis
   (10 Hz to 30 kHz), levels in dB from 0 to -100, and a tilt of 4.5 dB per
-  octave around 1 kHz by default, so music looks roughly level. Quiet bands
+  octave around 1 kHz, so music looks roughly level. Quiet bands
   dim and fall through the floor, as do those past Nyquist.
-- Smoothing and Tilt are settings saved in the plugin's state, not CLAP
-  parameters, since they only change the display. Drag a readout up or down,
-  scroll over it, or double-click it for its default.
+- Smoothing is a setting saved in the plugin's state, not a CLAP parameter,
+  since it only changes the display. Drag its readout up or down, scroll
+  over it, or double-click it for its default.
 - `resources/`: the files the plugin ships (its font). Add images, sounds or
   anything else here and read them with `core::readResource("/path")` (on the
   main thread), or `gpu::loadAsset` in the view.

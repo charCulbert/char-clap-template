@@ -1,7 +1,7 @@
 // GPU Analyzer's interface: the live spectrum, drawn by chardraw's Spectrum
-// view (libs/chardraw/views.h), under a bar with two readouts, Smoothing and
-// Tilt, laid out with Clay. The spectrum arrives from the plugin as
-// "spectrum" messages; the readouts edit the plugin's settings (see plugin.cpp).
+// view (libs/chardraw/views.h), under a bar with the Smoothing readout, laid
+// out with Clay. The spectrum arrives from the plugin as "spectrum" messages;
+// the readout edits the plugin's setting (see plugin.cpp).
 #include "chardraw/ui.h"
 #include "chardraw/views.h"
 #include <algorithm>
@@ -12,6 +12,9 @@ namespace {
 
 constexpr float minHz = 10, maxHz = 30000; // past the audible range each side, as Pro-Q
 constexpr int bandCount = 512;             // as the plugin sends them
+// Tilted 4.5 dB per octave around 1 kHz, as Pro-Q is by default: music falls
+// off about this fast, so it looks roughly level.
+constexpr float tilt = 4.5f;
 
 class AnalyzerView : public gpu::View
 {
@@ -60,11 +63,11 @@ public:
     }
     void pointer(const PointerEvent &event) override { ui.pointer(event); }
     bool key(Key key, unsigned modifiers) override { return ui.key(key, modifiers); }
-    // A readout's value typed in (Enter or a digit on a focused readout).
+    // Smoothing's value typed in (Enter or a digit with its readout focused).
     bool text(const char *utf8) override { return ui.text(utf8); }
     bool editingText() const override { return ui.editingText(); }
     Caret textCaret() const override { return ui.textCaret(); }
-    // Screen readers: the readouts describe themselves, and the spectrum says what it shows.
+    // Screen readers: the readout describes itself, and the spectrum says what it shows.
     const gpu::Accessibility *accessibility() const override { return ui.accessibility(); }
     void accessAction(uint64_t id, gpu::Accessible::Action action, double value) override { ui.accessAction(id, action, value); }
 
@@ -73,11 +76,11 @@ public:
     void draw(const wgpu::RenderPassEncoder &pass, float, float, float) override { ui.flush(pass); }
     bool record(float width, float height, float scale) override
     {
-        gpu::Param *smoothing = params.find("Smoothing"), *tilt = params.find("Tilt");
-        if (!smoothing || !tilt) return false; // until the plugin has sent its settings
+        gpu::Param *smoothing = params.find("Smoothing");
+        if (!smoothing) return false; // until the plugin has sent its settings
         ui.begin(width, height, scale);
 
-        // The layout, in points: a bar along the top with the readouts on its
+        // The layout, in points: a bar along the top with the readout on its
         // right, and the spectrum filling the rest.
         CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
         {
@@ -86,9 +89,8 @@ public:
                   .backgroundColor = gpu::clayColor(ui.theme.panel)})
             {
                 ui.readout(params, smoothing, "Smoothing", "%.0f");
-                ui.readout(params, tilt, "Tilt", "%.1f dB/oct");
             }
-            const gpu::SpectrumView view{.minFrequency = minHz, .maxFrequency = maxHz, .tilt = float(tilt->value)};
+            const gpu::SpectrumView view{.minFrequency = minHz, .maxFrequency = maxHz, .tilt = tilt};
             void *plot = ui.paint([this, view](gpu::Rect r) { gpu::spectrum(ui, "Spectrum", shown.data(), hz.data(), shown.size(), r, view); });
             CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = plot}}) {}
         }

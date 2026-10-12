@@ -245,7 +245,7 @@ inline void spectrum(Ui &ui, const char *name, const float *decibels, const floa
             for (int k = 1; k < 10; ++k)
                 if (decade * k >= view.minFrequency && decade * k <= view.maxFrequency)
                     ui.draw.line(view.x(p, float(decade * k)), bottom, view.x(p, float(decade * k)), bottom - 3 * s, 1 * s, t.edge);
-        float right = r.x + 30 * s; // clear of the levels' labels
+        float right = r.x + 34 * s; // clear of the levels' labels
         for (float f : hz)
         {
             char text[16];
@@ -256,14 +256,15 @@ inline void spectrum(Ui &ui, const char *name, const float *decibels, const floa
             label(x, bottom - 10 * s, text, Draw2D::Align::center);
             right = x + half;
         }
-        // Levels up the left: a tick at each step and half step, labelled at each step.
+        // Levels up the left: a tick at each step and half step, labelled at each
+        // step 6 points clear of its tick, so a tick never reads as a minus sign.
         for (float d = db.empty() ? 0 : db.front(); d >= view.minDecibels - 1e-3f; d -= step / 2)
         {
             const bool major = std::abs(std::remainder(d, step)) < 1e-3f;
-            ui.draw.line(r.x, view.y(p, d), r.x + (major ? 6 : 3) * s, view.y(p, d), 1 * s, major ? t.dim : t.edge);
+            ui.draw.line(r.x, view.y(p, d), r.x + (major ? 4 : 2) * s, view.y(p, d), 1 * s, major ? t.dim : t.edge);
             char text[16];
             std::snprintf(text, sizeof text, "%g", d == 0 ? 0.0f : d);
-            if (major) label(r.x + 9 * s, view.y(p, d) + 4 * s, text, Draw2D::Align::left);
+            if (major) label(r.x + 10 * s, view.y(p, d) + 4 * s, text, Draw2D::Align::left);
         }
     }
     ui.draw.popClip();
