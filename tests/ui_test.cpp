@@ -2763,6 +2763,142 @@ static void contextMenus()
     CHECK(plotChosen.size() == 1 && chosen.size() == 4);
 }
 
+// A menu with a submenu: hovering its item opens it beside the menu (on the
+// left here, there being no room on the right), a move across another item
+// towards it keeps it open a moment, Right and Left open and close it from
+// the keys, Escape closes just it, and screen readers see an item that
+// expands into a menu.
+static void submenus()
+{
+    Ui ui;
+    using Item = Ui::MenuItem;
+    using Role = gpu::Accessible::Role;
+    std::vector<int> chosen;
+    auto draw = [&] {
+        frame(ui, [&] {
+            const Item lines[] = {{"Four", 4, 0}, {"Eight", 8, 1}, {"Sixteen", 16, 0}};
+            const Item items[] = {{"Grid", 0, 1}, {"Lines", -1, -1, lines, 3}, {}, {"Close", 9}};
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(60)}}}) {}
+            const Clay_ElementId plot = ui.id("Plot");
+            ui.tabStop(plot, Role::image, "Plot");
+            CLAY({.id = plot, .layout = {.sizing = {CLAY_SIZING_FIXED(60), CLAY_SIZING_FIXED(60)}}}) {}
+            if (const int i = ui.contextMenu(plot, items, 4); i >= 0) chosen.push_back(i);
+        });
+    };
+    const gpu::Accessibility *tree = ui.accessibility();
+    auto find = [&](const char *name) -> const gpu::Accessible * {
+        for (const gpu::Accessible &n : tree->nodes)
+            if (n.name == name && n.role != Role::label) return &n;
+        return nullptr;
+    };
+    auto focused = [&] {
+        for (const gpu::Accessible &n : tree->nodes)
+            if (n.id == tree->focus) return n.name;
+        return std::string();
+    };
+    auto moveTo = [&](float x, float y) {
+        pointer(ui, View::Pointer::move, x, y);
+        draw();
+        draw();
+    };
+    auto centre = [](Clay_BoundingBox b) { return std::pair{b.x + b.width / 2, b.y + b.height / 2}; };
+    const int sub = 1 << 20 | 1 << 10; // the submenu's items' first index: depth 1, from item 1
+    draw();
+    draw();
+
+    // A secondary click opens the menu; Grid is a checked menu item check
+    // box, Lines a menu item with a submenu, closed.
+    const float px = box("Plot").x + 55, py = box("Plot").y + 30; // near the view's right edge
+    moveTo(px, py);
+    ui.pointer({View::Pointer::down, px, py, 0, 0, false, 1});
+    draw();
+    ui.pointer({View::Pointer::up, px, py, 0, 0, false, 1});
+    draw();
+    CHECK(find("Grid") && find("Grid")->role == Role::menuItemCheckBox && find("Grid")->checked == 1);
+    CHECK(find("Lines") && find("Lines")->role == Role::menuItem && find("Lines")->actions & gpu::Accessible::expand
+          && !find("Lines")->expanded && !find("Four"));
+
+    // Hovering Lines opens its submenu, beside the menu on its left, its
+    // first item level with Lines; nothing in it highlighted.
+    const auto [lx, ly] = centre(box("ContextMenuItem", 1));
+    moveTo(lx, ly);
+    CHECK(find("Four") && find("Lines")->expanded);
+    const Clay_BoundingBox menu = box("ContextMenu", int(ui.id("Plot").id)), submenu = box("ContextSubmenu", 1 << 10 | 1);
+    CHECK(submenu.x + submenu.width <= menu.x + 0.5f && submenu.x >= 0);
+    CHECK(std::abs(box("ContextMenuItem", sub).y - box("ContextMenuItem", 1).y) < 0.5f);
+    const gpu::Accessible *subNode = nullptr;
+    for (const gpu::Accessible &n : tree->nodes)
+        if (n.role == Role::menu && n.name == "Lines") subNode = &n;
+    CHECK(subNode && std::find(find("Lines")->children.begin(), find("Lines")->children.end(), subNode->id) != find("Lines")->children.end());
+    CHECK(find("Eight")->role == Role::menuItemCheckBox && find("Eight")->checked == 1 && focused() == "Lines");
+
+    // A move over Close on the way to the submenu leaves it open, until the
+    // pointer rests there a moment.
+    const Clay_BoundingBox close = box("ContextMenuItem", 3);
+    moveTo(close.x + 4, close.y + close.height / 2);
+    CHECK(find("Four") && find("Lines")->expanded);
+    std::this_thread::sleep_for(std::chrono::milliseconds(350));
+    draw();
+    draw();
+    CHECK(!find("Four") && focused() == "Close");
+
+    // Back on Lines it opens again; a click in the submenu chooses, and closes it all.
+    moveTo(lx, ly);
+    CHECK(find("Four"));
+    moveTo(centre(box("ContextMenuItem", sub)).first, ly);
+    CHECK(find("Four") && focused() == "Four");
+    clickAt(ui, box("ContextMenuItem", sub + 2), draw);
+    CHECK(chosen.size() == 1 && chosen[0] == 16 && !find("Lines"));
+    draw();
+
+    // Keys: the Menu key opens it on Grid; Right on Lines opens the submenu
+    // on its first item, Left closes it back on Lines, Escape closes just
+    // the submenu, then the menu.
+    ui.accessAction(find("Plot")->id, gpu::Accessible::focus, 0);
+    draw();
+    CHECK(ui.key(View::Key::contextMenu, 0));
+    draw();
+    CHECK(focused() == "Grid");
+    const std::pair<View::Key, const char *> steps[] = {{View::Key::down, "Lines"}, {View::Key::right, "Four"}, {View::Key::down, "Eight"},
+                                                        {View::Key::left, "Lines"}, {View::Key::right, "Four"}, {View::Key::escape, "Lines"}};
+    for (auto [key, name] : steps)
+    {
+        CHECK(ui.key(key, 0));
+        draw();
+        CHECK(focused() == name);
+    }
+    CHECK(!find("Four") && find("Lines") && !find("Lines")->expanded);
+    CHECK(ui.key(View::Key::escape, 0));
+    draw();
+    draw();
+    CHECK(!find("Lines") && focused() == "Plot" && chosen.size() == 1);
+    // Enter on Lines opens it too; Enter on an item in it chooses that.
+    ui.key(View::Key::contextMenu, 0);
+    draw();
+    ui.key(View::Key::down, 0);
+    draw();
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(focused() == "Four");
+    ui.key(View::Key::enter, 0);
+    draw();
+    CHECK(chosen.size() == 2 && chosen[1] == 4 && !find("Lines"));
+    draw();
+
+    // A screen reader expands and collapses it.
+    ui.key(View::Key::contextMenu, 0);
+    draw();
+    ui.accessAction(find("Lines")->id, gpu::Accessible::expand, 0);
+    draw();
+    CHECK(find("Four") && find("Lines")->expanded && focused() == "Four");
+    ui.accessAction(find("Lines")->id, gpu::Accessible::collapse, 0);
+    draw();
+    CHECK(!find("Four") && find("Lines") && focused() == "Lines");
+    ui.key(View::Key::escape, 0);
+    draw();
+    CHECK(!find("Lines") && chosen.size() == 2);
+}
+
 int main()
 {
     layoutSizes();
@@ -2775,6 +2911,7 @@ int main()
     laidOutSlider();
     contextMenus();
     tabStops();
+    submenus();
     keyboardFocus();
     knobDragAndKeys();
     screenReader();

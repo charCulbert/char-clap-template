@@ -28,6 +28,7 @@ static accesskit_role role(Accessible::Role role)
     case Accessible::Role::tabPanel: return ACCESSKIT_ROLE_TAB_PANEL;
     case Accessible::Role::menu: return ACCESSKIT_ROLE_MENU;
     case Accessible::Role::menuItem: return ACCESSKIT_ROLE_MENU_ITEM;
+    case Accessible::Role::menuItemCheckBox: return ACCESSKIT_ROLE_MENU_ITEM_CHECK_BOX;
     }
     return ACCESSKIT_ROLE_GENERIC_CONTAINER;
 }
@@ -59,6 +60,8 @@ accesskit_tree_update *update(const Accessibility &tree)
         // A dropdown or a disclosure (a drawer's header): open or closed, as aria-expanded.
         if (a.role == Accessible::Role::comboBox || a.actions & (Accessible::expand | Accessible::collapse))
             accesskit_node_set_expanded(node, a.expanded);
+        // A menu item that opens a submenu, as aria-haspopup.
+        if (a.role == Accessible::Role::menuItem && a.actions & Accessible::expand) accesskit_node_set_has_popup(node, ACCESSKIT_HAS_POPUP_MENU);
         if (a.role == Accessible::Role::option || a.role == Accessible::Role::tab) accesskit_node_set_selected(node, a.selected);
         if (a.width > 0 && a.height > 0)
             accesskit_node_set_bounds(node, {a.x, a.y, a.x + a.width, a.y + a.height});

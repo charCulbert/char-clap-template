@@ -29,6 +29,7 @@ namespace gpu {
     case Accessible::Role::tabPanel: return "tab panel";
     case Accessible::Role::menu: return "menu";
     case Accessible::Role::menuItem: return "menu item";
+    case Accessible::Role::menuItemCheckBox: return "menu item check box";
     }
     return "control";
 }
@@ -391,10 +392,12 @@ void Ui::accessAction(uint64_t id, Accessible::Action action, double value)
         focus = me, focusVisible = true;
         keys.push_back({View::Key::contextMenu, 0});
         break;
-    case Accessible::expand: // a dropdown or drawer, opened by its click when it's closed
+    case Accessible::expand: // a dropdown, drawer or submenu, opened by its click when it's closed
     case Accessible::collapse:
         focus = me;
-        if (d->node.expanded != (action == Accessible::expand)) accessClick = me;
+        // (A menu item's submenu closes as focus comes back to the item.)
+        if (d->node.expanded != (action == Accessible::expand) && !(action == Accessible::collapse && d->node.role == Accessible::Role::menuItem))
+            accessClick = me;
         break;
     }
 }

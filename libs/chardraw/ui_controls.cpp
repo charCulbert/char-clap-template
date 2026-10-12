@@ -8,13 +8,14 @@
 namespace gpu {
 
 // Typing a letter in a list: the next item after `from` starting with it
-// (wrapping; separators skipped), or -1.
-static int startingWith(const char *const *items, int count, int from, char c)
+// (wrapping; separators, a nullptr label, skipped), or -1. label(i) is item i's.
+template <typename Label> static int startingWith(Label label, int count, int from, char c)
 {
     for (int k = 1; k <= count; ++k)
     {
         const int i = ((from + k) % count + count) % count;
-        if (items[i] && std::tolower(static_cast<unsigned char>(items[i][0])) == std::tolower(static_cast<unsigned char>(c))) return i;
+        const char *l = label(i);
+        if (l && std::tolower(static_cast<unsigned char>(l[0])) == std::tolower(static_cast<unsigned char>(c))) return i;
     }
     return -1;
 }
@@ -409,7 +410,8 @@ bool Ui::dropdown(const char *const *items, int count, int &selected, int index)
                 openMenu == menu.id ? choose() : openAt(selected);
                 continue;
             }
-            if (const int i = startingWith(items, count, openMenu == menu.id ? highlight : selected, c); i >= 0) openAt(i);
+            if (const int i = startingWith([&](int i) { return items[i]; }, count, openMenu == menu.id ? highlight : selected, c); i >= 0)
+                openAt(i);
         }
     }
     const size_t combo = described.size(); // an index: its options are described after it
@@ -499,22 +501,36 @@ int Ui::contextMenu(const char *const *items, int count)
     return lastElement ? contextMenu(Clay_ElementId{lastElement, 0, 0, {}}, items, count) : -1;
 }
 
+int Ui::contextMenu(const MenuItem *items, int count)
+{
+    return lastElement ? contextMenu(Clay_ElementId{lastElement, 0, 0, {}}, items, count) : -1;
+}
+
 void Ui::closeMenu()
 {
     if (menuFor && focus == reinterpret_cast<const void *>(uintptr_t(openMenu))) focus = menuReturn;
     openMenu = menuFor = 0;
 }
 
+// A list of labels is a menu without submenus or checks, each item's id its index.
 int Ui::contextMenu(Clay_ElementId element, const char *const *items, int count)
+{
+    std::vector<MenuItem> list(size_t(std::max(count, 0)));
+    for (int i = 0; i < count; ++i) list[size_t(i)] = {items[i], i};
+    return contextMenu(element, list.data(), count);
+}
+
+int Ui::contextMenu(Clay_ElementId element, const MenuItem *items, int count)
 {
     if (count < 1) return -1;
     said.push_back({element.id, {}, {}, false, false, false, true}); // a screen reader can open it (showMenu)
     const Clay_ElementId menu = id("ContextMenu", int(element.id));
     const void *me = reinterpret_cast<const void *>(uintptr_t(menu.id));
-    // The next item after `from` that isn't a separator, wrapping; by is 1 or -1.
-    auto next = [&](int from, int by) {
-        for (int k = 1; k <= count; ++k)
-            if (const int i = ((from + by * k) % count + count) % count; items[i]) return i;
+    auto asId = [](Clay_ElementId e) { return reinterpret_cast<const void *>(uintptr_t(e.id)); };
+    // The next item after `from` in a list that isn't a separator, wrapping; by is 1 or -1.
+    auto next = [](const MenuItem *list, int n, int from, int by) {
+        for (int k = 1; k <= n; ++k)
+            if (const int i = ((from + by * k) % n + n) % n; list[i].label) return i;
         return -1;
     };
 
@@ -542,14 +558,47 @@ int Ui::contextMenu(Clay_ElementId element, const char *const *items, int count)
         const Clay_BoundingBox box = Clay_GetElementData(element).boundingBox;
         menuAt = byPointer ? Rect{mouse.x, mouse.y, 0, 0} : Rect{box.x * s, box.y * s, box.width * s, box.height * s};
         openMenu = menu.id, menuFor = element.id, focus = me, focusVisible = byKey;
-        highlight = byKey ? next(-1, 1) : -1;
+        highlight = byKey ? next(items, count, -1, 1) : -1;
+        submenuPath.clear(), aiming = false;
         mouse.secondary = false; // taken: not also an element around this one
     }
     else if (byKey) focus = me; // open already (a screen reader asked as the key came): it keeps focus
     if (openMenu != menu.id) return -1;
     menuSeen = true;
-    for (int i = 0; i < count; ++i) // a screen reader focused or clicked an item: the menu has focus, on it
-        if (items[i] && focus == reinterpret_cast<const void *>(uintptr_t(id("ContextMenuItem", i).id))) focus = me, highlight = i;
+
+    // The lists shown: the menu, then each submenu open in the one before.
+    struct Level { const MenuItem *items; int count; };
+    std::vector<Level> levels{{items, count}};
+    for (int at : submenuPath)
+    {
+        const Level &l = levels.back();
+        if (at < 0 || at >= l.count || !l.items[at].label || !l.items[at].submenu || l.items[at].count < 1) break;
+        levels.push_back({l.items[at].submenu, l.items[at].count});
+    }
+    submenuPath.resize(levels.size() - 1); // (the caller's lists changed)
+    // The first list's items have the ids they always had; a submenu's, and
+    // its box's, go by its depth and the item it's from.
+    auto itemId = [&](size_t level, int i) {
+        return level ? id("ContextMenuItem", int(level << 20 | size_t(submenuPath[level - 1]) << 10) + i) : id("ContextMenuItem", i);
+    };
+    auto boxId = [&](size_t level) { return level ? id("ContextSubmenu", int(level << 10) + submenuPath[level - 1]) : menu; };
+    auto closeTo = [&](size_t level) { levels.resize(level + 1), submenuPath.resize(level); }; // the submenus deeper than level
+    // Opens the submenu of item i of the deepest list, on its first item, or
+    // on none (the pointer's); false if it has none.
+    auto openSubmenu = [&](int i, bool onFirst) {
+        const MenuItem &item = levels.back().items[i];
+        if (!item.submenu || item.count < 1) return false;
+        submenuPath.push_back(i), levels.push_back({item.submenu, item.count});
+        highlight = onFirst ? next(item.submenu, item.count, -1, 1) : -1;
+        return true;
+    };
+
+    // A screen reader focused or clicked an item: the menu has focus, on it,
+    // and the submenus beyond its list close.
+    bool found = false;
+    for (size_t l = 0; l < levels.size() && !found; ++l)
+        for (int i = 0; i < levels[l].count && !found; ++i)
+            if (levels[l].items[i].label && focus == asId(itemId(l, i))) focus = me, closeTo(l), highlight = i, found = true;
     if (focus != me) // something else took focus (a screen reader moved it)
     {
         openMenu = menuFor = 0;
@@ -557,76 +606,220 @@ int Ui::contextMenu(Clay_ElementId element, const char *const *items, int count)
     }
     if (mouse.pressed && overPopup) pressFocused = true; // a press in it, between items, keeps focus in it
 
-    // Keys, as the WAI-ARIA menu's: this frame's are all the menu's.
+    // Keys, as the WAI-ARIA menu's: this frame's are all the menu's. They
+    // act in the deepest list open; Right opens a submenu, Left and Escape
+    // close it.
     int chosen = -1;
-    bool close = false;
-    focusUses = keyBit(View::Key::up) | keyBit(View::Key::down) | keyBit(View::Key::home) | keyBit(View::Key::end)
-              | keyBit(View::Key::enter) | keyBit(View::Key::escape) | keyBit(View::Key::tab);
+    bool picked = false, close = false;
+    auto choose = [&](int i) { // a leaf is chosen; one with a submenu opens it
+        if (i < 0 || openSubmenu(i, true)) return;
+        chosen = levels.back().items[i].id, picked = true;
+    };
+    auto back = [&] { highlight = submenuPath.back(), closeTo(levels.size() - 2); };
+    focusUses = keyBit(View::Key::up) | keyBit(View::Key::down) | keyBit(View::Key::left) | keyBit(View::Key::right)
+              | keyBit(View::Key::home) | keyBit(View::Key::end) | keyBit(View::Key::enter) | keyBit(View::Key::escape)
+              | keyBit(View::Key::tab);
     focusTakesDigits = false, focusTakesLetters = true; // letters jump to an item, Space chooses
     for (auto [key, modifiers] : keys)
+    {
+        const MenuItem *list = levels.back().items;
+        const int n = levels.back().count;
+        aiming = false;
         switch (key)
         {
-        case View::Key::down: highlight = next(highlight, 1); break;
-        case View::Key::up: highlight = next(highlight < 0 ? count : highlight, -1); break;
-        case View::Key::home: highlight = next(-1, 1); break;
-        case View::Key::end: highlight = next(count, -1); break;
-        case View::Key::enter: chosen = highlight; break;
-        case View::Key::escape: case View::Key::tab: close = true; break;
+        case View::Key::down: highlight = next(list, n, highlight, 1); break;
+        case View::Key::up: highlight = next(list, n, highlight < 0 ? n : highlight, -1); break;
+        case View::Key::home: highlight = next(list, n, -1, 1); break;
+        case View::Key::end: highlight = next(list, n, n, -1); break;
+        case View::Key::right: if (highlight >= 0) openSubmenu(highlight, true); break;
+        case View::Key::left: if (levels.size() > 1) back(); break;
+        case View::Key::enter: choose(highlight); break;
+        case View::Key::escape: levels.size() > 1 ? back() : void(close = true); break;
+        case View::Key::tab: close = true; break;
         default: break;
         }
+    }
     keys.clear();
     for (char c : std::exchange(typedToFocus, {}))
     {
-        if (c == ' ') chosen = highlight;
-        else if (const int i = startingWith(items, count, highlight, c); i >= 0) highlight = i;
+        const Level l = levels.back();
+        if (c == ' ') choose(highlight);
+        else if (const int i = startingWith([&](int i) { return l.items[i].label; }, l.count, highlight, c); i >= 0) highlight = i;
     }
-
-    if (chosen >= 0 || close) // by a key: gone before it's drawn again
+    if (picked || close) // by a key: gone before it's drawn again
     {
         closeMenu(), focusVisible = true;
         focusHasMenu |= controlIn(focus, element);
         return chosen;
     }
 
-    // At the pointer, or below the control (points); moved in where it would
-    // leave the view, above where there's no room below, and over the
-    // control's top where there's room on neither side.
-    float width = 0, height = 4;
-    for (int i = 0; i < count; ++i)
+    // The pointer: over an item it highlights it, and opens its submenu.
+    // Over another item of a list whose submenu is open, heading for that
+    // submenu (inside the triangle from where it was last frame to the
+    // submenu's near side), it leaves the submenu open until it stops a
+    // moment. A click chooses an item, or opens its submenu.
+    const float px = mouse.x / s, py = mouse.y / s;
+    const auto now = std::chrono::steady_clock::now();
+    int overLevel = -1, overItem = -1, clickedLevel = -1, clickedItem = -1;
+    uint32_t clickedId = 0;
+    for (size_t l = 0; l < levels.size(); ++l)
+        for (int i = 0; i < levels[l].count; ++i)
+        {
+            if (!levels[l].items[i].label) continue;
+            const Clay_ElementId item = itemId(l, i);
+            if (Ui::element(item, eachPress).clicked) clickedLevel = int(l), clickedItem = i, clickedId = item.id;
+            if (Clay_PointerOver(item)) overLevel = int(l), overItem = i;
+        }
+    if (overLevel >= 0 && (mouse.moved || mouse.pressed || aiming))
     {
-        if (items[i]) width = std::max(width, draw.measure(theme.textSize, items[i], theme.labelFont));
-        height += items[i] ? theme.textSize * 1.25f + 6 : 7;
+        const size_t l = size_t(overLevel);
+        if (l + 1 == levels.size()) highlight = overItem, aiming = false, openSubmenu(overItem, false);
+        else if (overItem == submenuPath[l]) closeTo(l + 1), highlight = -1, aiming = false; // back on the item it's from
+        else
+        {
+            const Clay_BoundingBox sub = Clay_GetElementData(boxId(l + 1)).boundingBox, from = Clay_GetElementData(boxId(l)).boundingBox;
+            const float edge = sub.x >= from.x ? sub.x : sub.x + sub.width;
+            auto side = [&](float x0, float y0, float x1, float y1) { return (x1 - x0) * (py - y0) - (y1 - y0) * (px - x0); };
+            const float a = side(aimX, aimY, edge, sub.y), b = side(edge, sub.y, edge, sub.y + sub.height),
+                        c = side(edge, sub.y + sub.height, aimX, aimY);
+            const bool towards = mouse.moved && ((a >= 0 && b >= 0 && c >= 0) || (a <= 0 && b <= 0 && c <= 0));
+            if (towards) aimSince = now;
+            aiming = towards || (aiming && !mouse.moved && !mouse.pressed && now - aimSince < std::chrono::milliseconds(300));
+            if (aiming) tooltipWaiting = true; // (drawn on until it's decided, as a tooltip's delay)
+            else closeTo(l), highlight = overItem, openSubmenu(overItem, false);
+        }
     }
-    width += 16;
-    const Rect at{menuAt.x / s, menuAt.y / s, menuAt.w / s, menuAt.h / s};
-    const float gap = at.h > 0 ? 2.0f : 0.0f;
-    float x = at.x, y = at.y + at.h + gap;
-    if (x + width > viewWidth) x = std::max(0.0f, at.x + at.w - width);
-    if (y + height > viewHeight && at.y - height - gap >= 0) y = at.y - height - gap;
-    else if (y + height > viewHeight) y = std::max(0.0f, std::min(at.y, viewHeight - height)); // (a plot filling the view)
-    const Clay_FloatingElementConfig floating = {.offset = {x, y}, .zIndex = 100, .attachTo = CLAY_ATTACH_TO_ROOT};
-    if (const int i = popup(menu, "ContextMenuItem", 0, items, count, -1, floating, 0); i >= 0)
+    aimX = px, aimY = py;
+    if (clickedLevel >= 0 && size_t(clickedLevel) < levels.size() && itemId(size_t(clickedLevel), clickedItem).id == clickedId)
+    {
+        const size_t l = size_t(clickedLevel);
+        if (l + 1 == levels.size() || submenuPath[l] != clickedItem) closeTo(l), choose(clickedItem); // (not one already open)
+    }
+    if (picked)
     {
         closeMenu();
         focusHasMenu |= controlIn(focus, element);
-        return i;
+        return chosen;
+    }
+
+    // Each list: at the pointer, or below the control (points); moved in
+    // where it would leave the view, above where there's no room below, and
+    // over the control's top where there's room on neither side. A submenu
+    // beside the item it's from, its first item level with it; on the other
+    // side where there's no room, and moved in where there's none there.
+    submenuBoxes.clear();
+    const float tick = theme.textSize; // the check marks' column
+    for (size_t l = 0; l < levels.size(); ++l)
+    {
+        const MenuItem *list = levels[l].items;
+        const int n = levels[l].count;
+        float width = 0, height = 4;
+        bool checks = false, arrows = false;
+        for (int i = 0; i < n; ++i)
+        {
+            if (list[i].label) width = std::max(width, draw.measure(theme.textSize, list[i].label, theme.labelFont));
+            height += list[i].label ? theme.textSize * 1.25f + 6 : 7;
+            checks |= list[i].label && list[i].checked >= 0;
+            arrows |= list[i].label && list[i].submenu && list[i].count > 0;
+        }
+        width += 16 + (checks ? tick : 0) + (arrows ? 19 : 0);
+        float x = 0, y = 0;
+        if (l == 0)
+        {
+            const Rect at{menuAt.x / s, menuAt.y / s, menuAt.w / s, menuAt.h / s};
+            const float gap = at.h > 0 ? 2.0f : 0.0f;
+            x = at.x, y = at.y + at.h + gap;
+            if (x + width > viewWidth) x = std::max(0.0f, at.x + at.w - width);
+            if (y + height > viewHeight && at.y - height - gap >= 0) y = at.y - height - gap;
+            else if (y + height > viewHeight) y = std::max(0.0f, std::min(at.y, viewHeight - height)); // (a plot filling the view)
+        }
+        else
+        {
+            const Clay_BoundingBox from = Clay_GetElementData(boxId(l - 1)).boundingBox;
+            const Clay_BoundingBox item = Clay_GetElementData(itemId(l - 1, submenuPath[l - 1])).boundingBox;
+            x = from.x + from.width;
+            if (x + width > viewWidth) x = from.x - width;
+            if (x < 0) x = std::max(0.0f, viewWidth - width);
+            y = std::max(0.0f, std::min(item.y - 1, viewHeight - height));
+            submenuBoxes.push_back(boxId(l).id);
+        }
+        const Clay_FloatingElementConfig floating = {.offset = {x, y}, .zIndex = int16_t(100 + l), .attachTo = CLAY_ATTACH_TO_ROOT};
+        CLAY({.id = boxId(l), .layout = {.padding = CLAY_PADDING_ALL(1), .layoutDirection = CLAY_TOP_TO_BOTTOM},
+              .backgroundColor = clayColor({theme.background.r, theme.background.g, theme.background.b, theme.background.a * menuOpacity}),
+              .cornerRadius = CLAY_CORNER_RADIUS(theme.radius), .floating = floating,
+              .border = {.color = clayColor(theme.edge), .width = CLAY_BORDER_OUTSIDE(1)},
+              .userData = layout.shadow(theme.shadow, 10, 0, 3)})
+        {
+            // The highlighted item, or in a list with a submenu open, the item it's from.
+            const int lit = l + 1 < levels.size() ? submenuPath[l] : highlight;
+            for (int i = 0; i < n; ++i)
+            {
+                if (!list[i].label)
+                {
+                    CLAY({.layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {0, 0, 3, 3}}})
+                    {
+                        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1)}}, .backgroundColor = clayColor(theme.edge)}) {}
+                    }
+                    continue;
+                }
+                CLAY({.id = itemId(l, i),
+                      .layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .padding = {7, 7, 3, 3}, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
+                      .backgroundColor = clayColor(i == lit ? theme.panel : Color{0, 0, 0, 0})})
+                {
+                    if (checks)
+                        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(tick), CLAY_SIZING_FIT(0)}}})
+                        {
+                            if (list[i].checked == 1)
+                                CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(tick * 0.6f), CLAY_SIZING_FIXED(tick * 0.5f)}},
+                                      .custom = {.customData = layout.custom(tickBox)}}) {}
+                        }
+                    CLAY_TEXT(layout.text(list[i].label), textConfig(theme.text));
+                    if (arrows)
+                    {
+                        CLAY({.layout = {.sizing = {.width = CLAY_SIZING_GROW(12)}}}) {}
+                        const bool opens = list[i].submenu && list[i].count > 0;
+                        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(7), CLAY_SIZING_FIXED(opens ? 7.0f : 0.0f)}},
+                              .custom = {.customData = opens ? layout.custom(submenuBox) : nullptr}}) {}
+                    }
+                }
+            }
+        }
     }
 
     // For screen readers: a menu named for its control, its items in it, and
-    // the highlighted one focused (as aria-activedescendant).
-    const size_t list = described.size();
+    // the highlighted one focused (as aria-activedescendant). An item with a
+    // submenu can open it (expand) and says whether it's open; a submenu is a
+    // menu in that item, named for it.
+    const size_t top = described.size();
     const char *name = "Menu";
     for (const Accessible &n : accessTree.nodes)
         if (n.id == accessId(menuReturn) && !n.name.empty()) name = n.name.c_str();
     describe(me, Accessible::Role::menu, name).element = menu.id;
-    for (int i = 0; i < count; ++i)
+    uint64_t parent = accessId(me), active = 0;
+    for (size_t l = 0; l < levels.size(); ++l)
     {
-        if (!items[i]) continue;
-        const Clay_ElementId item = id("ContextMenuItem", i);
-        Described &d = describe(reinterpret_cast<const void *>(uintptr_t(item.id)), Accessible::Role::menuItem, items[i], accessId(me));
-        d.element = item.id, d.node.actions |= Accessible::click;
-        if (i == highlight) described[list].node.activeDescendant = d.node.id;
+        if (l)
+        {
+            const Clay_ElementId from = itemId(l - 1, submenuPath[l - 1]);
+            const void *sub = asId(boxId(l));
+            describe(sub, Accessible::Role::menu, levels[l - 1].items[submenuPath[l - 1]].label, accessId(asId(from))).element = boxId(l).id;
+            parent = accessId(sub);
+        }
+        for (int i = 0; i < levels[l].count; ++i)
+        {
+            const MenuItem &item = levels[l].items[i];
+            if (!item.label) continue;
+            const Clay_ElementId e = itemId(l, i);
+            Described &d = describe(asId(e), item.checked >= 0 ? Accessible::Role::menuItemCheckBox : Accessible::Role::menuItem, item.label, parent);
+            d.element = e.id, d.node.actions |= Accessible::click, d.node.checked = item.checked >= 0 ? int(item.checked == 1) : -1;
+            if (item.submenu && item.count > 0)
+                d.node.actions |= Accessible::expand | Accessible::collapse, d.node.expanded = l + 1 < levels.size() && submenuPath[l] == i;
+            if (l + 1 == levels.size() && i == highlight) active = d.node.id;
+        }
     }
+    // A submenu the pointer opened has nothing highlighted: the item it's from.
+    if (!active && levels.size() > 1) active = accessId(asId(itemId(levels.size() - 2, submenuPath.back())));
+    described[top].node.activeDescendant = active;
     return -1;
 }
 

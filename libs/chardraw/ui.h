@@ -251,6 +251,23 @@ public:
     // The same for an element of your own, such as a paint() box; for keys,
     // a control drawn inside it must have focus.
     int contextMenu(Clay_ElementId element, const char *const *items, int count);
+    // An item of a menu with submenus or check marks. One with a submenu
+    // shows an arrow; hovering or clicking it opens the submenu beside it
+    // (on the other side, or moved in, where there's no room), and the
+    // pointer can cut across the items between on its way there. Right,
+    // Enter or Space open it on its first item; Left or Escape close it, back
+    // on the item. Choosing an item at any depth closes the whole menu.
+    struct MenuItem
+    {
+        const char *label = nullptr; // nullptr: a separator
+        int id = -1;                 // what contextMenu returns when it's chosen
+        int checked = -1;            // 1: a check mark before it, 0: room for one (a menu item check box); -1: neither
+        const MenuItem *submenu = nullptr; // opens these count items beside it (its id is then unused)
+        int count = 0;
+    };
+    // The same menus of MenuItems: they return the chosen item's id, else -1.
+    int contextMenu(const MenuItem *items, int count);
+    int contextMenu(Clay_ElementId element, const MenuItem *items, int count);
     // Drag up or right to raise it, Shift for fine; double-click for the
     // default. Focused, the arrows step it (Shift fine, Alt large), as a
     // knob's, Delete or Backspace reset it, and Enter or a digit types a
@@ -432,7 +449,7 @@ public:
 private:
     enum Builtin { knobBox = -1, sliderBox = -2, chevronBox = -3, chevronRightBox = -4, vsliderBox = -5, xyBox = -6, meterBox = -7,
                    imageKnobBox = -8, pianoBox = -9, envelopeBox = -10, stepsBox = -11, gripBox = -12, closeBox = -13,
-                   paintBox = -14, chevronLeftBox = -15, chevronUpBox = -16 };
+                   paintBox = -14, chevronLeftBox = -15, chevronUpBox = -16, submenuBox = -17, tickBox = -18 };
     struct Placed
     {
         Params *params;
@@ -605,6 +622,15 @@ private:
     const void *menuReturn = nullptr;
     Rect menuAt{};
     bool focusHasMenu = false;  // the focused control has a context menu: the Menu key is the view's
+    // Its open submenus: the item each was opened from, level by level (the
+    // deepest's highlighted item is highlight), and their boxes as drawn.
+    std::vector<int> submenuPath;
+    std::vector<uint32_t> submenuBoxes;
+    // The pointer heading for an open submenu across other items: where it
+    // was last frame, and since when it has rested on one of those (pixels).
+    float aimX = 0, aimY = 0;
+    bool aiming = false;
+    std::chrono::steady_clock::time_point aimSince;
     void closeMenu();
     std::vector<const void *>::const_iterator tabFrom() const;
     bool tabLeaves(bool back) const;

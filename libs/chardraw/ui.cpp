@@ -207,7 +207,8 @@ void Ui::begin(float width, float height, float scale)
     described.clear();
     said.clear();
     layout.begin(draw, width, height, scale);
-    overPopup = openMenu && Clay_PointerOver({openMenu, 0, 0, {}});
+    overPopup = openMenu && (Clay_PointerOver({openMenu, 0, 0, {}})
+                             || std::any_of(submenuBoxes.begin(), submenuBoxes.end(), [](uint32_t b) { return Clay_PointerOver({b, 0, 0, {}}); }));
     // A press outside an open context menu or dropdown closes it and goes no
     // further, as a system menu's does (on the dropdown itself, too).
     const bool closing = openMenu && (mouse.pressed || mouse.secondary) && !overPopup;
@@ -267,6 +268,16 @@ bool Ui::record()
         {
             const float xy[] = {r.x, r.y + r.h * 0.7f, r.x + r.w / 2, r.y + r.h * 0.3f, r.x + r.w, r.y + r.h * 0.7f};
             draw.polyline(xy, 3, 1.2f * s, theme.dim);
+        }
+        else if (kind == submenuBox) // a small triangle pointing right, as a submenu's
+        {
+            const float xy[] = {r.x + r.w * 0.2f, r.y, r.x + r.w * 0.8f, r.y + r.h / 2, r.x + r.w * 0.2f, r.y + r.h};
+            draw.fill(xy, 3, theme.dim);
+        }
+        else if (kind == tickBox) // a check mark
+        {
+            const float xy[] = {r.x, r.y + r.h * 0.55f, r.x + r.w * 0.38f, r.y + r.h * 0.9f, r.x + r.w, r.y + r.h * 0.1f};
+            draw.polyline(xy, 3, 1.5f * s, theme.text);
         }
         else if (kind == gripBox) // three short diagonals, as a window's resize corner
         {
@@ -463,7 +474,7 @@ bool Ui::controlIn(const void *control, Clay_ElementId element) const
     if (accessId(control) == element.id) return true;
     for (const Accessible &n : accessTree.nodes)
         if (n.id == accessId(control))
-            return n.role != Accessible::Role::menu && n.role != Accessible::Role::menuItem
+            return n.role != Accessible::Role::menu && n.role != Accessible::Role::menuItem && n.role != Accessible::Role::menuItemCheckBox
                 && inside(element, n.x + n.width / 2, n.y + n.height / 2);
     return false;
 }

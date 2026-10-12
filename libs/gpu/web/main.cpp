@@ -81,6 +81,7 @@ const char *ariaRole(gpu::Accessible::Role role)
     case Role::tabPanel: return "tabpanel";
     case Role::menu: return "menu";
     case Role::menuItem: return "menuitem";
+    case Role::menuItemCheckBox: return "menuitemcheckbox";
     }
     return "group";
 }
@@ -191,7 +192,7 @@ EM_JS(void, accessUpdate, (const char *json, float ratio), {
         set(e, 'aria-selected', ['option', 'tab'].includes(node.role) ? String(node.selected) : null);
         const expandable = node.role === 'combobox' || (node.actions & (32 | 64));
         set(e, 'aria-expanded', expandable ? String(node.expanded) : null);
-        set(e, 'aria-haspopup', node.role === 'combobox' ? 'listbox' : node.actions & 128 ? 'menu' : null);
+        set(e, 'aria-haspopup', node.role === 'combobox' ? 'listbox' : node.actions & 128 || (node.role === 'menuitem' && node.actions & 32) ? 'menu' : null);
         set(e, 'aria-activedescendant', node.active ? 'access-' + node.active : null);
         set(e, 'tabindex', node.actions ? '-1' : null); // focusable from script; Tab goes through the View
         if (words && e.textContent !== node.value) e.textContent = node.value;
