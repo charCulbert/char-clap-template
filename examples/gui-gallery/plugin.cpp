@@ -1,7 +1,7 @@
 // GUI Gallery: a page of every feature of the GPU interface (libs/gpu,
 // libs/chardraw), for checking how it looks and performs in real hosts. Audio
 // passes through; its four parameters exist only for the controls to edit.
-// A test bench, not an example: tools/new-plugin.py doesn't offer it.
+// A showcase, not a starting point: tools/new-plugin.py doesn't offer it.
 //
 // Undo goes through the host, so one history covers the project. Parameter
 // drags are gestures, which the host records itself. The interface's other

@@ -21,9 +21,9 @@ add_subdirectory(examples/webview-synth)
 add_subdirectory(examples/gpu-analyzer)
 add_subdirectory(examples/gpu-spectrogram)
 add_subdirectory(examples/imgui-filter)
+add_subdirectory(examples/gui-gallery) # a page per chardraw feature, not a starting point
 
 if(NOT CMAKE_SYSTEM_NAME MATCHES "WASI|iOS")
     enable_testing()
     add_subdirectory(tests)
-    add_subdirectory(tests/gallery) # a test bench for the GPU interface, not an example
 endif()

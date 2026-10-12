@@ -68,6 +68,12 @@ public:
         ui.copyText = copyText;
         ui.dragFiles = dragFiles;
         ui.resizeTo = resizeTo;
+        // A setting of the gallery's own, not the plugin's: for the controls
+        // that show a list (a readout, a segmented control, a dropdown). Its
+        // id is clear of the plugin's, as the controls' ids come from it.
+        local.send = [](const core::Value &) {};
+        local.receive(core::Value::Map{{"type", "params"}, {"params", core::Value::Array{core::Value::Map{
+                                           {"id", 100}, {"name", "Window"}, {"min", 0}, {"max", 2}, {"default", 0}}}}});
         send(core::Value::Map{{"type", "ready"}});
     }
 
@@ -79,7 +85,7 @@ public:
     void pointer(const PointerEvent &event) override { ui.pointer(event); }
     bool key(Key key, unsigned modifiers) override { return ui.key(key, modifiers); }
     bool text(const char *utf8) override { return ui.text(utf8); }
-    bool animating() const override { return ui.animating() || page >= 4; } // the meters and the views move
+    bool animating() const override { return ui.animating() || page == 4 || page >= 6; } // the meters and the views move
     bool editingText() const override { return ui.editingText(); }
     Caret textCaret() const override { return ui.textCaret(); }
     const gpu::Accessibility *accessibility() const override { return ui.accessibility(); }
@@ -96,6 +102,8 @@ public:
         theme.whiteKey = keys == 0 ? gpu::Theme{}.whiteKey : theme.text; // a piano's, or the palette's inverted
         theme.blackKey = keys == 0 ? gpu::Theme{}.blackKey : theme.background;
         ui.theme = theme;
+        ui.menuOpacity = seeThrough ? 0.85f : 1;
+        ui.sliderDrag = relativeDrag ? gpu::Ui::Drag::relative : gpu::Ui::Drag::absolute;
         ui.begin(width, height, scale);
         CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(12),
                          .childGap = 12, .layoutDirection = CLAY_TOP_TO_BOTTOM},
@@ -103,8 +111,8 @@ public:
         {
             CLAY({.layout = {.sizing = {.width = CLAY_SIZING_GROW(0)}, .childGap = 12, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
             {
-                static const char *const pages[] = {"Shapes", "Text", "Controls", "Layout", "More", "Views", "Dock"};
-                ui.segmented(pages, 7, page, 0);
+                static const char *const pages[] = {"Shapes", "Text", "Controls", "Layout", "More", "Drawers", "Views", "Dock"};
+                ui.segmented(pages, 8, page, 0);
                 ui.label("Page");
                 if (ui.toggle("Windows", windowsOpen)) mixerOpen = notesOpen = windowsOpen;
                 ui.tooltip("Two windows over the page: drag, resize, Tab to a header and use the arrows");
@@ -122,8 +130,9 @@ public:
                 if (page == 2) controlsPage();
                 if (page == 3) layoutPage();
                 if (page == 4) morePage();
-                if (page == 5) viewsPage();
-                if (page == 6) dockPage();
+                if (page == 5) drawersPage();
+                if (page == 6) viewsPage();
+                if (page == 7) dockPage();
             }
         }
         // Windows over the page, as compost's.
@@ -140,7 +149,7 @@ public:
                   ui.theme.text);
         }, {.minWidth = 160, .minHeight = 80});
         if (!mixerOpen && !notesOpen) windowsOpen = false;
-        if (page == 6) dock.windows(ui, dockPanels()); // the dock's windows, over the page
+        if (page == 7) dock.windows(ui, dockPanels()); // the dock's windows, over the page
         ui.resizeGrip(width, height);
         const bool changed = ui.record();
         sendEdit();
@@ -330,7 +339,9 @@ private:
             });
         });
         row([&] {
-            cell("Sliders (compost style): fill to the value, thumb thickens on hover", [&] {
+            cell("Sliders (compost style): fill to the value, thumb thickens on hover; a press puts the value there, "
+                 "or with Relative the drag moves it from where it was", [&] {
+                ui.toggle("Relative", relativeDrag, 3);
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 6,
                                  .layoutDirection = CLAY_TOP_TO_BOTTOM}})
                 {
@@ -414,6 +425,19 @@ private:
                       .cornerRadius = CLAY_CORNER_RADIUS(10), .image = {.imageData = gpu::Layout::image(wheel)}}) {}
                 CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(64), CLAY_SIZING_FIXED(64)}}, .backgroundColor = gpu::clayColor(ui.theme.text),
                       .image = {.imageData = gpu::Layout::image(speaker)}}) {}
+            });
+            cell("Tabs: one panel at a time; a click chooses, or focused, the arrows, Home and End", [&] {
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+                {
+                    static const char *const tabNames[] = {"Oscillator", "Filter", "Amp"};
+                    static const char *const panels[] = {"The oscillator's panel", "The filter's panel", "The amp's panel"};
+                    ui.tabs(tabNames, 3, tab, 5);
+                    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(8)},
+                          .backgroundColor = gpu::clayColor(ui.theme.background)})
+                    {
+                        label(panels[tab], ui.theme.text);
+                    }
+                }
             });
         });
         row([&] {
@@ -518,7 +542,11 @@ private:
             }
             binDb[i] = level;
         }
-        spectrogram.add(binDb.data(), binHz.data(), binDb.size());
+        // The time since the last column, for scrolling in time.
+        const auto now = std::chrono::steady_clock::now();
+        const float seconds = std::min(0.1f, std::chrono::duration<float>(now - lastColumn).count());
+        lastColumn = now;
+        spectrogram.add(binDb.data(), binHz.data(), binDb.size(), seconds);
     }
 
     void viewsCells()
@@ -528,24 +556,91 @@ private:
             cell("Scope: samples over a grid; 1 at the top, -1 at the bottom", [&] { gpu::scope(ui, "Oscillator", scopeSamples.data(), scopeSamples.size(), {.range = 1}, 110); });
         });
         row([&] {
-            cell("Spectrogram: one column a frame, newest on the right; the analysis is the caller's", [&] {
+            cell("Spectrogram: newest on the right, a column a frame or 100 points a second; frequencies marked up the side; "
+                 "hover for the level, on the nearest peak (a dot) with Snap. The bar is the palette's nine colours, quiet at the bottom", [&] {
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 8, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
                 {
+                    static const char *const palettes[] = {"System", "Bone", "Inferno", "Viridis", "Magma"};
+                    static const char *const scales[] = {"Linear", "Log", "Mel"};
+                    static const char *const scrolls[] = {"A column a frame", "100 pt/s"};
+                    gpu::Spectrogram::Options o = spectrogram.settings();
+                    int palette = int(o.palette), scale = int(o.scale), inTime = o.pixelsPerSecond > 0;
                     CLAY({.layout = {.childGap = 12, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
                     {
-                        static const char *const palettes[] = {"System", "Bone", "Inferno", "Viridis", "Magma"};
-                        static const char *const scales[] = {"Linear", "Log", "Mel"};
-                        gpu::Spectrogram::Options o = spectrogram.settings();
-                        int palette = int(o.palette), scale = int(o.scale);
-                        if (ui.segmented(palettes, 5, palette, 7)) o.palette = gpu::Spectrogram::Palette(palette), spectrogram.configure(o);
+                        if (ui.segmented(palettes, 5, palette, 7)) o.palette = gpu::Spectrogram::Palette(palette);
                         ui.label("Palette");
-                        if (ui.segmented(scales, 3, scale, 8)) o.scale = gpu::Spectrogram::Scale(scale), spectrogram.configure(o);
+                        if (ui.segmented(scales, 3, scale, 8)) o.scale = gpu::Spectrogram::Scale(scale);
                         ui.label("Frequency scale");
                     }
-                    spectrogram.draw(ui, "Sweep", 180);
+                    CLAY({.layout = {.childGap = 12, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
+                    {
+                        if (ui.segmented(scrolls, 2, inTime, 9)) o.pixelsPerSecond = inTime ? 100 : 0, o.columns = inTime ? 1024 : 512;
+                        ui.label("Scroll");
+                        ui.toggle("Snap", snapPeaks, 2);
+                    }
+                    spectrogram.configure(o); // (the same options again change nothing)
+                    const Clay_ElementId sweep = ui.id("Sweep");
+                    void *plot = ui.paint([this, sweep](gpu::Rect r) { drawSweep(r, sweep); });
+                    void *bar = ui.paint([this](gpu::Rect r) { drawRamp(r); });
+                    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(180)}, .childGap = 6}})
+                    {
+                        CLAY({.id = sweep, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = plot}}) {}
+                        CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(12), CLAY_SIZING_GROW(0)}}, .custom = {.customData = bar}}) {}
+                    }
                 }
             });
         });
+    }
+
+    // A label on a backing, so it reads over any palette; y is its baseline.
+    void tag(float x, float y, const char *text, gpu::Draw2D::Align align = gpu::Draw2D::Align::left)
+    {
+        const float s = ui.s, w = ui.draw.measure(11 * s, text, ui.theme.valueFont);
+        const float left = align == gpu::Draw2D::Align::left ? x : x - w;
+        const gpu::Color &b = ui.theme.background;
+        ui.draw.rect(left - 3 * s, y - 10 * s, w + 6 * s, 14 * s, 2 * s, {b.r, b.g, b.b, 0.7f});
+        ui.draw.text(x, y, 11 * s, text, ui.theme.text, align, ui.theme.valueFont);
+    }
+
+    // The spectrogram, round frequencies up its left edge (Spectrogram::
+    // frequencyMarks), and under the pointer what's there (Spectrogram::probe).
+    void drawSweep(gpu::Rect r, Clay_ElementId sweep)
+    {
+        spectrogram.draw(ui, "Sweep", r);
+        const float s = ui.s;
+        const gpu::Color tick{ui.theme.text.r, ui.theme.text.g, ui.theme.text.b, 0.7f};
+        for (float f : spectrogram.frequencyMarks(r, 24 * s))
+        {
+            const float y = spectrogram.yAt(r, f);
+            if (y < r.y + 10 * s || y > r.y + r.h - 4 * s) continue;
+            char text[16];
+            std::snprintf(text, sizeof text, f >= 1000 ? "%gk" : "%g", f >= 1000 ? f / 1000 : f);
+            ui.draw.line(r.x, y, r.x + 4 * s, y, 1 * s, tick);
+            tag(r.x + 8 * s, y + 4 * s, text);
+        }
+        const gpu::Ui::PointerAt at = ui.pointerAt();
+        gpu::Spectrogram::Probe probe;
+        if (!ui.pointerOver(sweep) || !spectrogram.probe(at.x, at.y, snapPeaks, probe)) return;
+        ui.draw.line(r.x, probe.y, r.x + r.w, probe.y, 1 * s, tick);
+        if (probe.peak) ui.draw.circle(at.x, probe.y, 3 * s, ui.theme.accent);
+        char text[48];
+        std::snprintf(text, sizeof text, "%.0f Hz  %.1f dB", probe.frequency, probe.decibels);
+        const bool flip = at.x + 140 * s > r.x + r.w; // near the right edge: to the left of the pointer
+        tag(flip ? at.x - 12 * s : at.x + 12 * s, probe.y - 6 * s, text, flip ? gpu::Draw2D::Align::right : gpu::Draw2D::Align::left);
+    }
+
+    // A level bar: the spectrogram's colours (Spectrogram::ramp), the floor at the bottom.
+    void drawRamp(gpu::Rect r)
+    {
+        gpu::Color colours[gpu::Spectrogram::rampColours];
+        spectrogram.ramp(ui.theme, colours);
+        const int n = gpu::Spectrogram::rampColours;
+        for (int i = 0; i < n; ++i)
+        {
+            const float top = std::round(r.y + r.h * float(n - 1 - i) / n), bottom = std::round(r.y + r.h * float(n - i) / n);
+            ui.draw.rect(r.x, top, r.w, bottom - top, 0, colours[i]);
+        }
+        ui.accessible(gpu::Accessible::Role::image, "Colour ramp", nullptr, r, "The palette's nine colours, quiet at the bottom");
     }
 
     // The Views page's views as dockable windows, as ImGui's: the
@@ -577,6 +672,129 @@ private:
         CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) { dock.space(ui, "Gallery", dockPanels()); }
     }
 
+    // A made-up plot for a drawer to float over: a grid, and a curve with
+    // the area under it filled.
+    void drawPlot(gpu::Rect r)
+    {
+        auto &d = ui.draw;
+        const float s = ui.s;
+        const gpu::Color t = ui.theme.text, a = ui.theme.accent;
+        d.rect(r.x, r.y, r.w, r.h, 0, ui.theme.background);
+        if (plotGrid)
+        {
+            for (int i = 1; i < 8; ++i) d.line(r.x + r.w * i / 8, r.y, r.x + r.w * i / 8, r.y + r.h, 1 * s, {t.r, t.g, t.b, 0.15f});
+            for (int i = 1; i < 4; ++i) d.line(r.x, r.y + r.h * i / 4, r.x + r.w, r.y + r.h * i / 4, 1 * s, {t.r, t.g, t.b, 0.15f});
+        }
+        std::vector<float> curve;
+        for (int i = 0; i <= 64; ++i)
+        {
+            const float u = i / 64.0f;
+            curve.push_back(r.x + r.w * u);
+            curve.push_back(r.y + r.h * (0.6f - 0.35f * std::sin(u * 9.42f) * std::exp(-1.5f * u)));
+        }
+        curve.insert(curve.end(), {r.x + r.w, r.y + r.h, r.x, r.y + r.h});
+        d.fill(curve.data(), curve.size() / 2, {a.r, a.g, a.b, 0.3f});
+        d.polyline(curve.data(), 65, 2 * s, a);
+        ui.accessible(gpu::Accessible::Role::image, "Plot", nullptr, r, "A made-up curve for a drawer to float over");
+    }
+
+    // A plot with an overlay drawer declared in its box, and a context menu.
+    void plotWithDrawer(int n, const char *title, bool &open, float &size, gpu::DrawerOptions options, const std::function<void()> &contents)
+    {
+        const Clay_ElementId plot = ui.id("DrawerPlot", n);
+        void *box = ui.paint([this](gpu::Rect r) { drawPlot(r); });
+        CLAY({.id = plot, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}, .custom = {.customData = box}})
+        {
+            ui.drawer(title, open, size, contents, options);
+        }
+        const char *const items[] = {plotGrid ? "Hide the grid" : "Show the grid", open ? "Close the drawer" : "Open the drawer"};
+        const int chosen = ui.contextMenu(plot, items, 2);
+        if (chosen == 0) plotGrid = !plotGrid;
+        if (chosen == 1) open = !open;
+    }
+
+    void drawersPage()
+    {
+        using Edge = gpu::DrawerOptions::Edge;
+        using Align = gpu::DrawerOptions::Align;
+        static const char *const windows[] = {"Hann", "Hamming", "Blackman"};
+        // Each drawer's contents: two number boxes in a row, or switches in a
+        // column (a parameter's control, or an index, once a page).
+        auto numbers = [&](const char *first, const char *firstFormat, const char *second, const char *secondFormat) {
+            return [=, this] {
+                CLAY({.layout = {.padding = CLAY_PADDING_ALL(6), .childGap = 8, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
+                {
+                    label(first, ui.theme.dim);
+                    ui.numberBox(params, params.find(first), firstFormat);
+                    label(second, ui.theme.dim);
+                    ui.numberBox(params, params.find(second), secondFormat);
+                }
+            };
+        };
+        auto switches = [&](int index) {
+            return [=, this] {
+                CLAY({.layout = {.padding = CLAY_PADDING_ALL(6), .childGap = 4, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+                {
+                    ui.toggle("Oversample", oversample, index);
+                    ui.toggle("Linear phase", linearPhase, index);
+                }
+            };
+        };
+        row([&] {
+            cell("Overlay drawer, top: see-through (75%), an 18-point tab at the end, faint until hovered, as big as what's in it; "
+                 "the number boxes show their values over the plot", [&] {
+                plotWithDrawer(0, "Plot settings", topOpen, topSize,
+                               {.edge = Edge::top, .overlay = true, .opacity = 0.75f, .tab = 18, .fit = true, .align = Align::end, .quietTab = true},
+                               numbers("Gain", "%.1f dB", "Cutoff", "%.0f Hz"));
+            });
+            cell("Overlay drawer, left: opaque, the 24-point tab centred; drag its inner edge to resize. Escape closes a drawer "
+                 "with focus in it. Right-click a plot for its menu", [&] {
+                plotWithDrawer(1, "Plot options", leftOpen, leftSize, {.edge = Edge::left, .min = 90, .max = 220, .overlay = true}, switches(4));
+            });
+        });
+        row([&] {
+            cell("Overlay drawer, bottom: 90%, the tab at the start, resizable", [&] {
+                plotWithDrawer(2, "Plot range", bottomOpen, bottomSize,
+                               {.edge = Edge::bottom, .min = 36, .max = 100, .overlay = true, .opacity = 0.9f, .align = Align::start},
+                               numbers("Mix", "%.0f %%", "Drive", "%.2f"));
+            });
+            cell("Overlay drawer, right: as big as what's in it, the tab at the end", [&] {
+                plotWithDrawer(3, "Plot switches", rightOpen, rightSize, {.edge = Edge::right, .overlay = true, .fit = true, .align = Align::end},
+                               switches(6));
+            });
+        });
+        row([&] {
+            cell("Readouts: drag up or down or scroll, Shift fine, double-click resets; a list's click steps to the next", [&] {
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+                {
+                    ui.readout(params, params.find("Gain"), "Gain", "%.1f dB", false, 150);
+                    ui.readout(params, params.find("Cutoff"), "Cutoff", "%.0f Hz", true, 150);
+                    ui.readout(params, params.find("Drive"), "Drive", "%.2f", false, 150);
+                }
+            });
+            cell("One setting three ways: a readout, a segmented control and a dropdown, each following the others", [&] {
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}, .childGap = 6, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+                {
+                    gpu::Param *w = local.find("Window");
+                    ui.readout(local, w, "Window", windows, 3);
+                    ui.segmented(local, w, windows, 3);
+                    ui.label("Window");
+                    ui.dropdown(local, w, windows, 3);
+                    ui.label("Window");
+                }
+            });
+            cell("See-through menus (Ui::menuOpacity 0.85) when on: open the dropdown, or a plot's menu above", [&] {
+                CLAY({.layout = {.childGap = 6, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+                {
+                    ui.toggle("See-through menus", seeThrough, 5);
+                    static const char *const shapes[] = {"Sine", "Triangle", "Saw", "Square", "Noise"};
+                    ui.dropdown(shapes, 5, shape, 1);
+                    ui.label("Waveform");
+                }
+            });
+        });
+    }
+
     void morePage()
     {
         static const char *const names[] = {"Gain", "Mix", "Cutoff", "Drive"};
@@ -587,9 +805,10 @@ private:
             });
             cell("Envelope: drag points; double-click adds or removes", [&] { ui.envelope(envelope); });
             cell("Steps: drag across to paint", [&] { ui.steps(stepValues); });
-            cell("Drawer: the header opens and closes it; drag its edge, or focus it, to resize", [&] {
+            cell("Drawers: a header opens and closes each; Advanced also resizes (drag its edge, or focus it)", [&] {
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
                 {
+                    if (ui.drawer("Details", detailsOpen)) label("Declared while it's open", ui.theme.dim);
                     ui.drawer("Advanced", advancedOpen, advancedSize, [&] {
                         ui.toggle("Oversample", oversample);
                         ui.toggle("Linear phase", linearPhase);
@@ -780,15 +999,21 @@ private:
     gpu::Rect mixerFrame{60, 90, 220, 190}, notesFrame{320, 140, 260, 150}; // points
     std::vector<float> stepValues = {0.8f, 0.2f, 0.5f, 0.2f, 1.0f, 0.2f, 0.5f, 0.3f, 0.7f, 0.2f, 0.5f, 0.2f, 0.9f, 0.4f, 0.6f, 0.3f};
     bool sync = false, advancedOpen = true, oversample = false, linearPhase = true;
+    bool detailsOpen = false, relativeDrag = false, seeThrough = true, snapPeaks = true, plotGrid = true;
+    int tab = 0; // the Tabs cell's
+    // The Drawers page's overlays: whether each is open, and its size (points; unused when fitted).
+    bool topOpen = true, leftOpen = false, bottomOpen = false, rightOpen = true;
+    float topSize = 0, leftSize = 140, bottomSize = 40, rightSize = 0;
     float peaks[6] = {};
     std::vector<std::vector<gpu::Peak>> stereoPeaks;
     std::vector<float> scopeSamples = std::vector<float>(256), binHz = std::vector<float>(512), binDb = std::vector<float>(512);
     gpu::Spectrogram spectrogram;
     gpu::Dock dock;
-    std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now(), lastColumn = started;
     std::string name = "Preset 1";
     core::Value::Map sent = data(); // the data the plugin has
     gpu::Params params;
+    gpu::Params local; // the gallery's own settings (see prepare)
     gpu::Ui ui;
     wgpu::RenderPipeline stripePipeline;
 };

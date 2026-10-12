@@ -89,7 +89,7 @@ libs/
   webview/          a web page interface
   gpu/              a WebGPU interface: Dawn natively, a web page in WCLAP
   chardraw/         drawing, layout and controls for a GPU interface
-tests/              unit tests, and the GUI Gallery (a page per chardraw feature)
+tests/              unit tests
 tools/              new-plugin.py, check-templates.py
 ```
 
@@ -116,7 +116,8 @@ in the browser:
 Linux GPU builds are x86_64 only: Dawn's and AccessKit's prebuilt libraries
 have no other Linux architecture.
 
-Check the GUI Gallery for some chardraw examples.
+The GUI Gallery ([`examples/gui-gallery`](examples/gui-gallery)) shows every feature, a page per area. It's
+a showcase, not a starting point: `new-plugin.py` doesn't offer it.
 
 ## How the interface talks to the plugin
 
@@ -173,7 +174,7 @@ python3 tools/check-templates.py                             # a project from ea
 The tests cover the resource reader, the message codec (C++ and JavaScript),
 the analyzer's DSP, chardraw's layout and controls, and its drawing
 (checked pixel by pixel; needs a WebGPU adapter, a software one will do).
-The GUI Gallery (`tests/gallery`) is for looking: each cell draws one feature
+The GUI Gallery (`examples/gui-gallery`) is for looking: each cell draws one feature
 and says what it should look like.
 
 ## CI

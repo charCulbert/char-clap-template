@@ -1,20 +1,20 @@
 name: GUI Gallery
 
-# Builds and validates the GUI Gallery (tests/gallery) on macOS, Windows and
+# Builds and validates the GUI Gallery (examples/gui-gallery) on macOS, Windows and
 # Linux, CLAP only (VST3 and WCLAP build locally, not here). Runs when it or
 # a library it uses changes.
 on:
   push:
     branches: [main] # other branches run through their pull request
     paths:
-      - tests/gallery/**
+      - examples/gui-gallery/**
       - libs/core/**
       - libs/gpu/**
       - libs/chardraw/**
       - .github/workflows/gallery.yml
   pull_request:
     paths:
-      - tests/gallery/**
+      - examples/gui-gallery/**
       - libs/core/**
       - libs/gpu/**
       - libs/chardraw/**
@@ -30,7 +30,7 @@ permissions:
   contents: read
 
 env:
-  PROJECT: tests/gallery  # the folder with the plugin's CMakeLists.txt
+  PROJECT: examples/gui-gallery  # the folder with the plugin's CMakeLists.txt
   TARGET: GuiGallery      # TARGET_NAME there
   NAME: "GUI Gallery"     # OUTPUT_NAME there: the plugin files' names
 

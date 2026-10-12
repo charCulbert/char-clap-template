@@ -15,6 +15,7 @@ on:
       - examples/gpu-analyzer/*.h
       - examples/gpu-analyzer/signalsmith-dsp.cmake
       - examples/gpu-spectrogram/*.h
+      - examples/gui-gallery/resources/fonts/** # draw2d_test's font
       - .github/workflows/tests.yml
   pull_request:
     paths:
@@ -27,6 +28,7 @@ on:
       - examples/gpu-analyzer/*.h
       - examples/gpu-analyzer/signalsmith-dsp.cmake
       - examples/gpu-spectrogram/*.h
+      - examples/gui-gallery/resources/fonts/** # draw2d_test's font
       - .github/workflows/tests.yml
   workflow_dispatch:
 
