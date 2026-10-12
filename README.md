@@ -80,6 +80,40 @@ All in `plugin.cpp`, unless it says otherwise:
     `CMakeLists.txt`, and `AU:` in your project's `.github/workflows/build.yml`
     (here, the example's own workflow, `.github/workflows/<example>.yml`).
 
+## Using the template as a dependency
+
+A plugin fetches this repository at a release tag and includes the libraries
+it uses. `new-plugin.py` writes this for you:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(clap_template
+    GIT_REPOSITORY https://github.com/charCulbert/char-clap-template.git
+    GIT_TAG v0.1.0
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR none)
+FetchContent_MakeAvailable(clap_template)
+set(LIBS "${clap_template_SOURCE_DIR}/libs")
+include(${LIBS}/core/core.cmake)   # and gpu, chardraw or webview
+```
+
+`SOURCE_SUBDIR none` keeps this repository's own `CMakeLists.txt` out of your
+build; it stops with an error if added with `add_subdirectory`.
+
+**To update,** read [CHANGELOG.md](CHANGELOG.md) from your version up: each
+release's Breaking section says what your code, CMake or CI must change. Then
+set `GIT_TAG` to the new tag. Versions start at 0.x, so a minor bump (0.1 to
+0.2) may break your plugin; a patch bump won't.
+
+**To work on the template and a plugin together,** point the plugin at your
+checkout:
+
+```sh
+cmake -B build -DFETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE="$PWD/../char-clap-template"   # an absolute path
+```
+
+A GPU plugin's WCLAP page build uses the same checkout.
+
 ## What's where
 
 ```
