@@ -28,42 +28,34 @@ bool ready = false;
 bool dirty = true;    // something changed since the last frame
 bool damaged = false; // a frame was recorded but not shown: draw it even if nothing changes
 
-EM_JS (void, postToPlugin, (const unsigned char* data, int size),
-    { window.parent.postMessage (HEAPU8.slice (data, data + size).buffer, '*'); });
+// clang-format off
+EM_JS(void, postToPlugin, (const unsigned char *data, int size), {
+    window.parent.postMessage(HEAPU8.slice(data, data + size).buffer, '*');
+});
 
-float pixelRatio()
-{
-    return float (emscripten_get_device_pixel_ratio());
-}
+float pixelRatio() { return float(emscripten_get_device_pixel_ratio()); }
 
-EM_JS (bool, prefersDark, (),
-    { return (Module.darkQuery = Module.darkQuery || matchMedia ('(prefers-color-scheme: dark)')).matches; });
+EM_JS(bool, prefersDark, (), { return (Module.darkQuery = Module.darkQuery || matchMedia('(prefers-color-scheme: dark)')).matches; });
 
 // Pointer lock needs a recent click (it comes from a knob press) and, inside
 // an iframe, the host's sandbox must allow it; if refused, drags stay plain.
-EM_JS (void, setPointerLock, (bool locked), {
-    const canvas = document.getElementById ('canvas');
-    if (locked)
-        try
-        {
-            Promise.resolve (canvas.requestPointerLock()).catch (() = > {});
-        }
-        catch
-        {}
-    else if (document.pointerLockElement == = canvas)
-        document.exitPointerLock();
+EM_JS(void, setPointerLock, (bool locked), {
+    const canvas = document.getElementById('canvas');
+    if (locked) try { Promise.resolve(canvas.requestPointerLock()).catch(() => {}); } catch {}
+    else if (document.pointerLockElement === canvas) document.exitPointerLock();
 });
-EM_JS (bool, pointerLocked, (), { return document.pointerLockElement == = document.getElementById ('canvas'); });
+EM_JS(bool, pointerLocked, (), {
+    return document.pointerLockElement === document.getElementById('canvas');
+});
 float pointerX = 0, pointerY = 0; // pixels; keeps moving while the pointer is locked
 
-EM_JS (void, copyToClipboard, (const char* utf8, int size), {
-    const text = new TextDecoder().decode (HEAPU8.slice (utf8, utf8 + size));
-    if (navigator.clipboard)
-        navigator.clipboard.writeText (text).catch (() = > {});
+EM_JS(void, copyToClipboard, (const char *utf8, int size), {
+    const text = new TextDecoder().decode(HEAPU8.slice(utf8, utf8 + size));
+    if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
 });
 
-EM_JS (
-    void, setCursorCss, (const char* css), { document.getElementById ('canvas').style.cursor = UTF8ToString (css); });
+EM_JS(void, setCursorCss, (const char *css), { document.getElementById('canvas').style.cursor = UTF8ToString(css); });
+// clang-format on
 
 // The ARIA role for each of ours (no default: a new role must be given one).
 const char* ariaRole (gpu::Accessible::Role role)
@@ -149,143 +141,113 @@ void jsonNumber (std::ostringstream& out, double number)
 
 // The mirror: one element per node, keyed by id, changed only where the
 // tree differs; positions in CSS pixels, relative to the parent's.
-EM_JS (void, accessUpdate, (const char* json, float ratio), {
-    const access = Module.access =
-        Module.access
-        || { elements : new Map(), focus : "", layer : null, syncing : false }; // (no ??=: a C++ trigraph)
-    const canvas = document.getElementById ('canvas');
+// clang-format off
+EM_JS(void, accessUpdate, (const char *json, float ratio), {
+    const access = Module.access = Module.access || {elements: new Map(), focus: "", layer: null, syncing: false}; // (no ??=: a C++ trigraph)
+    const canvas = document.getElementById('canvas');
     if (!access.layer)
     {
-        access.layer = document.createElement ('div');
-        access.layer.style.cssText =
-            'position:absolute;inset:0;pointer-events:none;overflow:hidden;color:transparent;font-size:1px';
-        document.body.appendChild (access.layer);
-        canvas.setAttribute ('aria-hidden', 'true'); // the mirror says what it shows
+        access.layer = document.createElement('div');
+        access.layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;color:transparent;font-size:1px';
+        document.body.appendChild(access.layer);
+        canvas.setAttribute('aria-hidden', 'true'); // the mirror says what it shows
     }
-    const tree = JSON.parse (UTF8ToString (json));
-    const byId = new Map (tree.nodes.map (node = > [ node.id, node ]));
+    const tree = JSON.parse(UTF8ToString(json));
+    const byId = new Map(tree.nodes.map(node => [node.id, node]));
     const seen = new Set();
-    const set = (element, name, value) =>
-    {
-        if (value == = null || value == = undefined)
-            element.removeAttribute (name);
-        else if (element.getAttribute (name) != = String (value))
-            element.setAttribute (name, value);
+    const set = (element, name, value) => {
+        if (value === null || value === undefined) element.removeAttribute(name);
+        else if (element.getAttribute(name) !== String(value)) element.setAttribute(name, value);
     };
-    const send = (id, action) =>
-    {
-        const bytes = new TextEncoder().encode (id + '\0');
-        const pointer = _malloc (bytes.length);
-        HEAPU8.set (bytes, pointer);
-        _gpuAccessAction (pointer, action, 0);
-        _free (pointer);
+    const send = (id, action) => {
+        const bytes = new TextEncoder().encode(id + '\0');
+        const pointer = _malloc(bytes.length);
+        HEAPU8.set(bytes, pointer);
+        _gpuAccessAction(pointer, action, 0);
+        _free(pointer);
     };
-    const element = id =>
-    {
-        let e = access.elements.get (id);
-        if (e)
-            return e;
-        e = document.createElement ('div');
+    const element = id => {
+        let e = access.elements.get(id);
+        if (e) return e;
+        e = document.createElement('div');
         e.id = 'access-' + id;
         e.style.cssText = 'position:absolute;outline:none;overflow:hidden;white-space:nowrap';
         // A screen reader's press arrives as a click (the mouse can't: pointer-events none).
         // Taken by the innermost element that can: not also by those around it
         // (an option's click would then click its combo box too).
-        e.addEventListener (
-            'click', event = > {
-                const node = e.node;
-                if (!node)
-                    return;
-                if (node.actions & 2)
-                    send (id, 2);
-                else if (node.actions & (32 | 64))
-                    send (id, node.expanded ? 64 : 32);
-                else
-                    return; // words in a button: the button's
-                event.preventDefault();
-                event.stopPropagation();
-            });
+        e.addEventListener('click', event => {
+            const node = e.node;
+            if (!node) return;
+            if (node.actions & 2) send(id, 2);
+            else if (node.actions & (32 | 64)) send(id, node.expanded ? 64 : 32);
+            else return; // words in a button: the button's
+            event.preventDefault();
+            event.stopPropagation();
+        });
         // A screen reader's context-menu command (a right-click on it): its own menu, not the browser's.
-        e.addEventListener (
-            'contextmenu', event = > {
-                if (!e.node || !(e.node.actions & 128))
-                    return;
-                event.preventDefault();
-                event.stopPropagation();
-                send (id, 128);
-            });
+        e.addEventListener('contextmenu', event => {
+            if (!e.node || !(e.node.actions & 128)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            send(id, 128);
+        });
         // A screen reader moving focus: the View's focus follows.
-        e.addEventListener (
-            'focus', () = > {
-                if (!access.syncing&& id != = access.focus)
-                    send (id, 1);
-            });
-        access.elements.set (id, e);
+        e.addEventListener('focus', () => { if (!access.syncing && id !== access.focus) send(id, 1); });
+        access.elements.set(id, e);
         return e;
     };
-    const place = (node, parent, index, parentX, parentY) =>
-    {
-        const e = element (node.id);
+    const place = (node, parent, index, parentX, parentY) => {
+        const e = element(node.id);
         e.node = node;
-        seen.add (node.id);
-        if (parent.children[index] != = e)
-            parent.insertBefore (e, parent.children[index] || null);
+        seen.add(node.id);
+        if (parent.children[index] !== e) parent.insertBefore(e, parent.children[index] || null);
         const x = node.x / ratio, y = node.y / ratio;
         e.style.left = (x - parentX) + 'px';
         e.style.top = (y - parentY) + 'px';
         e.style.width = node.w / ratio + 'px';
         e.style.height = node.h / ratio + 'px';
-        set (e, 'role', node.role || null); // "" for words: no role
-        const words = node.role == = "" || node.role == = "textbox";
-        set (e, 'aria-label', !words && node.name ? node.name : null);
-        if (node.role == = 'textbox')
-            set (e, 'aria-label', node.name || null);
-        set (e, 'aria-description', node.description || null);
-        set (e, 'aria-live', node.live ? 'polite' : null);
-        const ranged = node.numeric && [ 'slider', 'spinbutton', 'separator' ].includes (node.role);
-        set (e, 'aria-valuenow', ranged ? node.number : null);
-        set (e, 'aria-valuemin', ranged ? node.min : null);
-        set (e, 'aria-valuemax', ranged ? node.max : null);
-        set (e, 'aria-valuetext', ranged && node.value ? node.value : null);
-        set (e, 'aria-orientation',
-            node.orientation == = 1 ? 'horizontal' : node.orientation == = 2 ? 'vertical' : null);
-        set (e, 'aria-checked', node.checked < 0 ? null : node.checked ? 'true' : 'false');
-        set (e, 'aria-selected', [ 'option', 'tab' ].includes (node.role) ? String (node.selected) : null);
-        const expandable = node.role == = 'combobox' || (node.actions & (32 | 64));
-        set (e, 'aria-expanded', expandable ? String (node.expanded) : null);
-        set (e, 'aria-haspopup',
-            node.role == = 'combobox'                                                               ? 'listbox'
-                           : node.actions & 128 || (node.role == = 'menuitem' && node.actions & 32) ? 'menu'
-                                                                                                    : null);
-        set (e, 'aria-activedescendant', node.active ? 'access-' + node.active : null);
-        set (e, 'tabindex', node.actions ? '-1' : null); // focusable from script; Tab goes through the View
-        if (words&& e.textContent != = node.value)
-            e.textContent = node.value;
-        const children = (node.children || []).map (id = > byId.get (id)).filter (Boolean);
-        children.forEach ((child, i) = > place (child, e, i, x, y));
-        while (!words && e.children.length > children.length)
-            e.lastElementChild.remove();
+        set(e, 'role', node.role || null); // "" for words: no role
+        const words = node.role === "" || node.role === "textbox";
+        set(e, 'aria-label', !words && node.name ? node.name : null);
+        if (node.role === 'textbox') set(e, 'aria-label', node.name || null);
+        set(e, 'aria-description', node.description || null);
+        set(e, 'aria-live', node.live ? 'polite' : null);
+        const ranged = node.numeric && ['slider', 'spinbutton', 'separator'].includes(node.role);
+        set(e, 'aria-valuenow', ranged ? node.number : null);
+        set(e, 'aria-valuemin', ranged ? node.min : null);
+        set(e, 'aria-valuemax', ranged ? node.max : null);
+        set(e, 'aria-valuetext', ranged && node.value ? node.value : null);
+        set(e, 'aria-orientation', node.orientation === 1 ? 'horizontal' : node.orientation === 2 ? 'vertical' : null);
+        set(e, 'aria-checked', node.checked < 0 ? null : node.checked ? 'true' : 'false');
+        set(e, 'aria-selected', ['option', 'tab'].includes(node.role) ? String(node.selected) : null);
+        const expandable = node.role === 'combobox' || (node.actions & (32 | 64));
+        set(e, 'aria-expanded', expandable ? String(node.expanded) : null);
+        set(e, 'aria-haspopup', node.role === 'combobox' ? 'listbox' : node.actions & 128 || (node.role === 'menuitem' && node.actions & 32) ? 'menu' : null);
+        set(e, 'aria-activedescendant', node.active ? 'access-' + node.active : null);
+        set(e, 'tabindex', node.actions ? '-1' : null); // focusable from script; Tab goes through the View
+        if (words && e.textContent !== node.value) e.textContent = node.value;
+        const children = (node.children || []).map(id => byId.get(id)).filter(Boolean);
+        children.forEach((child, i) => place(child, e, i, x, y));
+        while (!words && e.children.length > children.length) e.lastElementChild.remove();
     };
-    if (tree.nodes.length)
-        place (tree.nodes[0], access.layer, 0, 0, 0);
-    for (const[id, e] of access.elements)
-        if (!seen.has (id))
-            e.remove(), access.elements.delete (id);
+    if (tree.nodes.length) place(tree.nodes[0], access.layer, 0, 0, 0);
+    for (const [id, e] of access.elements)
+        if (!seen.has(id)) e.remove(), access.elements.delete(id);
     // DOM focus follows the View's, while the page has it.
-    if (tree.focus != = access.focus)
+    if (tree.focus !== access.focus)
     {
         access.focus = tree.focus;
-        const e = access.elements.get (tree.focus);
-        const ours = document.activeElement == = document.body || document.activeElement == =
-            canvas || access.layer.contains (document.activeElement);
-        if (e && e.hasAttribute ('tabindex') && document.hasFocus()&& ours&& document.activeElement != = e)
+        const e = access.elements.get(tree.focus);
+        const ours = document.activeElement === document.body || document.activeElement === canvas || access.layer.contains(document.activeElement);
+        if (e && e.hasAttribute('tabindex') && document.hasFocus() && ours && document.activeElement !== e)
         {
             access.syncing = true;
-            e.focus ({ preventScroll : true });
+            e.focus({preventScroll: true});
             access.syncing = false;
         }
     }
 });
+// clang-format on
 
 unsigned accessVersion = 0;
 
@@ -419,11 +381,14 @@ bool mouse (int type, const EmscriptenMouseEvent* event, void*)
     else if (pointer == gpu::View::Pointer::move)
         pointerX += float (event->movementX) * pixelRatio(), pointerY += float (event->movementY) * pixelRatio();
     // Handling the press stops the browser focusing this page, so do it here: keys come to the focused page.
-    if (pointer == gpu::View::Pointer::down)
-        EM_ASM (window.focus());
+    // clang-format off
+    if (pointer == gpu::View::Pointer::down) EM_ASM(window.focus());
+    // clang-format on
     // The DOM's buttons are 0 primary, 1 middle, 2 secondary; a Mac's
     // Ctrl+click is a secondary click too.
-    static const bool mac = EM_ASM_INT (return navigator.platform.startsWith ('Mac') ? 1 : 0);
+    // clang-format off
+    static const bool mac = EM_ASM_INT(return navigator.platform.startsWith('Mac') ? 1 : 0);
+    // clang-format on
     const int button = pointer == gpu::View::Pointer::move                                   ? 0
                        : event->button == 2 || (event->button == 0 && event->ctrlKey && mac) ? 1
                        : event->button == 1                                                  ? 2
@@ -535,87 +500,66 @@ int main()
                 break;
         }
     };
-    EM_ASM ({
-        window.addEventListener (
-            'message', event = > {
-                if (!(event.data instanceof ArrayBuffer))
-                    return;
-                const bytes = new Uint8Array (event.data);
-                const pointer = _malloc (bytes.length);
-                HEAPU8.set (bytes, pointer);
-                _gpuReceive (pointer, bytes.length);
-                _free (pointer);
-            });
+    // clang-format off
+    EM_ASM({
+        window.addEventListener('message', event => {
+            if (!(event.data instanceof ArrayBuffer)) return;
+            const bytes = new Uint8Array(event.data);
+            const pointer = _malloc(bytes.length);
+            HEAPU8.set(bytes, pointer);
+            _gpuReceive(pointer, bytes.length);
+            _free(pointer);
+        });
         // Files from the desktop: over and leave as they move, then on the
         // drop each is written to /drop/<name> (MEMFS, in the page's memory)
         // and the paths given to the View.
-        const canvas = document.getElementById ('canvas');
-        const files = (type, event, paths) =>
-        {
-            const bytes = new TextEncoder().encode (paths.join ('\n') + '\0');
-            const pointer = _malloc (bytes.length);
-            HEAPU8.set (bytes, pointer);
-            const taken = _gpuFiles (type, event.offsetX, event.offsetY, pointer);
-            _free (pointer);
+        const canvas = document.getElementById('canvas');
+        const files = (type, event, paths) => {
+            const bytes = new TextEncoder().encode(paths.join('\n') + '\0');
+            const pointer = _malloc(bytes.length);
+            HEAPU8.set(bytes, pointer);
+            const taken = _gpuFiles(type, event.offsetX, event.offsetY, pointer);
+            _free(pointer);
             return taken;
         };
-        const hasFiles = event = > event.dataTransfer && Array.from (event.dataTransfer.types).includes ('Files');
-        canvas.addEventListener (
-            'dragover', event = > {
-                if (!hasFiles (event))
-                    return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = files (0, event, []) ? 'copy' : 'none';
-            });
-        canvas.addEventListener (
-            'dragleave', event = > {
-                if (hasFiles (event))
-                    files (2, event, []);
-            });
-        canvas.addEventListener (
-            'drop', async event = > {
-                if (!hasFiles (event))
-                    return;
-                event.preventDefault();
-                const dropped = Array.from (event.dataTransfer.files);
-                const at = { offsetX : event.offsetX, offsetY : event.offsetY };
-                try
-                {
-                    FS.mkdirTree ('/drop');
-                }
-                catch
-                {}
-                const paths = [];
-                for (const file of dropped)
-                {
-                    const path = '/drop/' + file.name.split ('/').join ('_');
-                    FS.writeFile (path, new Uint8Array (await file.arrayBuffer()));
-                    paths.push (path);
-                }
-                files (1, at, paths);
-            });
+        const hasFiles = event => event.dataTransfer && Array.from(event.dataTransfer.types).includes('Files');
+        canvas.addEventListener('dragover', event => {
+            if (!hasFiles(event)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = files(0, event, []) ? 'copy' : 'none';
+        });
+        canvas.addEventListener('dragleave', event => { if (hasFiles(event)) files(2, event, []); });
+        canvas.addEventListener('drop', async event => {
+            if (!hasFiles(event)) return;
+            event.preventDefault();
+            const dropped = Array.from(event.dataTransfer.files);
+            const at = {offsetX: event.offsetX, offsetY: event.offsetY};
+            try { FS.mkdirTree('/drop'); } catch {}
+            const paths = [];
+            for (const file of dropped)
+            {
+                const path = '/drop/' + file.name.split('/').join('_');
+                FS.writeFile(path, new Uint8Array(await file.arrayBuffer()));
+                paths.push(path);
+            }
+            files(1, at, paths);
+        });
         // The view's context menus, not the browser's (a right-click, the Menu
         // key or Shift+F10 also make this event): the page is the plugin's.
-        document.addEventListener ('contextmenu', event = > event.preventDefault());
+        document.addEventListener('contextmenu', event => event.preventDefault());
         // Out of the page, to nothing in it: out of the host's iframe.
-        document.addEventListener (
-            'mouseout', event = > {
-                if (!event.relatedTarget)
-                    _gpuPointerLeave();
-            });
-        document.addEventListener (
-            'paste', event = > {
-                const text = event.clipboardData && event.clipboardData.getData ('text/plain');
-                if (!text)
-                    return;
-                const bytes = new TextEncoder().encode (text + '\0');
-                const pointer = _malloc (bytes.length);
-                HEAPU8.set (bytes, pointer);
-                if (_gpuPaste (pointer))
-                    event.preventDefault();
-                _free (pointer);
-            });
+        document.addEventListener('mouseout', event => { if (!event.relatedTarget) _gpuPointerLeave(); });
+        document.addEventListener('paste', event => {
+            const text = event.clipboardData && event.clipboardData.getData('text/plain');
+            if (!text) return;
+            const bytes = new TextEncoder().encode(text + '\0');
+            const pointer = _malloc(bytes.length);
+            HEAPU8.set(bytes, pointer);
+            if (_gpuPaste(pointer)) event.preventDefault();
+            _free(pointer);
+        });
     });
+    // clang-format on
 
     context.instance = wgpu::CreateInstance();
     wgpu::EmscriptenSurfaceSourceCanvasHTMLSelector canvas;
