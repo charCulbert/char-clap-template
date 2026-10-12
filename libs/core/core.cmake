@@ -47,7 +47,8 @@ function(core_add_to target)
             target_compile_options(${target} PRIVATE -Wno-maybe-uninitialized) # false alarms on std::variant at -O2
         endif()
     endif()
-    # On in this template's CI: the plugin's own code, not the SDKs it builds with.
+    # On in this template's CI: the code compiled into the target (the plugin's,
+    # and imgui's and chardraw's sources), not the SDKs it links.
     if(WARNINGS_AS_ERRORS)
         set_target_properties(${target} PROPERTIES COMPILE_WARNING_AS_ERROR ON)
     endif()

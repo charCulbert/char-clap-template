@@ -141,8 +141,8 @@ struct ColourScheme
 {
     std::vector<Color> colours;
 
-    // The ready-made ones, nine even steps of each. Magma is the default; a
-    // new one is a line here.
+    // The ready-made ones, nine even steps of each. Magma is the default. Add
+    // new ones at the end only: plugins save the index.
     struct Preset
     {
         const char* name;
