@@ -25,10 +25,12 @@ parts, with no drawing code of its own; for a drawing of your own, see
   plugin's other third-party licences.
 - `ui/SpectrogramView.cpp`: the interface, a `gpu::View`: a
   `gpu::Spectrogram` (`draw2d/views.h`) fills the window, frequencies up its
-  left edge and seconds along the bottom drawn over it, a Pause toggle in its
-  top right corner, and the settings drawer's tab (`Ui::drawer`, an overlay)
-  on its right edge. Open, the drawer's panel covers the plot's right side
-  with the settings as readouts (`Ui::readout`).
+  left edge and seconds along the bottom drawn over it, and the settings
+  drawer's tab (`Ui::drawer`, an overlay) on its top edge. Open, the
+  drawer's panel comes down over the plot, see-through, with the analysis
+  and display settings as readouts (`Ui::readout`) and number boxes
+  (`Ui::numberBox`); the plot's context menu
+  has the rest.
 - `resources/`: the files the plugin ships (its font, IBM Plex Mono). Add images, sounds or
   anything else here and read them with `core::readResource("/path")` (on the
   main thread), or `gpu::loadAsset` in the view.
@@ -44,16 +46,15 @@ automating them.
 | Setting | Values | Default |
 |---|---|---|
 | FFT size | 256 to 16384, powers of two | 2048 |
-| Hop size | 1 sample to the FFT size | 512 |
+| Hop size | 128 samples (and a 480th of the sample rate) to the FFT size | 512 |
 | Window | rectangular, Hann, Hamming or Blackman | Hann |
 | Channel | Mix, Left or Right | Mix |
-| Smoothing | 0 (off) to 0.9: each bin keeps that much of its last value (in dB) | 0 |
 | Frequency range | lower 0 to 500 Hz, upper 100 Hz to Nyquist | 20 Hz to 24 kHz |
 | Level range | floor −160 to −20 dB, ceiling −20 to 12 dB, the floor 10 dB under the ceiling at least | −100 to 0 dB |
 | Scale | linear, log or mel | log |
-| Palette | System, Bone, Inferno, Viridis or Magma | System |
+| Colours | Magma or Viridis | Magma |
 | Scroll rate | 25 to 200 points a second, whatever the hop | 100 |
-| Piano strip, key tone, peak snap, cursor readout | on or off | on |
+| Piano strip, snap, cursor readout, labels, click tone | on or off | on |
 | Transform | FFT or CQT | FFT |
 | CQT bands per octave | 12, 24 or 36 | 24 |
 | A4 tuning | 400 to 480 Hz | 440 Hz |
@@ -65,7 +66,7 @@ With CQT as the transform the spectrogram shows a constant-Q transform:
 bands spaced by pitch, A4 tuning × 2^(k / bands per octave), so the low end
 has resolution without an enormous FFT. Its settings show in place of the
 FFT size, hop and window. The plot's frequency range stops at its bands, and
-the cursor readout, peak snap, piano strip and key tone all go by the same
+the cursor readout, snap, piano strip and its tone all go by the same
 bands and tuning. A band's level over each update is its power over that
 time (Mean), its loudest moment (Peak, which shows a click at its own level
 but reads noise higher in the high bands), or its value at the update's
@@ -80,45 +81,61 @@ Listener's; at other sample rates the plugin shows the FFT and the panel says
 so. A4 tuning also sets the piano strip's keys and the pitch names with the
 FFT.
 
-The settings are in a drawer. The tab on the window's right edge (named
-**Settings** for screen readers, and in its tooltip) slides its panel out
-over the plot, which keeps its size, so the time axis and scrolling stay as
-they are. The panel is opaque, with one setting a row, 24 points apart; at
-the default window size (720 by 480 points) every setting fits, and in a
-smaller window the panel scrolls. There the wheel scrolls the panel and turns
-a readout only while it's focused. The tab then rides on the panel's left
-edge and closes it again; so does Escape from anywhere in the panel, and
-focus goes back to the tab. Tab goes from the tab into the
-panel, which scrolls to show the setting focused. Drag the panel's left
-edge (or focus the edge and use the arrows) to resize it, from 240 to 480
-points. Whether it is open and its width are saved with the plugin's state.
-Pause moves left of the open panel, so it stays in view.
+The analysis and display settings are in a drawer. The tab in the window's
+top right corner (18 by 36 points, faint until the pointer is over it or it
+has focus, named **Settings** for screen readers and in its tooltip) brings
+its panel down over the plot, in that corner and right of the piano strip,
+which keeps its size, so the time axis and scrolling stay as they are. The
+panel is see-through (75% opaque) and as big as what's in it: a column to
+each group (Analysis, CQT while it's the transform, Display), one setting a
+row, 24 points apart. The tab then rides on the panel's lower edge and
+closes it again; so does Escape from anywhere in the panel, and focus goes
+back to the tab. Tab goes from the tab into the panel. Whether it is open is
+saved with the plugin's state.
 
-Drag a readout up or down (Shift for fine) or scroll over it to change it;
-Escape during the drag puts it back. Double-click it, press Delete or
-Backspace, or choose Reset to Default from its context menu, to reset it;
-click one with a list of values (FFT size, Window, Channel, Scale, Palette,
-the switches) to step to the next. With a readout focused, the arrows, Page
-Up and Down, Home and End step it. Screen readers see each as a spin button.
+With CQT chosen, the CQT column ends with the delay from a sound to its
+column, or why the FFT shows instead: the sample rate is outside 44.1 to
+96 kHz, or the CQT's settings make no bands.
+
+Right-click the plot
+for what's shown over it: the piano strip, click tone, snap, cursor readout
+and labels, each checked when it's on, which choosing switches; the colours
+and the frequency scale, which choosing steps to the next; and Pause. The
+menu is slightly see-through (90%).
+
+The lists (Transform, FFT size, Window, Channel and the CQT's) are readouts:
+drag one up or down or scroll over it to change it, or click it to step to
+the next. The numbers are number boxes: drag one (Shift for fine), or focus
+it and type a value, Enter to set it. Escape during a drag puts it back.
+Double-click either, press Delete or Backspace, or choose Reset to Default
+from its context menu, to reset it. Focused, the arrows step it.
 
 Hovering over the spectrogram shows the frequency, the nearest pitch in cents
-and the level under the pointer. Peak snap follows the nearest peak in that
-column within 10 points (keeping one it follows within 18), as Listener's;
+and the level under the pointer. Snap follows the nearest peak in that
+column within 6 points (favouring one it follows by 2), as Listener's;
 hold Command to bypass it.
 
-Space, or the **Pause** toggle, freezes the display; the analysis keeps
-running. The colours, level and frequency ranges and the scale still apply to
-the frozen picture, and resuming starts a fresh history. Space goes to a
-focused button, toggle or the drawer's tab first, which it presses. Screen
-readers hear "Display paused" and "Display resumed".
+Pause, from the plot's menu, freezes the display; the analysis keeps
+running. A **Paused** button shows in the top right corner (below the
+drawer while it's open): click it, or choose Resume from the menu, to start
+again. The colours, level and frequency ranges and the scale still apply to
+the frozen picture, and resuming starts a fresh history. Screen readers hear
+"Display paused" and "Display resumed".
 
 Hold a key of the piano strip to hear a quiet sine (−18 dBFS) at its pitch,
 drag to another key to change note, and let go to stop; a line marks the
 exact pitch across the plot while it's held. A plugin has no audio device of
 its own, so the tone is mixed into the plugin's output, fading in and out over a
 few milliseconds. The analysis takes its input before the tone is added, so
-the spectrogram never shows it. Turn **Key tone** off to keep the guide line
-without the sound. To screen readers the strip is one picture.
+the spectrogram never shows it. To screen readers the strip is one picture.
+
+With **Click tone** on, holding the pointer anywhere on the plot plays the
+same sine at the pitch under it, snapped to a peak as the cursor readout is
+(Command bypasses the snap); drag to change it, and let go to stop.
+
+**Labels** turns the frequency and time scales off. Magma and Viridis are
+matplotlib's colour maps, sampled at nine steps: perceptually even, and
+readable with colour blindness.
 
 A short hop with a large FFT is more work than the main thread can do in
 real time: the plugin analyses at most 8 columns each time it runs (60 times

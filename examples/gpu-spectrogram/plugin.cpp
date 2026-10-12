@@ -46,41 +46,39 @@ enum SettingId
     S_HOP_SIZE,  // samples, up to the FFT size
     S_WINDOW,    // chardsp::SpectrumWindow: rectangular, Hann, Hamming, Blackman
     S_CHANNEL,   // SpectrogramAnalysis::Channel: mix, left, right
-    S_SMOOTHING, // each bin's last value kept, 0 (off) to 0.9
     // How it's shown, which only the interface uses.
     S_LOW, S_HIGH,       // the frequency range, Hz (the interface stops at Nyquist); the upper from 100 Hz, to zoom in on the bass
     S_FLOOR, S_CEILING,  // the level range, dB
     S_SCALE,             // gpu::Spectrogram::Scale: linear, log, mel
-    S_PALETTE,           // gpu::Spectrogram::Palette: system, bone, inferno, viridis, magma
+    S_PALETTE,           // the colour map: 0 magma, 1 viridis
     S_SCROLL_RATE,       // points a second, whatever the hop
-    S_PIANO, S_PEAK_SNAP, S_CURSOR, // on or off: the piano strip, and the readout under the pointer
+    S_PIANO, S_SNAP, S_CURSOR, // on or off: the piano strip, snapping to peaks, and the readout under the pointer
     // The transform, and Listener's constant-Q settings (chardsp::ConstantQSpectrogram).
     S_TRANSFORM,   // 0 FFT, 1 CQT (from 44.1 to 96 kHz; the FFT elsewhere)
     S_CQT_BANDS,   // bands per octave: 0, 1, 2 for 12, 24, 36
     S_TUNING,      // A4, Hz: the CQT's bands, and the piano strip's keys and their tone
     S_CQT_LOW, S_CQT_HIGH, // the CQT's frequency limits, Hz (the interface stops the upper at 0.4 x the sample rate)
     S_CQT_RATE,    // columns a second: 0, 1, 2 for 15, 30, 60
-    S_KEY_TONE,    // on or off: holding a piano key plays its pitch
-    // The interface's settings drawer: open or closed, and its width in points.
-    S_DRAWER, S_DRAWER_WIDTH,
+    S_DRAWER,      // the interface's settings drawer: open or closed
     S_CQT_READING, // how a band's level over a hop becomes one value: 0 mean, 1 peak, 2 centre
+    S_LABELS,      // on or off: the frequency and time scales over the plot
+    S_CLICK_TONE,  // on or off: holding the pointer on the plot plays the pitch under it
     S_COUNT
 };
 static const Setting settings[S_COUNT] = {
     {"FFT size", 8, 14, 11},
-    {"Hop size", 1, 16384, 512},
+    {"Hop size", 128, 16384, 512}, // and at least a 480th of the sample rate: see on_main_thread
     {"Window", 0, 3, 1},
     {"Channel", 0, 2, 0},
-    {"Smoothing", 0, 0.9, 0},
     {"Low frequency", 0, 500, 20},
     {"High frequency", 100, 96000, 24000},
     {"Floor", -160, -20, -100}, // the interface keeps it 10 dB under the ceiling
     {"Ceiling", -20, 12, 0},
     {"Scale", 0, 2, 1},
-    {"Palette", 0, 4, 0},
+    {"Colour map", 0, 1, 0}, // a new name: an earlier state's "Palette" (five maps) is left unread
     {"Scroll rate", 25, 200, 100},
     {"Piano", 0, 1, 1},
-    {"Peak snap", 0, 1, 1},
+    {"Snap", 0, 1, 1}, // a new name: an earlier state's "Peak snap" is left unread
     {"Cursor", 0, 1, 1},
     {"Transform", 0, 1, 0},
     {"CQT bands per octave", 0, 2, 1},
@@ -88,10 +86,10 @@ static const Setting settings[S_COUNT] = {
     {"CQT low frequency", 27.5, 220, 55}, // from A0, a piano's lowest key
     {"CQT high frequency", 1000, 38400, 16000},
     {"CQT update rate", 0, 2, 1},
-    {"Key tone", 0, 1, 1},
     {"Settings drawer", 0, 1, 0},
-    {"Settings drawer width", 240, 480, 300},
     {"CQT reading", 0, 2, 0},
+    {"Labels", 0, 1, 1},
+    {"Click tone", 0, 1, 1},
 };
 
 // The CQT runs only from 44.1 to 96 kHz, as Listener's; elsewhere the FFT does.
@@ -175,9 +173,8 @@ static const clap_plugin_audio_ports_t extensionAudioPorts = {
 };
 
 // The state is the settings as a CBOR map (core/messages.h) with a version, so
-// later versions can add settings and still read this one. Version 2: the
-// settings drawer opens over the plot with a column of settings, so a
-// version 1 width (a drawer beside the plot) starts again at the default.
+// later versions can add settings and still read this one (and leave
+// unread the ones it no longer has: an earlier state's drawer size).
 static const clap_plugin_state_t extensionState = {
     .save = [](const clap_plugin_t *_plugin, const clap_ostream_t *stream) -> bool
     {
@@ -219,8 +216,6 @@ static const clap_plugin_state_t extensionState = {
             const double value = (*state)[settings[i].name].number(settings[i].defaultValue);
             plugin->settingValues[i] = value < settings[i].min ? settings[i].min : value > settings[i].max ? settings[i].max : value;
         }
-        if (version < 2)
-            plugin->settingValues[S_DRAWER_WIDTH] = settings[S_DRAWER_WIDTH].defaultValue;
         PluginSendValues(plugin);
         PluginSetTone(plugin);
         return true;
@@ -269,7 +264,7 @@ static const clap_plugin_webview_t extensionWebview = {
 };
 
 // clap.gui: size policy is ours; creating and embedding the view is gpu::Gui's.
-// The limits are in points; the minimum leaves room for the plot beside the open settings drawer.
+// The limits are in points; the minimum leaves room for the plot under the open settings drawer.
 #define GUI_MIN_WIDTH (420)
 #define GUI_MIN_HEIGHT (270)
 #define GUI_MAX_WIDTH (2000)
@@ -386,7 +381,8 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //                 {type: "tone", hz}              a piano key held at hz, or 0 when let go
 //   plugin -> UI  {type: "params", params: [{id, name, min, max, default}]}  the settings
 //                 {type: "values", values: [value per setting id]}
-//                 {type: "column", rate, seconds, db: [FFT size / 2 bins, bin k at k * rate / FFT size Hz]}
+//                 {type: "column", rate, seconds, db: [FFT size / 2 bins, bin k at k * rate / FFT size Hz], fallback}
+//                                                  the FFT's; fallback 1 when it runs in place of the CQT asked for
 //                     seconds: the audio since the last column, so the interface scrolls in time
 //                 {type: "column", rate, seconds, db, hz: [each band's centre], delay}   the CQT's
 //                     delay: seconds from a sound to its column's centre (half the block)
@@ -421,18 +417,16 @@ static bool PluginReceiveMessage(MyPlugin *plugin, const core::Value &message)
         plugin->settingValues[(int)id] = value < setting.min ? setting.min : value > setting.max ? setting.max : value;
         if (plugin->hostState)
             plugin->hostState->mark_dirty(plugin->host); // the project has unsaved changes
-        if (id == S_KEY_TONE)
-            PluginSetTone(plugin);
     }
     return type == "change" || type == "begin" || type == "end";
 }
 
-// Main thread: tells the audio thread the pitch to play, if any: the key
-// held, while Key tone is on, and only below Nyquist (with room for the fade).
+// Main thread: tells the audio thread the pitch to play, if any: the key or
+// the plot held, and only below Nyquist (with room for the fade).
 static void PluginSetTone(MyPlugin *plugin)
 {
     const float hz = plugin->toneHeld;
-    const bool play = plugin->settingValues[S_KEY_TONE] >= 0.5 && hz >= 10 && hz < plugin->sampleRate * 0.45f;
+    const bool play = hz >= 10 && hz < plugin->sampleRate * 0.45f;
     plugin->toneHz.store(play ? hz : 0, std::memory_order_relaxed);
 }
 
@@ -559,7 +553,6 @@ static const clap_plugin_t pluginClass = {
         std::vector<float> column;
         uint32_t advanced = 0;
         const auto channel = (SpectrogramAnalysis::Channel)std::clamp((int)std::lround(v[S_CHANNEL]), 0, 2);
-        const float smoothing = (float)v[S_SMOOTHING];
         if (v[S_TRANSFORM] >= 0.5 && cqtSupported(rate))
         {
             static const int bands[] = {12, 24, 36}, columnsPerSecond[] = {15, 30, 60};
@@ -574,7 +567,6 @@ static const clap_plugin_t pluginClass = {
             cqt.hop = (int)std::lround(rate / columnsPerSecond[std::clamp((int)std::lround(v[S_CQT_RATE]), 0, 2)]);
             cqt.reading = readings[std::clamp((int)std::lround(v[S_CQT_READING]), 0, 2)];
             cqt.channel = channel;
-            cqt.smoothing = smoothing;
             // Settings it makes no bands of leave the FFT running, as outside 44.1 to 96 kHz.
             if (!(plugin->cqtFailedSet && cqt == plugin->cqtFailed))
             {
@@ -597,10 +589,11 @@ static const clap_plugin_t pluginClass = {
         }
         SpectrogramAnalysis::Fft fft;
         fft.size = 1 << (int)std::lround(v[S_FFT_SIZE]);
-        fft.hop = std::min((int)std::lround(v[S_HOP_SIZE]), fft.size);
+        // At most 8 columns a call, about 60 calls a second: a hop shorter than
+        // a 480th of the sample rate would only skip columns, in bursts.
+        fft.hop = std::min(std::max((int)std::lround(v[S_HOP_SIZE]), (int)std::ceil(rate / 480)), fft.size);
         fft.window = (chardsp::SpectrumWindow)std::clamp((int)std::lround(v[S_WINDOW]), 0, 3);
         fft.channel = channel;
-        fft.smoothing = smoothing;
         plugin->analysis.configure(fft);
         // At most 8 columns a call (the analysis skips older ones), each sent
         // with how much audio it moves on: about 1.5 a call at 48 kHz with a
@@ -608,7 +601,8 @@ static const clap_plugin_t pluginClass = {
         for (int sent = 0; sent < 8 && plugin->analysis.next(column, advanced); sent++)
             plugin->gui.send(core::Value::Map{{"type", "column"}, {"rate", (double)rate},
                                               {"seconds", advanced / (double)rate},
-                                              {"db", core::Value::Array(column.begin(), column.end())}});
+                                              {"db", core::Value::Array(column.begin(), column.end())},
+                                              {"fallback", v[S_TRANSFORM] >= 0.5 ? 1.0 : 0.0}}); // the CQT asked for, and not running
     },
 };
 

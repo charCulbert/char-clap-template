@@ -1,14 +1,14 @@
 // GPU Spectrogram's interface, made only of libs/draw2d's parts: a
 // gpu::Spectrogram (draw2d/views.h) fills the window, its scales drawn over
-// its edges, with a Pause toggle in its top right corner and the settings
-// drawer's tab (Ui::drawer, an overlay) on its right edge. Open, the drawer's
-// panel covers the plot's right side, which stays as it is, with the
-// plugin's settings as readouts (Ui::readout) to drag, scroll or click; its
-// edge resizes it. Hovering shows the frequency, nearest
-// pitch and level under the pointer; holding a key of the piano strip plays
-// its pitch (through the plugin) and marks it across the plot. Space pauses
-// the display. The columns arrive from the plugin as "column" messages (see
-// plugin.cpp).
+// its edges, and the settings drawer's tab (Ui::drawer, an overlay) on its
+// top edge. Open, the drawer's panel comes down over the plot, see-through,
+// with the analysis and display settings in columns: lists as readouts
+// (Ui::readout), numbers as number boxes to drag or type into; it's as big
+// as they need. The plot's context menu has the rest, and Pause. Hovering
+// shows the frequency, nearest pitch and level under the pointer; holding a
+// key of the piano strip (or, with Click tone, the plot) plays its pitch
+// (through the plugin) and marks it across the plot. The columns arrive from
+// the plugin as "column" messages (see plugin.cpp).
 #include "draw2d/ui.h"
 #include "draw2d/views.h"
 #include <algorithm>
@@ -16,20 +16,22 @@
 #include <cstdio>
 #include <cstring>
 #include <iterator>
+#include <string>
 #include <string_view>
 #include <vector>
 
 namespace {
 
 // The plugin's settings, in its order (plugin.cpp's SettingId).
-enum Setting { fftSize, hopSize, window, channel, smoothing, low, high, floorLevel, ceiling, frequencyScale, palette, scrollRate, piano,
-               peakSnap, cursor, transform, cqtBands, tuning, cqtLow, cqtHigh, cqtRate, keyTone, drawer, drawerWidth, cqtReading,
-               settingCount };
-const char *const settingNames[settingCount] = {"FFT size", "Hop size", "Window", "Channel", "Smoothing", "Low frequency",
-                                                "High frequency", "Floor", "Ceiling", "Scale", "Palette", "Scroll rate",
-                                                "Piano", "Peak snap", "Cursor", "Transform", "CQT bands per octave", "A4 tuning",
-                                                "CQT low frequency", "CQT high frequency", "CQT update rate", "Key tone",
-                                                "Settings drawer", "Settings drawer width", "CQT reading"};
+enum Setting { fftSize, hopSize, window, channel, low, high, floorLevel, ceiling, frequencyScale, palette, scrollRate, piano,
+               snap, cursor, transform, cqtBands, tuning, cqtLow, cqtHigh, cqtRate, drawer, cqtReading,
+               labels, clickTone, settingCount };
+const char *const settingNames[settingCount] = {"FFT size", "Hop size", "Window", "Channel", "Low frequency",
+                                                "High frequency", "Floor", "Ceiling", "Scale", "Colour map", "Scroll rate",
+                                                "Piano", "Snap", "Cursor", "Transform", "CQT bands per octave", "A4 tuning",
+                                                "CQT low frequency", "CQT high frequency", "CQT update rate",
+                                                "Settings drawer", "CQT reading",
+                                                "Labels", "Click tone"};
 
 // The CQT runs only from 44.1 to 96 kHz (plugin.cpp's cqtSupported).
 bool cqtSupported(float sampleRate) { return sampleRate >= 44100 && sampleRate <= 96000; }
@@ -63,6 +65,7 @@ public:
         ui.copyText = copyText;
         ui.resizeTo = resizeTo;
         ui.setCursor = setCursor;
+        ui.menuOpacity = 0.9f; // the plot shows faintly through its menu
         send(core::Value::Map{{"type", "ready"}});
     }
 
@@ -77,6 +80,7 @@ public:
         // bins are evenly spaced.
         auto *centres = std::get_if<core::Value::Array>(&message["hz"].data);
         cqtShown = centres && centres->size() == db->size();
+        cqtFellBack = !cqtShown && message["fallback"].number(0) >= 0.5;
         delay = float(message["delay"].number(0));
         if (paused) return; // the analysis runs on; the picture holds still
         if (cqtShown)
@@ -104,16 +108,7 @@ public:
         ui.pointer(event);
     }
     bool key(Key key, unsigned modifiers) override { return ui.key(key, modifiers); }
-    // Space pauses and resumes the display, as Listener's, unless the focused
-    // control takes it (a button, toggle, the drawer's tab or a list
-    // presses or opens with it): Ui::text has it first. It arrives as typed text.
-    bool text(const char *utf8) override
-    {
-        if (ui.text(utf8)) return true;
-        if (std::strcmp(utf8, " ") != 0 || ui.editingText()) return false;
-        setPaused(!paused);
-        return true;
-    }
+    bool text(const char *utf8) override { return ui.text(utf8); }
     bool animating() const override { return ui.animating(); }
     const gpu::Accessibility *accessibility() const override { return ui.accessibility(); }
     void accessAction(uint64_t id, gpu::Accessible::Action action, double value) override { ui.accessAction(id, action, value); }
@@ -147,7 +142,7 @@ public:
         o.minDecibels = float(p[floorLevel]->value);
         o.maxDecibels = float(p[ceiling]->value);
         o.scale = gpu::Spectrogram::Scale(std::lround(p[frequencyScale]->value));
-        o.palette = gpu::Spectrogram::Palette(std::lround(p[palette]->value));
+        o.palette = p[palette]->value >= 0.5 ? gpu::Spectrogram::Palette::viridis : gpu::Spectrogram::Palette::magma;
         // A new scroll rate starts the history again, so paused it waits for
         // the resume, which starts it again anyway.
         if (!paused) o.pixelsPerSecond = float(p[scrollRate]->value);
@@ -157,36 +152,49 @@ public:
         spectrogram.configure(o); // cheap when nothing changed: it only redraws when its picture would
 
         ui.begin(width, height, scale);
-        const Clay_ElementId plot = ui.id("Plot"), corner = ui.id("Corner"), panel = ui.id("Settings");
+        const Clay_ElementId plot = ui.id("Plot"), panel = ui.id("Settings");
         const Clay_ElementId tab = ui.id("DrawerHeader", panel.id); // the drawer's tab, as Ui names it
-        // The spectrogram fills the window, edge to edge, and stays so: the
-        // settings drawer opens over it from the right edge. Pause sits in
-        // its top right corner, and left of the drawer's panel while it's open.
-        const float panelWidth = p[drawer]->value >= 0.5 ? ui.bounds(panel).w : 0;
+        // The settings drawer comes down over the plot from its top edge, see-
+        // through so the spectrogram shows under it.
+        const Clay_ElementId badge = ui.id("Paused");
         CLAY({.id = plot, .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
-              .custom = {.customData = ui.paint([this, plot, corner, panel, tab](gpu::Rect r) {
+              .custom = {.customData = ui.paint([this, plot, panel, tab, badge](gpu::Rect r) {
                   spectrogram.draw(ui, "Spectrogram", r);
                   if (p[piano]->value >= 0.5f) drawPiano(r);
                   else if (heldNote >= 0) playNote(-1); // the strip went away with a key held
-                  drawScales(r);
-                  if (heldNote >= 0) drawGuide(r);
-                  if (hovering && heldNote < 0 && p[cursor]->value >= 0.5f && ui.pointerOver(plot) && !ui.pointerOver(corner)
-                      && !ui.pointerOver(panel) && !ui.pointerOver(tab))
-                      drawCursor(r);
+                  if (p[labels]->value >= 0.5f) drawScales(r);
+                  if (p[clickTone]->value >= 0.5f) clickPlot(r, panel, tab, badge);
+                  else if (heldHz > 0) playHz(0);
+                  // A key held: its guide. Else the cursor readout, a click's
+                  // tone shown by it (its line in the accent), so it stays put.
+                  const bool readout = p[cursor]->value >= 0.5f && (heldHz > 0 || (hovering && ui.pointerOver(plot) && !ui.pointerOver(panel)
+                                                                                   && !ui.pointerOver(tab) && !ui.pointerOver(badge)));
+                  if (heldNote >= 0 || (heldHz > 0 && !readout)) drawGuide(r);
+                  else if (readout) drawCursor(r);
               })}})
         {
-            const gpu::Color &b = ui.theme.background;
-            CLAY({.id = corner, .layout = {.sizing = {CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0)}, .padding = {4, 4, 4, 4}},
-                  .backgroundColor = gpu::clayColor(b), .cornerRadius = CLAY_CORNER_RADIUS(4), // opaque: text over the plot keeps its contrast
-                  .floating = {.offset = {-8 - panelWidth, 8}, .attachPoints = {CLAY_ATTACH_POINT_RIGHT_TOP, CLAY_ATTACH_POINT_RIGHT_TOP},
-                               .attachTo = CLAY_ATTACH_TO_PARENT}})
+            // Paused (from the plot's menu): a button in the top right corner,
+            // left of the drawer's tab (below its panel while it's open), that
+            // resumes it.
+            if (paused)
             {
-                bool pause = paused;
-                if (ui.toggle("Pause", pause)) setPaused(pause);
-                ui.tooltip("Freeze the display (Space); the analysis keeps running");
+                const float below = p[drawer]->value >= 0.5 ? ui.bounds(panel).h : 0;
+                CLAY({.id = badge, .layout = {.sizing = {CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0)}},
+                      .floating = {.offset = {below > 0 ? -8.0f : -8 - 36 - 8, 8 + below}, .attachPoints = {CLAY_ATTACH_POINT_RIGHT_TOP, CLAY_ATTACH_POINT_RIGHT_TOP},
+                                   .attachTo = CLAY_ATTACH_TO_PARENT}})
+                {
+                    if (ui.button("Paused")) setPaused(false);
+                    ui.tooltip("Resume: the display starts again");
+                }
             }
-            settingsDrawer(width / scale);
+            // The drawer comes down over the plot right of the piano strip,
+            // declared in a box that leaves the strip out.
+            CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = {uint16_t(stripWidth() / ui.s), 0, 0, 0}}})
+            {
+                CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) { settingsDrawer(width / scale); }
+            }
         }
+        plotMenu(plot);
         ui.resizeGrip(width, height);
         return ui.record();
     }
@@ -203,23 +211,49 @@ private:
         ui.announce(paused ? "Display paused" : "Display resumed");
     }
 
-    // The settings drawer, over the plot's right edge (see record), which keeps
-    // whether it's open and its width in the plugin's state. In it the
-    // settings as readouts, one a row; the CQT's only while it's the
-    // transform. Each has a context menu to reset it.
+    // The plot's context menu: what's shown over it, checked when on, which
+    // choosing switches; the colours and scale with their values, which
+    // choosing steps; and Pause (or Resume).
+    void plotMenu(Clay_ElementId plot)
+    {
+        static const Setting switches[] = {piano, clickTone, snap, cursor, labels};
+        static const char *const names[] = {"Piano strip", "Click tone", "Snap", "Cursor readout", "Labels"};
+        static const char *const scales[] = {"Linear", "Log", "Mel"}, *const colours[] = {"Magma", "Viridis"};
+        constexpr int count = int(std::size(switches));
+        for (int i = 0; i < count; ++i) menuText[i] = (p[switches[i]]->value >= 0.5 ? "\xe2\x9c\x93 " : "  ") + std::string(names[i]); // a check when on
+        menuText[count] = std::string("Colours: ") + colours[p[palette]->value >= 0.5 ? 1 : 0];
+        menuText[count + 1] = std::string("Scale: ") + scales[std::clamp(int(std::lround(p[frequencyScale]->value)), 0, 2)];
+        menuText[count + 2] = paused ? "Resume" : "Pause";
+        const char *items[count + 5];
+        for (int i = 0; i < count; ++i) items[i] = menuText[i].c_str();
+        items[count] = nullptr;
+        items[count + 1] = menuText[count].c_str(), items[count + 2] = menuText[count + 1].c_str();
+        items[count + 3] = nullptr;
+        items[count + 4] = menuText[count + 2].c_str();
+        const int chosen = ui.contextMenu(plot, items, count + 5);
+        auto set = [this](gpu::Param &q, double value) { params.begin(q), params.change(q, value), params.end(q); };
+        if (chosen >= 0 && chosen < count) set(*p[switches[chosen]], p[switches[chosen]]->value >= 0.5 ? 0 : 1);
+        else if (chosen == count + 1) set(*p[palette], p[palette]->value >= 0.5 ? 0 : 1);
+        else if (chosen == count + 2) set(*p[frequencyScale], double((int(std::lround(p[frequencyScale]->value)) + 1) % 3));
+        else if (chosen == count + 4) setPaused(!paused);
+    }
+
+    // The settings drawer, down from the plot's top edge (see record), as
+    // big as what's in it, which keeps whether it's open in the plugin's
+    // state. In it the settings in columns, a group to each; the CQT's only
+    // while it's the transform. Each has a context menu to reset it.
     void settingsDrawer(float widthPoints)
     {
         bool open = p[drawer]->value >= 0.5;
-        float size = float(p[drawerWidth]->value);
-        const float least = float(p[drawerWidth]->min), most = std::max(least, std::min(float(p[drawerWidth]->max), widthPoints - 200));
-        ui.drawer("Settings", open, size, [&] { readouts(size); },
-                  {.edge = gpu::DrawerOptions::Edge::right, .min = least, .max = most, .overlay = true});
+        float size = 0; // (fitted: unused)
+        ui.drawer("Settings", open, size, [&] { readouts(widthPoints); },
+                  {.edge = gpu::DrawerOptions::Edge::top, .overlay = true, .opacity = 0.75f, .tab = 18, .fit = true,
+                   .align = gpu::DrawerOptions::Align::end, .quietTab = true}); // tab and panel in the top right corner
         auto keep = [this](gpu::Param &q, double value) {
             if (value == q.value) return;
             params.begin(q), params.change(q, value), params.end(q);
         };
         keep(*p[drawer], open ? 1 : 0);
-        keep(*p[drawerWidth], std::round(size));
     }
 
     void readouts(float widthPoints)
@@ -230,9 +264,6 @@ private:
         static const char *const channels[] = {"Mix", "Left", "Right"};
         static const char *const bands[] = {"12", "24", "36"};
         static const char *const rates[] = {"15/s", "30/s", "60/s"};
-        static const char *const scales[] = {"Linear", "Log", "Mel"};
-        static const char *const palettes[] = {"System", "Bone", "Inferno", "Viridis", "Magma"};
-        static const char *const onOff[] = {"Off", "On"};
         static const char *const menu[] = {"Reset to Default"};
         // Each: its setting, label, and a format (with log dragging) or items.
         struct Readout { Setting setting; const char *label, *format; bool log; const char *const *items; int count; };
@@ -240,11 +271,10 @@ private:
         static const Readout analysis[] = {
             {transform, "Transform", nullptr, false, transforms, 2}, {fftSize, "FFT", nullptr, false, fftSizes, 7},
             {hopSize, "Hop", "%.0f", true}, {window, "Window", nullptr, false, windows, 4},
-            {channel, "Channel", nullptr, false, channels, 3}, {smoothing, "Smooth", "%.2f"},
+            {channel, "Channel", nullptr, false, channels, 3},
         };
         static const Readout analysisCqt[] = { // the FFT's own settings left out
             {transform, "Transform", nullptr, false, transforms, 2}, {channel, "Channel", nullptr, false, channels, 3},
-            {smoothing, "Smooth", "%.2f"},
         };
         static const Readout cqt[] = {
             {cqtBands, "Bands/oct", nullptr, false, bands, 3}, {tuning, "A4", "%.1f Hz"}, {cqtLow, "CQT low", "%.0f Hz", true},
@@ -252,13 +282,16 @@ private:
             {cqtReading, "Reading", nullptr, false, readings, 3},
         };
         static const Readout display[] = {
-            {frequencyScale, "Scale", nullptr, false, scales, 3}, {low, "Low", "%.0f Hz"}, {high, "High", "%.0f Hz", true},
-            {floorLevel, "Floor", "%.0f dB"}, {ceiling, "Ceiling", "%.0f dB"}, {palette, "Palette", nullptr, false, palettes, 5},
-            {scrollRate, "Scroll", "%.0f px/s"}, {piano, "Piano", nullptr, false, onOff, 2}, {keyTone, "Key tone", nullptr, false, onOff, 2},
-            {peakSnap, "Snap", nullptr, false, onOff, 2}, {cursor, "Cursor", nullptr, false, onOff, 2},
+            {low, "Low", "%.0f Hz"}, {high, "High", "%.0f Hz", true}, {floorLevel, "Floor", "%.0f dB"},
+            {ceiling, "Ceiling", "%.0f dB"}, {scrollRate, "Scroll", "%.0f px/s"},
         };
-        const float cell = std::floor(widthPoints - 12); // one a row, its label left and value right, inside the drawer's padding
-        // Rows 24 points apart (each readout as tall: WCAG 2.5.8), under a heading per group.
+        // A column a group, side by side across the window: one a row, its
+        // label left and value right (a list's a readout, a number's a
+        // number box), rows 24 points apart (each readout as
+        // tall: WCAG 2.5.8) under the group's heading.
+        const bool wantsCqt = p[transform]->value >= 0.5, runsCqt = wantsCqt && cqtSupported(binRate);
+        const int columns = wantsCqt ? 3 : 2;
+        const float cell = std::clamp(std::floor((widthPoints - 12 - 16 * float(columns - 1)) / float(columns)), 110.0f, 220.0f);
         auto group = [&](const char *title, const Readout *all, int count) {
             CLAY({.layout = {.padding = {4, 0, 2, 2}}})
             {
@@ -269,24 +302,38 @@ private:
                 const Readout &r = all[i];
                 gpu::Param *q = p[r.setting];
                 if (r.items) ui.readout(params, q, r.label, r.items, r.count, cell);
-                else ui.readout(params, q, r.label, r.format, r.log, cell);
+                else // its label, and a number box: drag it, or type a value
+                    CLAY({.layout = {.sizing = {CLAY_SIZING_FIXED(cell), CLAY_SIZING_FIXED(24)}, .padding = {4, 0, 0, 0},
+                                     .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
+                    {
+                        CLAY_TEXT(ui.layout.text(r.label), CLAY_TEXT_CONFIG({.textColor = gpu::clayColor(ui.theme.dim),
+                                                                             .fontSize = uint16_t(ui.theme.textSize)}));
+                        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}}}) {}
+                        ui.numberBox(params, q, r.format, r.log, 84);
+                    }
                 if (ui.contextMenu(menu, 1) == 0) params.begin(*q), params.change(*q, q->defaultValue), params.end(*q);
             }
         };
-        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM}})
+        const auto column = Clay_LayoutConfig{.sizing = {CLAY_SIZING_FIXED(cell), CLAY_SIZING_FIT(0)}, .layoutDirection = CLAY_TOP_TO_BOTTOM};
+        CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}, .childGap = 16}})
         {
             // CQT chosen: the CQT's settings in place of the FFT's, unless the
             // sample rate leaves the FFT running.
-            const bool wantsCqt = p[transform]->value >= 0.5, runsCqt = wantsCqt && cqtSupported(binRate);
-            if (runsCqt) group("Analysis", analysisCqt, int(std::size(analysisCqt)));
-            else group("Analysis", analysis, int(std::size(analysis)));
-            if (wantsCqt)
+            CLAY({.layout = column})
+            {
+                if (runsCqt) group("Analysis", analysisCqt, int(std::size(analysisCqt)));
+                else group("Analysis", analysis, int(std::size(analysis)));
+            }
+            if (wantsCqt) CLAY({.layout = column})
             {
                 group("CQT", cqt, int(std::size(cqt)));
                 // What it costs in time, as Listener says it; or why it isn't running.
                 char text[96];
-                if (!runsCqt) std::snprintf(text, sizeof text, "Needs 44.1 to 96 kHz: showing the FFT");
-                else if (!cqtShown) std::snprintf(text, sizeof text, "Can't make bands of these: showing the FFT");
+                // The plugin says when it fell back; until the first column
+                // either way (switched, paused, no audio yet) it's starting.
+                if (!runsCqt) std::snprintf(text, sizeof text, "Needs 44.1-96 kHz: FFT shown");
+                else if (cqtFellBack) std::snprintf(text, sizeof text, "No bands from these: FFT shown");
+                else if (!cqtShown) std::snprintf(text, sizeof text, "Starting");
                 else std::snprintf(text, sizeof text, "Delay %.0f ms", delay * 1000);
                 // (Text the page shows reaches screen readers by itself.)
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(24)}, .padding = {4, 4, 0, 0},
@@ -296,7 +343,7 @@ private:
                                                                        .fontSize = uint16_t(ui.theme.textSize)}));
                 }
             }
-            group("Display", display, int(std::size(display)));
+            CLAY({.layout = column}) { group("Display", display, int(std::size(display))); }
         }
     }
 
@@ -366,27 +413,59 @@ private:
                       "Piano keys up the side, each at its pitch on the frequency scale");
     }
 
-    // Holds a note (-1: none), and tells the plugin the pitch to play, 0 for
-    // none; the plugin plays it only while Key tone is on.
+    // Holds a piano key (-1: none) or a pitch clicked on the plot (0: none),
+    // and tells the plugin the pitch to play, 0 for none. A key held wins.
     void playNote(int note)
     {
         if (note == heldNote) return;
         heldNote = note;
-        const double hz = note < 0 ? 0 : p[tuning]->value * std::pow(2.0, (note - 69) / 12.0);
+        sendTone();
+    }
+    void playHz(double hz)
+    {
+        if (hz == heldHz) return;
+        heldHz = hz;
+        sendTone();
+    }
+    double toneHz() const { return heldNote >= 0 ? p[tuning]->value * std::pow(2.0, (heldNote - 69) / 12.0) : heldHz; }
+    void sendTone()
+    {
+        const double hz = toneHz();
+        if (hz == sentHz) return;
+        sentHz = hz;
         send(core::Value::Map{{"type", "tone"}, {"hz", hz}});
     }
 
-    // A line across the plot at the held key's exact pitch, and its name.
+    // Click tone: held on the plot (right of the piano strip, off the
+    // drawer), the pitch under the pointer plays, snapped to a peak as
+    // the cursor is; dragging changes it.
+    void clickPlot(gpu::Rect r, Clay_ElementId panel, Clay_ElementId tab, Clay_ElementId badge)
+    {
+        const float x0 = r.x + stripWidth();
+        const gpu::Ui::Area click = ui.area(&heldHz, x0, r.y, std::max(0.0f, r.x + r.w - x0), r.h, gpu::Ui::eachPress);
+        if (click.pressed) clickOnDrawer = ui.pointerOver(panel) || ui.pointerOver(tab) || ui.pointerOver(badge); // theirs, not the plot's
+        if (!click.held || click.released || heldNote >= 0 || clickOnDrawer)
+        {
+            if (heldHz > 0) playHz(0);
+            return;
+        }
+        gpu::Spectrogram::Probe at;
+        const bool snap = p[snap]->value >= 0.5f && !(modifiers & gpu::View::command);
+        const float y = std::clamp(click.y, r.y, r.y + r.h - 1);
+        playHz(spectrogram.probe(std::clamp(click.x, x0, r.x + r.w - 1), y, snap, at) ? at.frequency : spectrogram.frequencyAt(r, y));
+    }
+
+    // A line across the plot at the pitch playing (a held key's or a click's), and its name.
     void drawGuide(gpu::Rect r)
     {
-        const double hz = p[tuning]->value * std::pow(2.0, (heldNote - 69) / 12.0);
+        const double hz = toneHz();
         const float y = spectrogram.yAt(r, float(hz)), s = ui.s;
         if (y < r.y || y > r.y + r.h) return;
         ui.draw.line(r.x + stripWidth(), y, r.x + r.w, y, 1.5f * s, ui.theme.accent);
         char pitch[24], text[48];
         pitchName(float(hz), p[tuning]->value, pitch, sizeof pitch);
         std::snprintf(text, sizeof text, "%s  %.1f Hz", pitch, hz);
-        tag(r.x + r.w - 8 * s, y > r.y + r.h - 40 * s ? y - 6 * s : y + 16 * s, text, gpu::Draw2D::Align::right); // below it, clear of the corner's controls
+        tag(r.x + r.w - 8 * s, y > r.y + r.h - 40 * s ? y - 6 * s : y + 16 * s, text, gpu::Draw2D::Align::right); // below it, above it near the bottom
     }
 
     // Frequencies up the left edge and seconds along the bottom, over the plot.
@@ -431,11 +510,12 @@ private:
     void drawCursor(gpu::Rect r)
     {
         gpu::Spectrogram::Probe at;
-        const bool snap = p[peakSnap]->value >= 0.5f && !(modifiers & gpu::View::command); // Command bypasses it, as Listener's
+        const bool snap = p[snap]->value >= 0.5f && !(modifiers & gpu::View::command); // Command bypasses it, as Listener's
         if (pointerX < r.x + stripWidth() || !spectrogram.probe(pointerX, pointerY, snap, at)) return;
         const float s = ui.s;
         const gpu::Color guide{ui.theme.text.r, ui.theme.text.g, ui.theme.text.b, 0.45f};
-        ui.draw.line(r.x + stripWidth(), at.y, r.x + r.w, at.y, 1 * s, guide);
+        if (heldHz > 0) ui.draw.line(r.x + stripWidth(), at.y, r.x + r.w, at.y, 1.5f * s, ui.theme.accent); // sounding (Click tone)
+        else ui.draw.line(r.x + stripWidth(), at.y, r.x + r.w, at.y, 1 * s, guide);
         if (at.peak) ui.draw.rect(pointerX - 3 * s, at.y - 3 * s, 6 * s, 6 * s, 3 * s, ui.theme.accent);
         char pitch[24], text[80];
         pitchName(at.frequency, p[tuning]->value, pitch, sizeof pitch);
@@ -453,10 +533,14 @@ private:
     gpu::Spectrogram spectrogram;
     std::vector<float> hz, column; // the bins' frequencies, and the column being added
     float binRate = 48000, hzRate = 0; // the sample rate, and the one hz was made for (0: the CQT's bands)
-    bool cqtShown = false; // the last column was the CQT's
+    bool cqtShown = false;    // the last column was the CQT's
+    bool cqtFellBack = false; // or the FFT's, in place of the CQT asked for (it made no bands)
     float delay = 0;       // its delay, seconds
     bool paused = false;
     int heldNote = -1; // the piano key held, or -1
+    double heldHz = 0, sentHz = 0; // the pitch held on the plot (Click tone), and the last sent to the plugin
+    bool clickOnDrawer = false;    // the press held began on the drawer, so it plays nothing
+    std::string menuText[10];      // the plot menu's items, kept while it's open
     gpu::Params params; // the plugin's settings (not CLAP parameters; see plugin.cpp)
     gpu::Param *p[settingCount] = {};
     gpu::Ui ui;
