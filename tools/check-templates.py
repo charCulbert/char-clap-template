@@ -41,7 +41,7 @@ def main():
         dest = root / f"check-{example}"
         shutil.rmtree(dest, ignore_errors=True)
         ok = run([sys.executable, str(REPO / "tools" / "new-plugin.py"), "--from", example,
-                  "--name", f"Check {example.capitalize()}", "--vendor", "Check Vendor", "--dest", str(dest)], REPO)
+                  "--name", f"Check {example.capitalize()}", "--vendor", "Check Vendor", "--template-version", "0.1.0", "--dest", str(dest)], REPO)
         ok = ok and run(["cmake", "-B", "build", f"-DFETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE={REPO}"], dest) and run(["cmake", "--build", "build", "--config", "Release", "--parallel"], dest)
         clap = next(dest.glob("build/**/*.clap"), None) if ok else None
         if ok and not clap:
