@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Checks tools/new-plugin.py: makes a project from every example in
-build-templates/, builds each with `cmake -B build && cmake --build build --config Release`,
-and, if clap-host (https://github.com/charCulbert/char-clap-host) is installed,
-validates its CLAP. Run it after changing an example, a library or the
+build-templates/, builds each with `cmake -B build && cmake --build build --config Release`
+against this working tree (FETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE) rather than
+the release it pins, and, if clap-host
+(https://github.com/charCulbert/char-clap-host) is installed, validates its CLAP. Run it after changing an example, a library or the
 generator. (CI doesn't: it's slow and local.)
 
     python3 tools/check-templates.py [example ...]
@@ -41,7 +42,7 @@ def main():
         shutil.rmtree(dest, ignore_errors=True)
         ok = run([sys.executable, str(REPO / "tools" / "new-plugin.py"), "--from", example,
                   "--name", f"Check {example.capitalize()}", "--vendor", "Check Vendor", "--dest", str(dest)], REPO)
-        ok = ok and run(["cmake", "-B", "build"], dest) and run(["cmake", "--build", "build", "--config", "Release", "--parallel"], dest)
+        ok = ok and run(["cmake", "-B", "build", f"-DFETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE={REPO}"], dest) and run(["cmake", "--build", "build", "--config", "Release", "--parallel"], dest)
         clap = next(dest.glob("build/**/*.clap"), None) if ok else None
         if ok and not clap:
             print("  no .clap was built")

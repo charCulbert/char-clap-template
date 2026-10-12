@@ -5,10 +5,11 @@
         --vendor "Your Name" --dest ../my-plugin
 
 Anything left out is asked for. The new folder gets the example's files with
-its names swapped for yours, only the libraries it uses (libs/), a GitHub
-Actions workflow, a README, a licence and the third-party notices. It builds
-with `cmake -B build && cmake --build build --config Release`. It is not made a git repository:
-do that yourself when you're ready.
+its names swapped for yours, a GitHub Actions workflow, a README, a licence and
+the third-party notices. Its CMakeLists.txt fetches this template's libraries
+(libs/) at a release tag, --template-version (the newest in CHANGELOG.md). It
+builds with `cmake -B build && cmake --build build --config Release`. It is not
+made a git repository: do that yourself when you're ready.
 
 Uses only Python's standard library (3.8+).
 """
@@ -17,6 +18,7 @@ import datetime
 import json
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -25,24 +27,25 @@ REPO = Path(__file__).resolve().parent.parent
 # Each example, by its folder in examples/: what it's called now, and so what gets replaced.
 EXAMPLES = {
     "webview-synth": dict(name="WebView Synth", target="WebViewSynth",
-                  id="com.charlieculbert.webviewsynth", subtype="WvSy", libs=["core", "webview"],
-                  notices=["clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "choc"]),
+                  id="com.charlieculbert.webviewsynth", subtype="WvSy",
+                  notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "choc", "wasi-sdk"]),
     "gpu-analyzer": dict(name="GPU Analyzer", target="GpuAnalyzer",
-                     id="com.charlieculbert.gpuanalyzer", subtype="GpAn", libs=["core", "gpu", "chardraw"],
-                     notices=["clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "signalsmith-basics", "inter", "cividis", "turbo", "emscripten"]),
+                     id="com.charlieculbert.gpuanalyzer", subtype="GpAn",
+                     notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "signalsmith-basics", "inter", "cividis", "turbo", "emscripten", "wasi-sdk"]),
     "gpu-spectrogram": dict(name="GPU Spectrogram", target="GpuSpectrogram",
-                        id="com.charlieculbert.gpuspectrogram", subtype="GpSg", libs=["core", "gpu", "chardraw"],
-                        notices=["clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "cicuetea", "plex", "cividis", "turbo", "emscripten"]),
+                        id="com.charlieculbert.gpuspectrogram", subtype="GpSg",
+                        notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "cicuetea", "plex", "cividis", "turbo", "emscripten", "wasi-sdk"]),
     "imgui-filter": dict(name="ImGui Filter", target="ImGuiFilter",
-                   id="com.charlieculbert.imguifilter", subtype="ImFl", libs=["core", "gpu"],
-                   notices=["clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "imgui", "cmajor", "inter", "emscripten"]),
+                   id="com.charlieculbert.imguifilter", subtype="ImFl",
+                   notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "imgui", "cmajor", "inter", "emscripten", "wasi-sdk"]),
     "headless-gain": dict(name="Headless Gain", target="HeadlessGain",
-                 id="com.charlieculbert.headlessgain", subtype="HdGn", libs=["core"],
-                 notices=["clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem"]),
+                 id="com.charlieculbert.headlessgain", subtype="HdGn",
+                 notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "wasi-sdk"]),
 }
 OLD_VENDOR, OLD_VENDOR_CODE, OLD_URL = "Charlie Culbert", "ChCu", "https://github.com/charCulbert"
 
 NOTICES = {
+    "clap_template": ("char-clap-template (its libs/)", "https://github.com/charCulbert/char-clap-template", "MIT"),
     "clap": ("CLAP SDK", "https://github.com/free-audio/clap", "MIT"),
     "clap-wrapper": ("clap-wrapper, and the VST3 SDK it downloads",
                      "https://github.com/free-audio/clap-wrapper", "MIT (see the SDK's own licence)"),
@@ -60,6 +63,8 @@ NOTICES = {
                   "https://github.com/AccessKit/accesskit", "MIT or Apache-2.0, with a BSD 3-Clause notice from Chromium"),
     "stb": ("stb_truetype, stb_image and stb_textedit", "https://github.com/nothings/stb", "MIT or public domain"),
     "nanosvg": ("nanosvg", "https://github.com/memononen/nanosvg", "zlib"),
+    "wasi-sdk": ("The WASI SDK's runtime (wasi-libc, libc++, libc++abi, the LLVM runtime and dlmalloc), in the WCLAP only",
+                 "https://github.com/WebAssembly/wasi-sdk", "Apache-2.0 with LLVM Exceptions, MIT, or CC0 (dlmalloc)"),
     "emscripten": ("Emscripten's runtime and emdawnwebgpu, in the WCLAP's web page only",
                    "https://emscripten.org", "MIT or NCSA (Emscripten), BSD 3-Clause (emdawnwebgpu), plus musl and libc++"),
     "clay": ("Clay", "https://github.com/nicbarker/clay", "zlib"),
@@ -71,9 +76,9 @@ NOTICES = {
                  "https://github.com/jdsierral/CiCueTea", "MIT"),
     "cmajor": ("Cmajor standard library (chardsp_StateVariableFilter.h follows its state-variable filter; licence in licenses/Cmajor.txt)",
                "https://github.com/cmajor-lang/cmajor", "ISC"),
-    "cividis": ("Cividis (a colour scheme in chardraw's views.h; licence in libs/chardraw/licenses/cividis.txt)",
+    "cividis": ("Cividis (a colour scheme in chardraw's views.h; licence in the template's libs/chardraw/licenses/cividis.txt)",
                 "https://github.com/pnnl/cmaputil", "BSD-style (Battelle Memorial Institute)"),
-    "turbo": ("Turbo (a colour scheme in chardraw's views.h; licence in libs/chardraw/licenses/turbo.txt)",
+    "turbo": ("Turbo (a colour scheme in chardraw's views.h; licence in the template's libs/chardraw/licenses/turbo.txt)",
               "https://gist.github.com/mikhailov-work/6a308c20e494d9e0ccc29036b28faa7a", "Apache-2.0"),
     "inter": ("Inter (font, in resources/fonts with its licence)", "https://rsms.me/inter", "SIL Open Font License 1.1"),
     "plex": ("IBM Plex Mono (font, in resources/fonts with its licence)", "https://github.com/IBM/plex", "SIL Open Font License 1.1"),
@@ -101,6 +106,41 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
+
+# Where a project gets the template's libraries: in place of the example's
+# set(LIBS ".../../libs"), so before the GPU_PAGE branch that uses them too.
+FETCH = """# This template's libraries (libs/), at a release: read its CHANGELOG.md before
+# changing GIT_TAG. To build against a local checkout of it instead:
+#   cmake -B build -DFETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE=<checkout>
+include(FetchContent)
+FetchContent_Declare(clap_template
+    GIT_REPOSITORY https://github.com/charCulbert/char-clap-template.git
+    GIT_TAG v{version}
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR none) # only libs/: the template's own CMakeLists isn't for plugins
+FetchContent_MakeAvailable(clap_template)
+set(LIBS "${{clap_template_SOURCE_DIR}}/libs")"""
+EXAMPLE_LIBS = 'set(LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../../libs")'
+
+
+def newest_version():
+    """The newest release in CHANGELOG.md: its first "## [x.y.z]" heading."""
+    found = re.search(r"^## \[(\d+\.\d+\.\d+)\]", (REPO / "CHANGELOG.md").read_text(encoding="utf-8"), re.M)
+    return found.group(1) if found else None
+
+
+def warn_if_not_at(version):
+    """The examples copied are this checkout's; the libraries fetched are the tag's."""
+    try:
+        tags = subprocess.run(["git", "-C", str(REPO), "tag", "--points-at", "HEAD"],
+                              capture_output=True, text=True, check=True).stdout.split()
+    except (OSError, subprocess.CalledProcessError):
+        return  # not a git checkout (a downloaded archive): nothing to compare
+    if f"v{version}" not in tags:
+        print(f"warning: this checkout isn't at v{version}, so the example copied may not match "
+              f"the libraries the project fetches (check out v{version}, or pass --template-version)",
+              file=sys.stderr)
+
 
 TEXT_SUFFIXES = {".cpp", ".h", ".mm", ".txt", ".cmake", ".md", ".html", ".js", ".css", ".yml", ".json"}
 
@@ -140,12 +180,18 @@ def main():
     parser.add_argument("--au-subtype", help="4-character AudioUnit subtype (default: from the name)")
     parser.add_argument("--au-manufacturer", help="4-character AudioUnit manufacturer code (default: from the vendor)")
     parser.add_argument("--license", default="MIT", help='"MIT" (default), or "none" to add no LICENSE file')
+    parser.add_argument("--template-version", default=newest_version(),
+                        help="the template release the project fetches its libraries at (default: the newest "
+                             "in CHANGELOG.md, %(default)s)")
     args = parser.parse_args()
 
     example = Path(args.example or ask(f"Example ({', '.join(EXAMPLES)})", "imgui-filter")).name
     if example not in EXAMPLES:
         sys.exit(f"unknown example: {example} (one of {', '.join(EXAMPLES)})")
     old = EXAMPLES[example]
+    version = re.sub(r"^v", "", args.template_version or "")  # v0.1.0 or 0.1.0
+    if not version or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        sys.exit(f"--template-version must be a release, like 0.1.0: {version!r}")
     name = args.name or ask("Name")
     vendor = args.vendor or ask("Vendor")
     dest = Path(args.dest or ask("Folder", str(Path.cwd() / "-".join(words(name)).lower()))).expanduser().resolve()
@@ -159,6 +205,7 @@ def main():
     for label, code in (("AU subtype", subtype), ("AU manufacturer", vendor_code)):
         if len(code) != 4 or not code.isascii():
             sys.exit(f"{label} must be 4 ASCII characters: {code!r}")
+    warn_if_not_at(version)
     if dest.exists() and any(dest.iterdir()):
         sys.exit(f"{dest} already exists and isn't empty")
     try:  # inside this repository only under a build*/ folder, which git ignores (check-templates uses one)
@@ -192,20 +239,24 @@ def main():
     def skip(path):
         return any(part.startswith("build") or part == ".DS_Store" for part in path.parts)
 
-    # The example, at the project's root; libs/ beside it.
+    # The example, at the project's root, fetching libs/ from the template.
+    def fetch_libs(text):
+        if EXAMPLE_LIBS not in text:
+            sys.exit(f"examples/{example}/CMakeLists.txt has no {EXAMPLE_LIBS} to replace")
+        return text.replace(EXAMPLE_LIBS, FETCH.format(version=version))
+
+    def fix_readme(text):
+        return re.sub(r"`libs/` holds the reusable parts; see the comment at the top of each `\.cmake`\s+file there\.",
+                      "The reusable parts are the template's `libs/`, which CMakeLists.txt fetches\n"
+                      "(https://github.com/charCulbert/char-clap-template); see the comment at the\n"
+                      "top of each `.cmake` file there.", text)
+
     source = REPO / "examples" / example
     for path in sorted(source.rglob("*")):
         relative = path.relative_to(source)
         if path.is_file() and not skip(relative):
-            fix_libs = (lambda text: text.replace('"${CMAKE_CURRENT_SOURCE_DIR}/../../libs"',
-                                                  '"${CMAKE_CURRENT_SOURCE_DIR}/libs"')) \
-                if relative.name == "CMakeLists.txt" else None
-            copy(path, dest / relative, fix_libs)
-    for lib in old["libs"]:
-        for path in sorted((REPO / "libs" / lib).rglob("*")):
-            if path.is_file() and not skip(path.relative_to(REPO)):
-                (dest / path.relative_to(REPO)).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(path, dest / path.relative_to(REPO))  # libraries stay as they are
+            rewrite = {Path("CMakeLists.txt"): fetch_libs, Path("README.md"): fix_readme}.get(relative)
+            copy(path, dest / relative, rewrite)
 
     # The workflow: the project is the repository's root, and every push runs it.
     def fix_workflow(text):
@@ -238,11 +289,13 @@ def main():
     notices = "\n".join(f"- {title}: {license}. {url}" for title, url, license in (NOTICES[n] for n in old["notices"]))
     (dest / "THIRD_PARTY_NOTICES.md").write_text(
         "# Third-party software\n\nThis plugin is built with, and its binaries include, the following. "
-        "CMake downloads them (pinned in libs/*/*.cmake, and in CMakeLists.txt or signalsmith-dsp.cmake beside it); keep their notices with "
+        f"CMake downloads them, at versions pinned by the template version (v{version}, GIT_TAG in CMakeLists.txt) "
+        "and by CMakeLists.txt or signalsmith-dsp.cmake here; keep their notices with "
         f"anything you distribute. Every build ships their full licence texts in THIRD_PARTY_LICENSES/.\n\n{notices}\n", encoding="utf-8")
 
     print(f"""Made {name} in {dest}
-  from the {old['name']} example; ID {plugin_id}; AU codes {subtype} (subtype), {vendor_code} (manufacturer)
+  from the {old['name']} example, fetching the template's libs/ at v{version}
+  ID {plugin_id}; AU codes {subtype} (subtype), {vendor_code} (manufacturer)
 
 Next:
   cd "{dest}"

@@ -27,12 +27,16 @@ python3 tools/new-plugin.py --from imgui-filter --name "My Plugin" --vendor "You
 ```
 
 `--from` is the example's folder in `examples/`. Leave an option out and it asks. It also
-takes `--id`, `--au-subtype`, `--au-manufacturer`, `--url` and `--license`
-(MIT unless `none`). It needs Python 3.8 or later (`py` on Windows).
+takes `--id`, `--au-subtype`, `--au-manufacturer`, `--url`, `--license`
+(MIT unless `none`) and `--template-version` (the newest in
+[CHANGELOG.md](CHANGELOG.md) unless given). It needs Python 3.8 or later (`py` on Windows).
 
-You get the example renamed to your plugin, only the `libs/` it uses, a CI
-workflow, a LICENSE and THIRD_PARTY_NOTICES.md. Nothing links back to this
-repository.
+You get the example renamed to your plugin, a CI workflow, a LICENSE and
+THIRD_PARTY_NOTICES.md. Its `CMakeLists.txt` fetches this repository's
+`libs/` at a release tag (see
+[Using the template as a dependency](#using-the-template-as-a-dependency)).
+Make it from a checkout of that tag, so the example matches the libraries; it
+warns when you don't.
 
 ```sh
 cd ../my-plugin
