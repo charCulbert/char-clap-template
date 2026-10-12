@@ -104,6 +104,187 @@ inline void scope(Ui &ui, const char *name, const float *samples, size_t count, 
           .custom = {.customData = ui.paint([&ui, name, samples, count, view](Rect r) { scope(ui, name, samples, count, r, view); })}}) {}
 }
 
+// A live magnitude spectrum, as an analyzer shows one: levels in decibels at
+// frequencies (an FFT's bins, or an analyzer's bands), drawn as a curve
+// across a log frequency axis over a grid, with a fill under it, brighter
+// higher up. The curve dims as it nears the floor and falls through it, out
+// of sight, as Pro-Q's does. tilt raises the highs and lowers the lows by so
+// many dB per octave around pivot: music falls off about 4.5 dB an octave
+// (Pro-Q's default), so with that it looks roughly level. With scales,
+// frequencies are marked along the bottom and levels up the left, on the
+// plot, and the floor sits above the frequencies' labels. Smoothing over
+// time is the caller's, with the analysis.
+struct SpectrumView
+{
+    float minFrequency = 20, maxFrequency = 20000;
+    float minDecibels = -100, maxDecibels = 0;
+    float tilt = 0, pivot = 1000; // dB per octave, around pivot (Hz)
+    bool scales = true;
+
+    // Where the levels' range falls in r (pixels; s is pixels per point): all
+    // of it, or with scales, less room for the top label and the frequencies.
+    Rect plot(Rect r, float s) const { return scales ? Rect{r.x, r.y + 12 * s, r.w, std::max(1.0f, r.h - 36 * s)} : r; }
+    // A frequency's x and a level's y in a plot (pixels).
+    float x(Rect plot, float hz) const
+    {
+        const float low = std::max(minFrequency, 1e-3f), high = std::max(maxFrequency, low * 1.001f);
+        return plot.x + plot.w * std::log(std::max(hz, 1e-3f) / low) / std::log(high / low);
+    }
+    float y(Rect plot, float decibels) const
+    {
+        return plot.y + plot.h * (maxDecibels - decibels) / std::max(maxDecibels - minDecibels, 1e-6f);
+    }
+
+    // The curve through decibels[i] at frequencies[i] (Hz, ascending), tilted,
+    // as points x, y, ... a pixel apart across the plot. Each point is the
+    // loudest value within half a pixel of it, or where there's none (bins
+    // further apart than pixels, in the lows), on a smooth curve between the
+    // two either side that never overshoots them (Fritsch-Carlson). A level
+    // past the floor goes no lower than a whole range below it.
+    void curve(const float *decibels, const float *frequencies, size_t count, Rect plot, std::vector<float> &xy) const
+    {
+        xy.clear();
+        const int n = std::max(1, int(std::ceil(plot.w)));
+        const float lowest = minDecibels - (maxDecibels - minDecibels);
+        std::vector<float> at(count), level(count), slope(count, 0.0f); // across the plot, 0..1; the level; its slope there
+        for (size_t i = 0; i < count; ++i)
+        {
+            at[i] = (x(plot, frequencies[i]) - plot.x) / std::max(plot.w, 1e-6f);
+            level[i] = std::isfinite(decibels[i]) ? std::max(decibels[i], lowest) : lowest;
+        }
+        for (size_t i = 1; i + 1 < count; ++i)
+        {
+            const float before = (level[i] - level[i - 1]) / std::max(at[i] - at[i - 1], 1e-9f);
+            const float after = (level[i + 1] - level[i]) / std::max(at[i + 1] - at[i], 1e-9f);
+            slope[i] = before * after > 0 ? 2 / (1 / before + 1 / after) : 0; // flat at peaks and dips
+        }
+        const float low = std::max(minFrequency, 1e-3f), high = std::max(maxFrequency, low * 1.001f);
+        size_t next = 0; // the first bin not left of this point's half pixel
+        for (int k = 0; k <= n; ++k)
+        {
+            const float u = float(k) / float(n), half = 0.5f / float(n);
+            while (next < count && at[next] < u - half) ++next;
+            float v = -INFINITY;
+            for (size_t i = next; i < count && at[i] < u + half; ++i) v = std::max(v, level[i]);
+            if (v == -INFINITY)
+            {
+                if (count == 0) v = lowest;
+                else if (next == 0 || next >= count) v = level[next == 0 ? 0 : count - 1]; // past the ends: the end's level
+                else
+                {
+                    const size_t a = next - 1, b = next;
+                    const float h = at[b] - at[a], t = (u - at[a]) / std::max(h, 1e-9f), t2 = t * t, t3 = t2 * t;
+                    v = (2 * t3 - 3 * t2 + 1) * level[a] + (t3 - 2 * t2 + t) * h * slope[a] + (-2 * t3 + 3 * t2) * level[b]
+                      + (t3 - t2) * h * slope[b];
+                }
+            }
+            v += tilt * std::log2(low * std::pow(high / low, u) / std::max(pivot, 1e-3f));
+            xy.insert(xy.end(), {plot.x + plot.w * u, std::min(y(plot, v), y(plot, lowest))});
+        }
+    }
+};
+
+inline void spectrum(Ui &ui, const char *name, const float *decibels, const float *frequencies, size_t count, Rect r,
+                     SpectrumView view = {})
+{
+    const float s = ui.s;
+    const Theme &t = ui.theme;
+    auto mix = [](Color a, Color b, float f) { return Color{a.r + (b.r - a.r) * f, a.g + (b.g - a.g) * f, a.b + (b.b - a.b) * f}; };
+    auto ink = [&](float alpha) { return Color{t.text.r, t.text.g, t.text.b, alpha}; };
+    const Rect p = view.plot(r, s);
+    const float bottom = r.y + r.h;
+    std::vector<float> xy;
+    if (decibels && frequencies) view.curve(decibels, frequencies, count, p, xy);
+    ui.draw.pushClip(r.x, r.y, r.w, r.h);
+    ui.draw.rect(r.x, r.y, r.w, r.h, 0, t.background);
+
+    // The fill: a strip a pixel wide under each step of the curve, opaque and
+    // a little wider than the step, so strips overlap without seams.
+    const Draw2D::Gradient shade{mix(t.background, t.accent, 0.16f), mix(t.background, t.accent, 0.03f), 0, p.y, 0, p.y + p.h};
+    for (size_t i = 0; i + 3 < xy.size(); i += 2)
+    {
+        const float top = (xy[i + 1] + xy[i + 3]) / 2;
+        if (top < bottom) ui.draw.rect(xy[i], top, xy[i + 2] - xy[i] + 1, bottom - top, {}, shade);
+    }
+
+    // Round frequencies (1, 2 and 5 times a power of ten) and levels (a step
+    // of 1, 2 or 5 times one, 16 points apart or more).
+    std::vector<float> hz, db;
+    for (double decade = std::pow(10.0, std::floor(std::log10(std::max(view.minFrequency, 1.0f)))); decade <= view.maxFrequency; decade *= 10)
+        for (double k : {1.0, 2.0, 5.0})
+            if (decade * k >= view.minFrequency && decade * k <= view.maxFrequency) hz.push_back(float(decade * k));
+    const float range = std::max(view.maxDecibels - view.minDecibels, 1e-3f);
+    float step = 1;
+    for (int i = 0; step * p.h / range < 16 * s && i < 12; ++i) step *= i % 3 == 1 ? 2.5f : 2; // 1, 2, 5, 10, 20, 50...
+    for (float d = std::floor(view.maxDecibels / step) * step; d >= view.minDecibels - 1e-3f; d -= step) db.push_back(d);
+    for (float f : hz) ui.draw.line(view.x(p, f), r.y, view.x(p, f), bottom, 1 * s, ink(0.07f));
+    for (float d : db) ui.draw.line(r.x, view.y(p, d), r.x + r.w, view.y(p, d), 1 * s, ink(0.07f));
+
+    // The curve, from the theme's dim colour at the floor to its accent 30 dB
+    // up: a polyline per run of points of one shade, of eight.
+    auto shadeOf = [&](size_t i) {
+        const float level = view.maxDecibels - (xy[i + 1] - p.y) / std::max(p.h, 1e-6f) * range;
+        return int(std::lround(std::clamp((level - view.minDecibels) / 30, 0.0f, 1.0f) * 7));
+    };
+    for (size_t from = 0, i = 2; i < xy.size(); i += 2)
+        if (i + 2 >= xy.size() || shadeOf(i) != shadeOf(from))
+        {
+            const float f = float(shadeOf(from)) / 7;
+            ui.draw.polyline(&xy[from], (i - from) / 2 + 1, 1.5f * s, mix(t.dim, t.accent, f * f * (3 - 2 * f)));
+            from = i;
+        }
+
+    if (view.scales)
+    {
+        auto label = [&](float x, float y, const char *text, Draw2D::Align align) {
+            return ui.draw.text(std::round(x), std::round(y), 11 * s, text, t.dim, align, t.valueFont);
+        };
+        // Frequencies along the bottom: a short tick at each of 1 to 9 times a
+        // power of ten, a longer one and a label at the round ones, where it fits.
+        for (double decade = std::pow(10.0, std::floor(std::log10(std::max(view.minFrequency, 1.0f)))); decade <= view.maxFrequency; decade *= 10)
+            for (int k = 1; k < 10; ++k)
+                if (decade * k >= view.minFrequency && decade * k <= view.maxFrequency)
+                    ui.draw.line(view.x(p, float(decade * k)), bottom, view.x(p, float(decade * k)), bottom - 3 * s, 1 * s, t.edge);
+        float right = r.x + 30 * s; // clear of the levels' labels
+        for (float f : hz)
+        {
+            char text[16];
+            std::snprintf(text, sizeof text, f >= 1000 ? "%gk" : "%g", f >= 1000 ? f / 1000 : f);
+            const float x = view.x(p, f), half = ui.draw.measure(11 * s, text, t.valueFont) / 2;
+            ui.draw.line(x, bottom, x, bottom - 6 * s, 1 * s, t.dim);
+            if (x - half < right + 8 * s || x + half > r.x + r.w - 2 * s) continue;
+            label(x, bottom - 10 * s, text, Draw2D::Align::center);
+            right = x + half;
+        }
+        // Levels up the left: a tick at each step and half step, labelled at each step.
+        for (float d = db.empty() ? 0 : db.front(); d >= view.minDecibels - 1e-3f; d -= step / 2)
+        {
+            const bool major = std::abs(std::remainder(d, step)) < 1e-3f;
+            ui.draw.line(r.x, view.y(p, d), r.x + (major ? 6 : 3) * s, view.y(p, d), 1 * s, major ? t.dim : t.edge);
+            char text[16];
+            std::snprintf(text, sizeof text, "%g", d == 0 ? 0.0f : d);
+            if (major) label(r.x + 9 * s, view.y(p, d) + 4 * s, text, Draw2D::Align::left);
+        }
+    }
+    ui.draw.popClip();
+
+    char about[200];
+    int length = std::snprintf(about, sizeof about, "Spectrum: %g Hz to %g Hz on a log scale, %g to %g dB", view.minFrequency,
+                               view.maxFrequency, view.minDecibels, view.maxDecibels);
+    if (view.tilt != 0 && length > 0 && length < int(sizeof about))
+        std::snprintf(about + length, sizeof about - size_t(length), ", tilted %g dB per octave around %g Hz", view.tilt, view.pivot);
+    ui.accessible(Accessible::Role::image, name, nullptr, r, about);
+}
+
+inline void spectrum(Ui &ui, const char *name, const float *decibels, const float *frequencies, size_t count,
+                     SpectrumView view = {}, float heightPoints = 200)
+{
+    CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(heightPoints)}},
+          .custom = {.customData = ui.paint([&ui, name, decibels, frequencies, count, view](Rect r) {
+              spectrum(ui, name, decibels, frequencies, count, r, view);
+          })}}) {}
+}
+
 // A scrolling spectrogram: the caller adds one column at a time (a value in
 // decibels per frequency, as an FFT gives), newest on the right, and it keeps
 // the last columns that fit. Frequencies go up the side on a linear, log or

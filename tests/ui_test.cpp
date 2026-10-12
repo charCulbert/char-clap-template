@@ -1265,18 +1265,21 @@ static void signalViews()
             gpu::waveform(ui, "Nothing", none, {}, 20);
             gpu::scope(ui, "Output", wave, 5, {.range = 2}, 40);
             spectrogram.draw(ui, "Spectrum", 60);
+            gpu::spectrum(ui, "Analyzer", decibels, frequencies, 2, {.tilt = 4.5f}, 60);
         }
     });
     std::vector<std::pair<std::string, std::string>> read;
     for (const gpu::Accessible &n : ui.accessibility()->nodes)
         if (n.role == gpu::Accessible::Role::image) read.push_back({n.name, n.description});
-    CHECK(read.size() == 4);
-    if (read.size() == 4)
+    CHECK(read.size() == 5);
+    if (read.size() == 5)
     {
         CHECK(read[0].first == "Input" && read[0].second == "Stereo waveform, left above right");
         CHECK(read[1].second == "Empty waveform");
         CHECK(read[2].first == "Output" && read[2].second == "One-channel waveform, from -2 to 2");
         CHECK(read[3].first == "Spectrum" && read[3].second.find("log scale") != std::string::npos);
+        CHECK(read[4].first == "Analyzer"
+              && read[4].second == "Spectrum: 20 Hz to 20000 Hz on a log scale, -100 to 0 dB, tilted 4.5 dB per octave around 1000 Hz");
     }
     // Scrolling smoothly, it asks for frames while columns arrive, and not
     // once they've stopped.
@@ -2326,6 +2329,45 @@ static void spectrogramMarks()
     CHECK(marks(20, 24000, S::mel, 430, 28).size() >= 5);
 }
 
+// A spectrum's curve: a pixel apart, through each bin's level where it
+// falls, never past the levels either side between bins, the loudest of
+// many bins in a pixel; tilted about its pivot; silence out of sight below.
+static void spectrumCurve()
+{
+    const gpu::SpectrumView view{.minFrequency = 10, .maxFrequency = 10000, .scales = false};
+    const gpu::Rect plot{0, 0, 300, 100}; // 100 pixels a decade, a pixel a dB
+    const float hz[] = {10, 100, 1000, 10000}, db[] = {-60, -60, 0, -60};
+    std::vector<float> xy;
+    view.curve(db, hz, 4, plot, xy);
+    CHECK(xy.size() == 301 * 2 && xy[0] == 0 && xy[600] == 300);
+    auto yAt = [&](float x) { return xy[size_t(std::lround(x)) * 2 + 1]; };
+    CHECK(std::abs(yAt(view.x(plot, 1000))) < 1e-3f && std::abs(yAt(0) - 60) < 1e-3f && std::abs(yAt(100) - 60) < 1e-3f);
+    bool between = true, flat = true;
+    for (size_t i = 0; i < xy.size(); i += 2)
+        between &= xy[i + 1] >= -1e-3f && xy[i + 1] <= 60 + 1e-3f, flat &= xy[i] > 100 || std::abs(xy[i + 1] - 60) < 1e-3f;
+    CHECK(between && flat); // no overshoot, and level where the bins either side are
+    // Tilted 3 dB an octave about 1 kHz: a decade up about 10 dB louder, two down about 20 dB quieter.
+    gpu::SpectrumView tilted = view;
+    tilted.tilt = 3;
+    view.curve(db, hz, 4, plot, xy);
+    std::vector<float> before = xy;
+    tilted.curve(db, hz, 4, plot, xy);
+    CHECK(std::abs(xy[401] - before[401]) < 1e-2f);                         // 1 kHz
+    CHECK(std::abs(before[601] - xy[601] - 3 * std::log2(10.0f)) < 1e-2f); // 10 kHz
+    CHECK(std::abs(xy[1] - before[1] - 6 * std::log2(10.0f)) < 1e-2f);     // 10 Hz, two decades down
+    // Many bins to a pixel (an FFT's highs): the loudest of them.
+    std::vector<float> manyHz, manyDb;
+    for (int i = 0; i < 200; ++i) manyHz.push_back(9000 + 5.0f * i), manyDb.push_back(i == 37 ? -6.0f : -80.0f);
+    view.curve(manyDb.data(), manyHz.data(), manyHz.size(), plot, xy);
+    CHECK(std::abs(yAt(view.x(plot, 9185)) - 6) < 1e-3f);
+    // Silence (and NaN) a whole range below the floor, out of sight.
+    const float quiet[] = {-INFINITY, NAN};
+    view.curve(quiet, hz, 2, plot, xy);
+    CHECK(yAt(0) == 200 && yAt(150) == 200);
+    view.curve(nullptr, nullptr, 0, plot, xy);
+    CHECK(xy.size() == 602 && yAt(10) == 200);
+}
+
 static void spectrogramTime()
 {
     Ui ui;
@@ -2765,6 +2807,7 @@ int main()
     readouts();
     spectrogramMarks();
     spectrogramTime();
+    spectrumCurve();
     pianoNotes();
     twoPianos();
     editors();

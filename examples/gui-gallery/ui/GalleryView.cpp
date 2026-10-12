@@ -556,6 +556,12 @@ private:
             cell("Scope: samples over a grid; 1 at the top, -1 at the bottom", [&] { gpu::scope(ui, "Oscillator", scopeSamples.data(), scopeSamples.size(), {.range = 1}, 110); });
         });
         row([&] {
+            cell("Spectrum: the sweep's levels over a log axis, tilted 4.5 dB an octave, so the noise floor rises to the right; "
+                 "the curve dims near the floor", [&] {
+                gpu::spectrum(ui, "Sweep spectrum", binDb.data(), binHz.data(), binDb.size(), {.tilt = 4.5f}, 180);
+            });
+        });
+        row([&] {
             cell("Spectrogram: newest on the right, a column a frame or 100 points a second; frequencies marked up the side; "
                  "hover for the level, on the nearest peak (a dot) with Snap. The bar is the palette's nine colours, quiet at the bottom", [&] {
                 CLAY({.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .childGap = 8, .layoutDirection = CLAY_TOP_TO_BOTTOM}})

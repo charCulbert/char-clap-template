@@ -107,7 +107,7 @@ in the browser:
   scrolling and popups.
 - **Controls:** knobs, sliders, number boxes, buttons, toggles, menus and
   context menus, text fields, drawers, dockable windows.
-- **Views:** waveform, scope and spectrogram (`views.h`).
+- **Views:** waveform, scope, spectrum and spectrogram (`views.h`).
 - **Themes:** light and dark.
 - **Screen readers:** every control is in an accessibility tree, given to
   VoiceOver, Narrator, NVDA and Orca through AccessKit, and to browsers as
