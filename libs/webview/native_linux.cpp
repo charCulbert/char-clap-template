@@ -65,22 +65,36 @@ static gboolean takeFocus(GtkWidget *, GdkEvent *, gpointer window)
     return FALSE;
 }
 
+// WebKitGTK 2.52's GTK 3 view paints the part of the page a redraw covers
+// upside down: a strip at the bottom gets the rows from the top. A host that
+// shows more of the window after it first drew (REAPER, when a taller plugin
+// takes a shorter one's place) then leaves that strip empty. So any redraw
+// redraws the whole window.
+static void invalidateAll(GdkWindow *window, cairo_region_t *region)
+{
+    const cairo_rectangle_int_t all = {0, 0, gdk_window_get_width(window), gdk_window_get_height(window)};
+    cairo_region_union_rectangle(region, &all);
+}
+
 void *attach(void *view, const clap_window_t *parent)
 {
     if (!parent->x11) return nullptr;
     GtkWidget *window = nullptr;
     ignoringXErrors([&] {
-        GdkWindow *host = gdk_x11_window_foreign_new_for_display(gdk_display_get_default(), Window(parent->x11));
-        if (!host) return;
         window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
         gtk_window_set_decorated(GTK_WINDOW(window), FALSE);
         gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view)); // CHOC keeps its own reference
         gtk_widget_realize(window);
+        GdkWindow *gdkWindow = gtk_widget_get_window(window);
         // Frame sync waits for the window manager to say each frame is drawn,
         // which it never does for a window inside another: GTK stops drawing.
-        gdk_x11_window_set_frame_sync_enabled(gtk_widget_get_window(window), FALSE);
-        gdk_window_reparent(gtk_widget_get_window(window), host, 0, 0);
-        g_object_set_data_full(G_OBJECT(window), "host", host, g_object_unref);
+        gdk_x11_window_set_frame_sync_enabled(gdkWindow, FALSE);
+        gdk_window_set_invalidate_handler(gdkWindow, invalidateAll);
+        // Re-parented behind GDK's back, so it stays a toplevel to GTK. In a
+        // host that is itself GTK (clap-host), gdk_window_reparent would make
+        // it a child of the host's own window, and the window then took
+        // seconds longer to show.
+        XReparentWindow(GDK_WINDOW_XDISPLAY(gdkWindow), GDK_WINDOW_XID(gdkWindow), Window(parent->x11), 0, 0);
         g_signal_connect(view, "button-press-event", G_CALLBACK(takeFocus), window);
         gtk_widget_show_all(window);
     });
