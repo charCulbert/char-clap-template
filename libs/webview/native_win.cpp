@@ -8,8 +8,6 @@ namespace webview::platform {
 const char *const windowApi = CLAP_WINDOW_API_WIN32;
 const bool needsTimer = false;
 
-void prepare() {}
-
 void *attach(void *view, const clap_window_t *parent)
 {
     HWND child = (HWND)view, host = (HWND)parent->win32;
@@ -38,9 +36,9 @@ void setSize(void *view, uint32_t width, uint32_t height)
 
 void setVisible(void *view, bool visible) { ShowWindow((HWND)view, visible ? SW_SHOW : SW_HIDE); }
 
-// Before the view has a window, the system's scale is the best guess.
-float scale(void *view) { return float(view ? GetDpiForWindow((HWND)view) : GetDpiForSystem()) / 96.0f; }
+float scale(void *view) { return float(GetDpiForWindow((HWND)view)) / 96.0f; }
 
-void pumpEvents() {}
+// Before there is a view, the system's scale is the best guess.
+float defaultScale() { return float(GetDpiForSystem()) / 96.0f; }
 
 }

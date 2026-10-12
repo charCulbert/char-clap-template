@@ -1,6 +1,7 @@
 # A plugin interface that is a web page. Hosts with clap.webview show the page
-# themselves (WCLAP hosts always do); elsewhere CHOC's WebView shows it inside
-# the host's window. Either way the page talks to the plugin with
+# themselves (WCLAP hosts always do); elsewhere a native WebView shows it inside
+# the host's window (CHOC's on macOS and Windows; on Linux WebKitGTK, in a
+# helper process: see native_linux.cpp). Either way the page talks to the plugin with
 # js/messages.js, and the plugin serves the page's files through clap.webview.
 #
 #   include(libs/webview/webview.cmake)
@@ -31,10 +32,12 @@ function(webview_add_to target)
     elseif(WIN32)
         target_sources(${target} PRIVATE "${WEBVIEW_DIR}/native_win.cpp")
     else()
-        find_package(PkgConfig REQUIRED)
-        pkg_check_modules(WEBKIT REQUIRED IMPORTED_TARGET gtk+-3.0 webkit2gtk-4.1 x11)
+        # No GTK or WebKit to link: a helper process finds them at run time. It
+        # is the plugin's own binary run as a program, from this entry point.
         target_sources(${target} PRIVATE "${WEBVIEW_DIR}/native_linux.cpp")
-        target_link_libraries(${target} PUBLIC PkgConfig::WEBKIT ${CMAKE_DL_LIBS})
+        target_link_libraries(${target} PUBLIC ${CMAKE_DL_LIBS})
+        target_link_options(${target} PUBLIC
+            "$<$<IN_LIST:$<TARGET_PROPERTY:TYPE>,MODULE_LIBRARY;SHARED_LIBRARY>:LINKER:-e,webview_helper_start>")
     endif()
 endfunction()
 

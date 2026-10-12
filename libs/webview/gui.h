@@ -3,15 +3,17 @@
 #include "clap/ext/draft/webview.h"
 #include "clap/ext/timer-support.h"
 #include "../core/messages.h"
+#include <chrono>
 #include <memory>
 
 // clap.gui for a plugin whose UI is a page served by its own clap.webview
 // extension. Hosts with clap.webview show that page themselves. Other hosts get
-// a CHOC WebView embedded in their native window, which loads the same page
-// through the same extension. Sizing policy stays with the plugin.
+// a native WebView embedded in their window (on Linux, in a helper process),
+// which loads the same page through the same extension. Sizing policy stays
+// with the plugin.
 namespace webview {
 
-struct NativeView;
+namespace platform { class Page; }
 
 class Gui
 {
@@ -35,7 +37,7 @@ public:
     bool show();
     bool hide();
 
-    // Linux GTK needs servicing from the host's main thread timer.
+    // On Linux the page needs servicing from the host's main thread timer.
     void onTimer(clap_id timer);
 
     // Sends to whichever WebView shows the page. Hosts that open the page
@@ -43,14 +45,24 @@ public:
     bool send(const core::Value &message);
 
 private:
+    std::unique_ptr<platform::Page> openPage();
+
     const clap_plugin_t *plugin = nullptr;
     const clap_host_t *host = nullptr;
     const clap_plugin_webview_t *pluginWebview = nullptr;
     const clap_host_webview_t *hostWebview = nullptr;
+    const clap_host_gui_t *hostGui = nullptr;
     const clap_host_timer_support_t *hostTimers = nullptr;
     clap_id timer = CLAP_INVALID_ID;
     bool created = false;
-    std::unique_ptr<NativeView> native;
+    std::unique_ptr<platform::Page> page;
+    // What a page started again needs, if the host keeps the window after its
+    // page's process has gone.
+    clap_window_t parent = {};
+    uint32_t width = 0, height = 0;
+    bool visible = false;
+    std::chrono::steady_clock::time_point lostAt;
+    int restarts = 0;
 };
 
 }
