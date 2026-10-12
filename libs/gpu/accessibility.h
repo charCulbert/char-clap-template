@@ -8,26 +8,58 @@
 // fills one while it records a frame (chardraw's Ui does it from its controls);
 // the presenter hands it to the system's accessibility API and turns the
 // screen reader's requests back into View::accessAction calls.
-namespace gpu {
+namespace gpu
+{
 
 struct Accessible
 {
-    enum class Role { window, group, button, checkBox, radioGroup, radioButton, comboBox, slider, spinButton,
-                      textInput, label, image, listBox, option, splitter, dialog, tabList, tab, tabPanel,
-                      menu, menuItem, menuItemCheckBox };
+    enum class Role
+    {
+        window,
+        group,
+        button,
+        checkBox,
+        radioGroup,
+        radioButton,
+        comboBox,
+        slider,
+        spinButton,
+        textInput,
+        label,
+        image,
+        listBox,
+        option,
+        splitter,
+        dialog,
+        tabList,
+        tab,
+        tabPanel,
+        menu,
+        menuItem,
+        menuItemCheckBox
+    };
     // label: text to read (a caption), its words in value; tab: one of a tab list's, selected when it's shown
     // What a screen reader may ask of it: bits. showMenu opens its context menu.
-    enum Action : unsigned { focus = 1, click = 2, increment = 4, decrement = 8, setValue = 16, expand = 32, collapse = 64,
-                             showMenu = 128 };
+    enum Action : unsigned
+    {
+        focus = 1,
+        click = 2,
+        increment = 4,
+        decrement = 8,
+        setValue = 16,
+        expand = 32,
+        collapse = 64,
+        showMenu = 128
+    };
 
     uint64_t id = 0; // the same element keeps its id from frame to frame
     Role role = Role::group;
-    std::string name;  // its label: "Cutoff"
-    std::string value; // its value as shown: "1000 Hz"
+    std::string name;        // its label: "Cutoff"
+    std::string value;       // its value as shown: "1000 Hz"
     std::string description; // more about it, read after the name: a tooltip's text
-    bool numeric = false; // number, min, max and step mean something (sliders)
+    bool numeric = false;    // number, min, max and step mean something (sliders)
     double number = 0, min = 0, max = 0, step = 0;
-    int checked = -1; // check boxes, radio buttons and menu item check boxes: 0 or 1; -1 for others
+    int checked = -1;      // check boxes, radio buttons and menu item check boxes: 0 or 1; -1 for others
     bool selected = false; // a list's chosen option, a tab list's shown tab
     bool expanded = false; // a combo box's list is open, or a menu item's submenu
     bool live = false;     // read out whenever its value changes (aria-live): announcements
@@ -45,4 +77,4 @@ struct Accessibility
     unsigned version = 0;          // changes whenever anything above does
 };
 
-}
+} // namespace gpu

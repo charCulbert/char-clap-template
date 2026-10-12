@@ -4,145 +4,168 @@
 #include <cmath>
 #include <cstdio>
 
-namespace gpu {
+namespace gpu
+{
 
-Layout::Layout(int maxElements)
+Layout::Layout (int maxElements)
 {
     // Clay_MinMemorySize and Clay_Initialize read Clay's global current
     // context, which may belong to another instance: size from the defaults,
     // which with no context current are what Clay_SetMaxElementCount sets.
-    Clay_SetCurrentContext(nullptr);
-    Clay_SetMaxElementCount(maxElements);
-    memory.resize(Clay_MinMemorySize());
-    const Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory(memory.size(), memory.data());
-    context = Clay_Initialize(arena, {1, 1}, {[](Clay_ErrorData error) {
-        std::fprintf(stderr, "Clay: %.*s\n", int(error.errorText.length), error.errorText.chars);
-    }, nullptr});
+    Clay_SetCurrentContext (nullptr);
+    Clay_SetMaxElementCount (maxElements);
+    memory.resize (Clay_MinMemorySize());
+    const Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory (memory.size(), memory.data());
+    context = Clay_Initialize (arena, { 1, 1 },
+        { [] (Clay_ErrorData error) {
+             std::fprintf (stderr, "Clay: %.*s\n", int (error.errorText.length), error.errorText.chars);
+         },
+            nullptr });
 }
 
 Layout::~Layout()
 {
     // Don't leave Clay pointing at memory that is about to be freed.
     if (Clay_GetCurrentContext() == context)
-        Clay_SetCurrentContext(nullptr);
+        Clay_SetCurrentContext (nullptr);
 }
 
-void Layout::begin(Draw2D &newDraw, float width, float height, float newScale)
+void Layout::begin (Draw2D& newDraw, float width, float height, float newScale)
 {
     draw = &newDraw;
     scale = newScale;
     strings.clear();
     customs.clear();
     shadows.clear();
-    Clay_SetCurrentContext(context); // each plugin instance has its own
-    Clay_SetMeasureTextFunction([](Clay_StringSlice text, Clay_TextElementConfig *config, void *self) -> Clay_Dimensions {
-        const auto *layout = static_cast<Layout *>(self);
-        const std::string_view characters{text.chars, size_t(text.length)};
-        return {layout->draw->measure(config->fontSize, characters, config->fontId), config->lineHeight ? float(config->lineHeight) : config->fontSize * 1.25f};
-    }, this);
-    Clay_SetLayoutDimensions({width / scale, height / scale});
-    Clay_SetPointerState({pointerX / scale, pointerY / scale}, pointerDown);
+    Clay_SetCurrentContext (context); // each plugin instance has its own
+    Clay_SetMeasureTextFunction (
+        [] (Clay_StringSlice text, Clay_TextElementConfig* config, void* self) -> Clay_Dimensions {
+            const auto* layout = static_cast<Layout*> (self);
+            const std::string_view characters { text.chars, size_t (text.length) };
+            return { layout->draw->measure (config->fontSize, characters, config->fontId),
+                config->lineHeight ? float (config->lineHeight) : config->fontSize * 1.25f };
+        },
+        this);
+    Clay_SetLayoutDimensions ({ width / scale, height / scale });
+    Clay_SetPointerState ({ pointerX / scale, pointerY / scale }, pointerDown);
     const auto now = std::chrono::steady_clock::now();
-    const float seconds = std::min(std::chrono::duration<float>(now - lastFrame).count(), 0.1f);
+    const float seconds = std::min (std::chrono::duration<float> (now - lastFrame).count(), 0.1f);
     lastFrame = now;
-    Clay_UpdateScrollContainers(false, {0, wheelNotches * 40}, seconds); // a notch scrolls 40 points
+    Clay_UpdateScrollContainers (false, { 0, wheelNotches * 40 }, seconds); // a notch scrolls 40 points
     wheelNotches = 0;
     Clay_BeginLayout();
 }
 
-void Layout::pointer(float x, float y, bool down)
+void Layout::pointer (float x, float y, bool down)
 {
     pointerX = x, pointerY = y, pointerDown = down;
 }
 
-void Layout::wheel(float notches)
+void Layout::wheel (float notches)
 {
     wheelNotches += notches;
 }
 
-Clay_String Layout::text(std::string characters)
+Clay_String Layout::text (std::string characters)
 {
-    const auto &kept = strings.emplace_back(std::move(characters));
-    return {false, int32_t(kept.size()), kept.data()};
+    const auto& kept = strings.emplace_back (std::move (characters));
+    return { false, int32_t (kept.size()), kept.data() };
 }
 
-void *Layout::shadow(Color color, float blur, float dx, float dy)
+void* Layout::shadow (Color color, float blur, float dx, float dy)
 {
-    return &shadows.emplace_back(Shadow{color, blur, dx, dy});
+    return &shadows.emplace_back (Shadow { color, blur, dx, dy });
 }
 
-void *Layout::custom(int kind, void *data)
+void* Layout::custom (int kind, void* data)
 {
-    return &customs.emplace_back(Custom{kind, data});
+    return &customs.emplace_back (Custom { kind, data });
 }
 
-void Layout::end(const std::function<void(int, void *, Rect)> &onCustom)
+void Layout::end (const std::function<void (int, void*, Rect)>& onCustom)
 {
     const Clay_RenderCommandArray commands = Clay_EndLayout();
     drawn.clear();
     const float s = scale;
-    auto color = [](Clay_Color c) { return Color{c.r / 255, c.g / 255, c.b / 255, c.a / 255}; };
-    auto corners = [s](Clay_CornerRadius r) {
-        return Draw2D::Corners{r.topLeft * s, r.topRight * s, r.bottomRight * s, r.bottomLeft * s};
+    auto color = [] (Clay_Color c) { return Color { c.r / 255, c.g / 255, c.b / 255, c.a / 255 }; };
+    auto corners = [s] (Clay_CornerRadius r) {
+        return Draw2D::Corners { r.topLeft * s, r.topRight * s, r.bottomRight * s, r.bottomLeft * s };
     };
     for (int32_t i = 0; i < commands.length; ++i)
     {
-        const Clay_RenderCommand &command = commands.internalArray[i];
-        const Clay_BoundingBox &b = command.boundingBox;
+        const Clay_RenderCommand& command = commands.internalArray[i];
+        const Clay_BoundingBox& b = command.boundingBox;
         // Edges on whole pixels, so 1-point lines stay crisp at 125% and 150%.
-        const float x0 = std::round(b.x * s), y0 = std::round(b.y * s);
-        const Rect r{x0, y0, std::round((b.x + b.width) * s) - x0, std::round((b.y + b.height) * s) - y0};
+        const float x0 = std::round (b.x * s), y0 = std::round (b.y * s);
+        const Rect r { x0, y0, std::round ((b.x + b.width) * s) - x0, std::round ((b.y + b.height) * s) - y0 };
         if (command.commandType == CLAY_RENDER_COMMAND_TYPE_TEXT)
         {
-            const Clay_StringSlice &words = command.renderData.text.stringContents;
-            drawn.push_back({command.id, r, true, std::string(words.chars, size_t(words.length))});
+            const Clay_StringSlice& words = command.renderData.text.stringContents;
+            drawn.push_back ({ command.id, r, true, std::string (words.chars, size_t (words.length)) });
         }
         else if (command.commandType != CLAY_RENDER_COMMAND_TYPE_SCISSOR_END)
-            drawn.push_back({command.id, r});
+            drawn.push_back ({ command.id, r });
         switch (command.commandType)
         {
-        case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
-            const auto &data = command.renderData.rectangle;
-            if (const auto *shadow = static_cast<const Shadow *>(command.userData))
-                draw->shadow(r.x + shadow->dx * s, r.y + shadow->dy * s, r.w, r.h, data.cornerRadius.topLeft * s, shadow->blur * s,
-                             shadow->color);
-            draw->rect(r.x, r.y, r.w, r.h, corners(data.cornerRadius), color(data.backgroundColor));
-            break;
-        }
-        case CLAY_RENDER_COMMAND_TYPE_BORDER: {
-            const auto &data = command.renderData.border;
-            const auto &w = data.width;
-            const auto px = [s](uint16_t points) { return points ? std::max(1.0f, std::round(points * s)) : 0.0f; };
-            draw->rect(r.x, r.y, r.w, r.h, corners(data.cornerRadius), {0, 0, 0, 0},
-                       {px(w.left), px(w.right), px(w.top), px(w.bottom)}, color(data.color));
-            break;
-        }
-        case CLAY_RENDER_COMMAND_TYPE_TEXT: {
-            const auto &data = command.renderData.text;
-            // Clay gives the line's box; Draw2D wants its baseline, which sits
-            // about 0.95 of the font size below the top in a 1.25 line.
-            const float lineHeight = data.lineHeight ? float(data.lineHeight) : data.fontSize * 1.25f;
-            const float baseline = std::round(r.y + (lineHeight - data.fontSize * 1.25f) / 2 * s + data.fontSize * 0.95f * s);
-            draw->text(r.x, baseline, data.fontSize * s, {data.stringContents.chars, size_t(data.stringContents.length)},
-                       color(data.textColor), Draw2D::Align::left, data.fontId);
-            break;
-        }
-        case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START: draw->pushClip(r.x, r.y, r.w, r.h); break;
-        case CLAY_RENDER_COMMAND_TYPE_SCISSOR_END: draw->popClip(); break;
-        case CLAY_RENDER_COMMAND_TYPE_CUSTOM: {
-            const auto *custom = static_cast<const Custom *>(command.renderData.custom.customData);
-            onCustom(custom->kind, custom->data, r);
-            break;
-        }
-        case CLAY_RENDER_COMMAND_TYPE_IMAGE: {
-            const auto &data = command.renderData.image;
-            const Color tint = data.backgroundColor.a > 0 ? color(data.backgroundColor) : Color{1, 1, 1, 1}; // 0, 0, 0, 0 (the default): untinted
-            draw->image(int(reinterpret_cast<intptr_t>(data.imageData)) - 1, r.x, r.y, r.w, r.h, corners(data.cornerRadius), tint);
-            break;
-        }
-        default: break;
+            case CLAY_RENDER_COMMAND_TYPE_RECTANGLE:
+            {
+                const auto& data = command.renderData.rectangle;
+                if (const auto* shadow = static_cast<const Shadow*> (command.userData))
+                    draw->shadow (r.x + shadow->dx * s, r.y + shadow->dy * s, r.w, r.h, data.cornerRadius.topLeft * s,
+                        shadow->blur * s, shadow->color);
+                draw->rect (r.x, r.y, r.w, r.h, corners (data.cornerRadius), color (data.backgroundColor));
+                break;
+            }
+            case CLAY_RENDER_COMMAND_TYPE_BORDER:
+            {
+                const auto& data = command.renderData.border;
+                const auto& w = data.width;
+                const auto px = [s] (uint16_t points) {
+                    return points ? std::max (1.0f, std::round (points * s)) : 0.0f;
+                };
+                draw->rect (r.x, r.y, r.w, r.h, corners (data.cornerRadius), { 0, 0, 0, 0 },
+                    { px (w.left), px (w.right), px (w.top), px (w.bottom) }, color (data.color));
+                break;
+            }
+            case CLAY_RENDER_COMMAND_TYPE_TEXT:
+            {
+                const auto& data = command.renderData.text;
+                // Clay gives the line's box; Draw2D wants its baseline, which sits
+                // about 0.95 of the font size below the top in a 1.25 line.
+                const float lineHeight = data.lineHeight ? float (data.lineHeight) : data.fontSize * 1.25f;
+                const float baseline =
+                    std::round (r.y + (lineHeight - data.fontSize * 1.25f) / 2 * s + data.fontSize * 0.95f * s);
+                draw->text (r.x, baseline, data.fontSize * s,
+                    { data.stringContents.chars, size_t (data.stringContents.length) }, color (data.textColor),
+                    Draw2D::Align::left, data.fontId);
+                break;
+            }
+            case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START:
+                draw->pushClip (r.x, r.y, r.w, r.h);
+                break;
+            case CLAY_RENDER_COMMAND_TYPE_SCISSOR_END:
+                draw->popClip();
+                break;
+            case CLAY_RENDER_COMMAND_TYPE_CUSTOM:
+            {
+                const auto* custom = static_cast<const Custom*> (command.renderData.custom.customData);
+                onCustom (custom->kind, custom->data, r);
+                break;
+            }
+            case CLAY_RENDER_COMMAND_TYPE_IMAGE:
+            {
+                const auto& data = command.renderData.image;
+                const Color tint = data.backgroundColor.a > 0
+                                       ? color (data.backgroundColor)
+                                       : Color { 1, 1, 1, 1 }; // 0, 0, 0, 0 (the default): untinted
+                draw->image (int (reinterpret_cast<intptr_t> (data.imageData)) - 1, r.x, r.y, r.w, r.h,
+                    corners (data.cornerRadius), tint);
+                break;
+            }
+            default:
+                break;
         }
     }
 }
 
-}
+} // namespace gpu

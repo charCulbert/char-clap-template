@@ -9,7 +9,8 @@
 // The plugin's parameters as the interface sees them: filled from the "params"
 // and "values" messages, and edited with the begin/change/end messages the
 // plugin turns into CLAP gesture and value events.
-namespace gpu {
+namespace gpu
+{
 
 struct Param
 {
@@ -24,18 +25,18 @@ class Params
 {
 public:
     // Handles "params" and "values"; returns false for other messages.
-    bool receive(const core::Value &message);
+    bool receive (const core::Value& message);
 
     // Stays valid for the Params' life, through a new "params" list.
-    Param *find(std::string_view name);
-    void begin(Param &p);
-    void change(Param &p, double value); // clamps to the range
-    void end(Param &p);
+    Param* find (std::string_view name);
+    void begin (Param& p);
+    void change (Param& p, double value); // clamps to the range
+    void end (Param& p);
 
-    std::function<void(const core::Value &)> send; // set to the View's send
+    std::function<void (const core::Value&)> send; // set to the View's send
 
 private:
     std::deque<Param> params; // only ever added to: a Param stays where it is
 };
 
-}
+} // namespace gpu

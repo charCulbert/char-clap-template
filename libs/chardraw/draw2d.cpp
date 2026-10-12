@@ -19,13 +19,15 @@
 #include <cmath>
 #include <cstring>
 
-namespace gpu {
+namespace gpu
+{
 
-namespace {
+namespace
+{
 
 // Lines: instance i is the segment from point i to point i + 1 (skipped where
 // point i + 1 starts a new polyline). Only the points live on the GPU.
-constexpr const char *lineShader = R"(
+constexpr const char* lineShader = R"(
 struct Uniforms { size: vec4f };
 struct Style { color: vec4f, halfWidth: vec4f };
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -66,7 +68,7 @@ struct Varyings {
 )";
 
 // Fills: plain triangles, a colour per vertex.
-constexpr const char *fillShader = R"(
+constexpr const char* fillShader = R"(
 struct Uniforms { size: vec4f };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 struct Varyings { @builtin(position) position: vec4f, @location(0) color: vec4f };
@@ -79,7 +81,7 @@ struct Varyings { @builtin(position) position: vec4f, @location(0) color: vec4f 
 @fragment fn fs(in: Varyings) -> @location(0) vec4f { return in.color; }
 )";
 
-constexpr const char *shader = R"(
+constexpr const char* shader = R"(
 struct Uniforms { size: vec4f };
 struct Instance {
     @location(0) rect: vec4f,
@@ -236,9 +238,9 @@ fn roundedBox(p: vec2f, b: vec2f, r4: vec4f) -> f32 {
 }
 )";
 
-}
+} // namespace
 
-bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, std::string fontData)
+bool Draw2D::prepare (const wgpu::Device& newDevice, wgpu::TextureFormat format, std::string fontData)
 {
     device = newDevice;
     ++preparations;
@@ -254,15 +256,15 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
     lineBindGroup = {};
 
     wgpu::TextureDescriptor textureDescriptor;
-    textureDescriptor.size = {atlasSize, atlasSize, 1};
+    textureDescriptor.size = { atlasSize, atlasSize, 1 };
     textureDescriptor.format = wgpu::TextureFormat::R8Unorm;
     textureDescriptor.usage = wgpu::TextureUsage::TextureBinding | wgpu::TextureUsage::CopyDst;
-    atlasTexture = device.CreateTexture(&textureDescriptor);
+    atlasTexture = device.CreateTexture (&textureDescriptor);
 
     wgpu::SamplerDescriptor samplerDescriptor;
     samplerDescriptor.magFilter = wgpu::FilterMode::Linear;
     samplerDescriptor.minFilter = wgpu::FilterMode::Linear;
-    sampler = device.CreateSampler(&samplerDescriptor); // clamps to the edge: images don't wrap
+    sampler = device.CreateSampler (&samplerDescriptor); // clamps to the edge: images don't wrap
     images.clear();
     imageTextures.clear();
     imageSizes.clear();
@@ -272,21 +274,21 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
     source.code = shader;
     wgpu::ShaderModuleDescriptor moduleDescriptor;
     moduleDescriptor.nextInChain = &source;
-    wgpu::ShaderModule module = device.CreateShaderModule(&moduleDescriptor);
+    wgpu::ShaderModule module = device.CreateShaderModule (&moduleDescriptor);
 
-    constexpr uint32_t attributeCount = sizeof(Instance) / 16;
+    constexpr uint32_t attributeCount = sizeof (Instance) / 16;
     wgpu::VertexAttribute attributes[attributeCount];
     for (uint32_t i = 0; i < attributeCount; ++i)
-        attributes[i] = {nullptr, wgpu::VertexFormat::Float32x4, i * 16ull, i};
+        attributes[i] = { nullptr, wgpu::VertexFormat::Float32x4, i * 16ull, i };
     wgpu::VertexBufferLayout instanceLayout;
     instanceLayout.stepMode = wgpu::VertexStepMode::Instance;
-    instanceLayout.arrayStride = sizeof(Instance);
+    instanceLayout.arrayStride = sizeof (Instance);
     instanceLayout.attributeCount = attributeCount;
     instanceLayout.attributes = attributes;
 
     wgpu::BlendState blend;
-    blend.color = {wgpu::BlendOperation::Add, wgpu::BlendFactor::SrcAlpha, wgpu::BlendFactor::OneMinusSrcAlpha};
-    blend.alpha = {wgpu::BlendOperation::Add, wgpu::BlendFactor::One, wgpu::BlendFactor::OneMinusSrcAlpha};
+    blend.color = { wgpu::BlendOperation::Add, wgpu::BlendFactor::SrcAlpha, wgpu::BlendFactor::OneMinusSrcAlpha };
+    blend.alpha = { wgpu::BlendOperation::Add, wgpu::BlendFactor::One, wgpu::BlendFactor::OneMinusSrcAlpha };
     wgpu::ColorTargetState target;
     target.format = format;
     target.blend = &blend;
@@ -300,34 +302,34 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
     pipelineDescriptor.vertex.buffers = &instanceLayout;
     pipelineDescriptor.primitive.topology = wgpu::PrimitiveTopology::TriangleStrip;
     pipelineDescriptor.fragment = &fragment;
-    pipeline = device.CreateRenderPipeline(&pipelineDescriptor);
+    pipeline = device.CreateRenderPipeline (&pipelineDescriptor);
 
     wgpu::BufferDescriptor uniformDescriptor;
     uniformDescriptor.size = 16;
     uniformDescriptor.usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst;
-    uniforms = device.CreateBuffer(&uniformDescriptor);
+    uniforms = device.CreateBuffer (&uniformDescriptor);
 
     // The line pipeline: same blending, points and styles from storage buffers.
     wgpu::ShaderSourceWGSL lineSource;
     lineSource.code = lineShader;
     wgpu::ShaderModuleDescriptor lineModuleDescriptor;
     lineModuleDescriptor.nextInChain = &lineSource;
-    wgpu::ShaderModule lineModule = device.CreateShaderModule(&lineModuleDescriptor);
+    wgpu::ShaderModule lineModule = device.CreateShaderModule (&lineModuleDescriptor);
     fragment.module = lineModule;
     pipelineDescriptor.vertex.module = lineModule;
     pipelineDescriptor.vertex.bufferCount = 0;
-    linePipeline = device.CreateRenderPipeline(&pipelineDescriptor);
+    linePipeline = device.CreateRenderPipeline (&pipelineDescriptor);
 
     // The fill pipeline: triangles from a vertex buffer.
     wgpu::ShaderSourceWGSL fillSource;
     fillSource.code = fillShader;
     wgpu::ShaderModuleDescriptor fillModuleDescriptor;
     fillModuleDescriptor.nextInChain = &fillSource;
-    wgpu::ShaderModule fillModule = device.CreateShaderModule(&fillModuleDescriptor);
-    wgpu::VertexAttribute fillAttributes[2] = {{nullptr, wgpu::VertexFormat::Float32x2, 0, 0},
-                                               {nullptr, wgpu::VertexFormat::Float32x4, 8, 1}};
+    wgpu::ShaderModule fillModule = device.CreateShaderModule (&fillModuleDescriptor);
+    wgpu::VertexAttribute fillAttributes[2] = { { nullptr, wgpu::VertexFormat::Float32x2, 0, 0 },
+        { nullptr, wgpu::VertexFormat::Float32x4, 8, 1 } };
     wgpu::VertexBufferLayout fillLayout;
-    fillLayout.arrayStride = sizeof(FillVertex);
+    fillLayout.arrayStride = sizeof (FillVertex);
     fillLayout.attributeCount = 2;
     fillLayout.attributes = fillAttributes;
     fragment.module = fillModule;
@@ -335,15 +337,15 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
     pipelineDescriptor.vertex.bufferCount = 1;
     pipelineDescriptor.vertex.buffers = &fillLayout;
     pipelineDescriptor.primitive.topology = wgpu::PrimitiveTopology::TriangleList;
-    fillPipeline = device.CreateRenderPipeline(&pipelineDescriptor);
+    fillPipeline = device.CreateRenderPipeline (&pipelineDescriptor);
     wgpu::BindGroupEntry fillEntry;
     fillEntry.binding = 0;
     fillEntry.buffer = uniforms;
     wgpu::BindGroupDescriptor fillGroupDescriptor;
-    fillGroupDescriptor.layout = fillPipeline.GetBindGroupLayout(0);
+    fillGroupDescriptor.layout = fillPipeline.GetBindGroupLayout (0);
     fillGroupDescriptor.entryCount = 1;
     fillGroupDescriptor.entries = &fillEntry;
-    fillBindGroup = device.CreateBindGroup(&fillGroupDescriptor);
+    fillBindGroup = device.CreateBindGroup (&fillGroupDescriptor);
 
     wgpu::BindGroupEntry entries[3];
     entries[0].binding = 0;
@@ -353,97 +355,106 @@ bool Draw2D::prepare(const wgpu::Device &newDevice, wgpu::TextureFormat format, 
     entries[2].binding = 2;
     entries[2].sampler = sampler;
     wgpu::BindGroupDescriptor groupDescriptor;
-    groupDescriptor.layout = pipeline.GetBindGroupLayout(0);
+    groupDescriptor.layout = pipeline.GetBindGroupLayout (0);
     groupDescriptor.entryCount = 3;
     groupDescriptor.entries = entries;
-    bindGroup = device.CreateBindGroup(&groupDescriptor);
-    return addFont(std::move(fontData)) == 0; // last: without it the rest still works, drawing no text
+    bindGroup = device.CreateBindGroup (&groupDescriptor);
+    return addFont (std::move (fontData)) == 0; // last: without it the rest still works, drawing no text
 }
 
-int Draw2D::addFont(std::string fontData)
+int Draw2D::addFont (std::string fontData)
 {
-    Font &font = fonts.emplace_back();
-    font.data = std::move(fontData);
-    const auto *bytes = reinterpret_cast<const unsigned char *>(font.data.data());
-    if (font.data.empty() || !stbtt_InitFont(&font.info, bytes, stbtt_GetFontOffsetForIndex(bytes, 0)))
+    Font& font = fonts.emplace_back();
+    font.data = std::move (fontData);
+    const auto* bytes = reinterpret_cast<const unsigned char*> (font.data.data());
+    if (font.data.empty() || !stbtt_InitFont (&font.info, bytes, stbtt_GetFontOffsetForIndex (bytes, 0)))
     {
         fonts.pop_back();
         return -1;
     }
-    font.scale = stbtt_ScaleForPixelHeight(&font.info, bakeSize);
-    const int number = int(fonts.size() - 1);
-    for (uint32_t c = ' '; c <= '~'; ++c) glyph(number, c); // the common ones up front
+    font.scale = stbtt_ScaleForPixelHeight (&font.info, bakeSize);
+    const int number = int (fonts.size() - 1);
+    for (uint32_t c = ' '; c <= '~'; ++c)
+        glyph (number, c); // the common ones up front
     return number;
 }
 
 // The glyph for a character, baked into the atlas the first time it's asked
 // for. Characters the font lacks get its "missing" glyph, so they show.
-const Draw2D::Glyph &Draw2D::glyph(int fontNumber, uint32_t c, int pixelSize, int phase)
+const Draw2D::Glyph& Draw2D::glyph (int fontNumber, uint32_t c, int pixelSize, int phase)
 {
-    const uint64_t key = uint64_t(pixelSize) << 48 | uint64_t(phase) << 44 | uint64_t(fontNumber) << 32 | c;
-    if (auto found = glyphs.find(key); found != glyphs.end()) return found->second;
-    Glyph &g = glyphs[key];
-    if (fontNumber < 0 || fontNumber >= int(fonts.size())) return g;
-    Font &font = fonts[size_t(fontNumber)];
-    const int index = stbtt_FindGlyphIndex(&font.info, int(c));
+    const uint64_t key = uint64_t (pixelSize) << 48 | uint64_t (phase) << 44 | uint64_t (fontNumber) << 32 | c;
+    if (auto found = glyphs.find (key); found != glyphs.end())
+        return found->second;
+    Glyph& g = glyphs[key];
+    if (fontNumber < 0 || fontNumber >= int (fonts.size()))
+        return g;
+    Font& font = fonts[size_t (fontNumber)];
+    const int index = stbtt_FindGlyphIndex (&font.info, int (c));
     int advance, bearing;
-    stbtt_GetGlyphHMetrics(&font.info, index, &advance, &bearing);
+    stbtt_GetGlyphHMetrics (&font.info, index, &advance, &bearing);
     g.advance = advance * font.scale; // at bakeSize for both kinds, so they measure alike
     int w = 0, h = 0, xoff = 0, yoff = 0;
-    unsigned char *sdf = nullptr;
+    unsigned char* sdf = nullptr;
     std::vector<unsigned char> coverage;
     if (pixelSize > 0)
     {
-        const float scale = stbtt_ScaleForPixelHeight(&font.info, float(pixelSize));
+        const float scale = stbtt_ScaleForPixelHeight (&font.info, float (pixelSize));
         const float shift = phase / 4.0f;
         int x0, y0, x1, y1;
-        stbtt_GetGlyphBitmapBoxSubpixel(&font.info, index, scale, scale, shift, 0, &x0, &y0, &x1, &y1);
+        stbtt_GetGlyphBitmapBoxSubpixel (&font.info, index, scale, scale, shift, 0, &x0, &y0, &x1, &y1);
         w = x1 - x0, h = y1 - y0, xoff = x0, yoff = y0;
-        if (w <= 0 || h <= 0) return g;
-        coverage.resize(size_t(w) * h);
-        stbtt_MakeGlyphBitmapSubpixel(&font.info, coverage.data(), w, h, w, scale, scale, shift, 0, index);
+        if (w <= 0 || h <= 0)
+            return g;
+        coverage.resize (size_t (w) * h);
+        stbtt_MakeGlyphBitmapSubpixel (&font.info, coverage.data(), w, h, w, scale, scale, shift, 0, index);
     }
     else
     {
         constexpr int padding = 4;
         constexpr unsigned char onEdge = 128;
-        constexpr float distanceScale = onEdge / float(padding);
-        sdf = stbtt_GetGlyphSDF(&font.info, font.scale, index, padding, onEdge, distanceScale, &w, &h, &xoff, &yoff);
-        if (!sdf) return g; // nothing to draw, e.g. a space
+        constexpr float distanceScale = onEdge / float (padding);
+        sdf = stbtt_GetGlyphSDF (&font.info, font.scale, index, padding, onEdge, distanceScale, &w, &h, &xoff, &yoff);
+        if (!sdf)
+            return g; // nothing to draw, e.g. a space
     }
-    const unsigned char *pixels = sdf ? sdf : coverage.data();
+    const unsigned char* pixels = sdf ? sdf : coverage.data();
     // A few texels between glyphs, so small text sampled from the big atlas
     // never picks up a neighbour. A full atlas draws nothing for new glyphs
     // this frame and starts empty the next (see begin).
     constexpr int gap = 4;
-    if (penX + w + gap > atlasSize) penX = gap, penY += rowHeight + gap, rowHeight = 0;
+    if (penX + w + gap > atlasSize)
+        penX = gap, penY += rowHeight + gap, rowHeight = 0;
     if (penY + h + gap > atlasSize)
     {
-        if (sdf) stbtt_FreeSDF(sdf, nullptr);
+        if (sdf)
+            stbtt_FreeSDF (sdf, nullptr);
         atlasFull = true;
         return g;
     }
     wgpu::TexelCopyTextureInfo destination;
     destination.texture = atlasTexture;
-    destination.origin = {uint32_t(penX), uint32_t(penY), 0};
+    destination.origin = { uint32_t (penX), uint32_t (penY), 0 };
     wgpu::TexelCopyBufferLayout layout;
-    layout.bytesPerRow = uint32_t(w);
-    layout.rowsPerImage = uint32_t(h);
-    const wgpu::Extent3D extent = {uint32_t(w), uint32_t(h), 1};
-    device.GetQueue().WriteTexture(&destination, pixels, size_t(w) * h, &layout, &extent);
-    if (sdf) stbtt_FreeSDF(sdf, nullptr);
-    g = {float(penX) / atlasSize, float(penY) / atlasSize, float(penX + w) / atlasSize, float(penY + h) / atlasSize,
-         float(xoff), float(yoff), float(w), float(h), g.advance};
+    layout.bytesPerRow = uint32_t (w);
+    layout.rowsPerImage = uint32_t (h);
+    const wgpu::Extent3D extent = { uint32_t (w), uint32_t (h), 1 };
+    device.GetQueue().WriteTexture (&destination, pixels, size_t (w) * h, &layout, &extent);
+    if (sdf)
+        stbtt_FreeSDF (sdf, nullptr);
+    g = { float (penX) / atlasSize, float (penY) / atlasSize, float (penX + w) / atlasSize,
+        float (penY + h) / atlasSize, float (xoff), float (yoff), float (w), float (h), g.advance };
     penX += w + gap;
-    rowHeight = std::max(rowHeight, h);
+    rowHeight = std::max (rowHeight, h);
     return g;
 }
 
-void Draw2D::begin(float width, float height)
+void Draw2D::begin (float width, float height)
 {
     // Text at many sizes (scale changes, zooming) filled the atlas: start it
     // again with just what this frame draws.
-    if (atlasFull) glyphs.clear(), penX = penY = 4, rowHeight = 0, atlasFull = false;
+    if (atlasFull)
+        glyphs.clear(), penX = penY = 4, rowHeight = 0, atlasFull = false;
     recorded = 0;
     size[0] = width, size[1] = height;
     batch.clear();
@@ -452,93 +463,101 @@ void Draw2D::begin(float width, float height)
     fillVertices.clear();
     runs.clear();
     callbacks.clear();
-    clips.assign(1, {0, 0, uint32_t(std::max(width, 0.0f)), uint32_t(std::max(height, 0.0f))});
+    clips.assign (1, { 0, 0, uint32_t (std::max (width, 0.0f)), uint32_t (std::max (height, 0.0f)) });
 }
 
 // The run the next draw of this kind joins: the last one, unless the kind or
 // the clip changed since.
-Draw2D::Run &Draw2D::run(Run::Kind kind, int image)
+Draw2D::Run& Draw2D::run (Run::Kind kind, int image)
 {
-    const auto &clip = clips.back();
+    const auto& clip = clips.back();
     if (runs.empty() || runs.back().kind != kind || kind == Run::custom || runs.back().image != image
-        || !std::equal(clip.begin(), clip.end(), runs.back().clip))
+        || !std::equal (clip.begin(), clip.end(), runs.back().clip))
     {
-        const uint32_t first = uint32_t(kind == Run::lines ? points.size() : kind == Run::fills ? fillVertices.size() : batch.size());
-        runs.push_back({kind, first, 0, {clip[0], clip[1], clip[2], clip[3]}, 0, image, 0});
+        const uint32_t first = uint32_t (kind == Run::lines   ? points.size()
+                                         : kind == Run::fills ? fillVertices.size()
+                                                              : batch.size());
+        runs.push_back ({ kind, first, 0, { clip[0], clip[1], clip[2], clip[3] }, 0, image, 0 });
     }
     return runs.back();
 }
 
-void Draw2D::rect(float x, float y, float w, float h, float radius, Color fill, float border, Color borderColor)
+void Draw2D::rect (float x, float y, float w, float h, float radius, Color fill, float border, Color borderColor)
 {
-    rect(x, y, w, h, Corners{radius, radius, radius, radius}, fill, Sides{border, border, border, border}, borderColor);
+    rect (x, y, w, h, Corners { radius, radius, radius, radius }, fill, Sides { border, border, border, border },
+        borderColor);
 }
 
-void Draw2D::rect(float x, float y, float w, float h, Corners r, Color fill, Sides b, Color borderColor)
+void Draw2D::rect (float x, float y, float w, float h, Corners r, Color fill, Sides b, Color borderColor)
 {
-    run(Run::shapes).count++;
-    batch.push_back({{x, y, w, h}, {r.topLeft, r.topRight, r.bottomRight, r.bottomLeft}, {fill.r, fill.g, fill.b, fill.a},
-                     {borderColor.r, borderColor.g, borderColor.b, borderColor.a}, {0, 0, 0, 0},
-                     {b.left, b.right, b.top, b.bottom}});
+    run (Run::shapes).count++;
+    batch.push_back ({ { x, y, w, h }, { r.topLeft, r.topRight, r.bottomRight, r.bottomLeft },
+        { fill.r, fill.g, fill.b, fill.a }, { borderColor.r, borderColor.g, borderColor.b, borderColor.a },
+        { 0, 0, 0, 0 }, { b.left, b.right, b.top, b.bottom } });
 }
 
-void Draw2D::rect(float x, float y, float w, float h, Corners r, const Gradient &g)
+void Draw2D::rect (float x, float y, float w, float h, Corners r, const Gradient& g)
 {
-    run(Run::shapes).count++;
+    run (Run::shapes).count++;
     const float cx = x + w / 2, cy = y + h / 2;
-    batch.push_back({{x, y, w, h}, {r.topLeft, r.topRight, r.bottomRight, r.bottomLeft},
-                     {g.from.r, g.from.g, g.from.b, g.from.a}, {g.to.r, g.to.g, g.to.b, g.to.a}, {5, g.radial ? 1.0f : 0.0f, 0, 0},
-                     {g.x0 - cx, g.y0 - cy, g.x1 - cx, g.y1 - cy}});
+    batch.push_back ({ { x, y, w, h }, { r.topLeft, r.topRight, r.bottomRight, r.bottomLeft },
+        { g.from.r, g.from.g, g.from.b, g.from.a }, { g.to.r, g.to.g, g.to.b, g.to.a },
+        { 5, g.radial ? 1.0f : 0.0f, 0, 0 }, { g.x0 - cx, g.y0 - cy, g.x1 - cx, g.y1 - cy } });
 }
 
-void Draw2D::shadow(float x, float y, float w, float h, float radius, float blur, Color color)
+void Draw2D::shadow (float x, float y, float w, float h, float radius, float blur, Color color)
 {
     // The quad reaches three sigmas past the box, where the blur fades out.
-    const float sigma = std::max(blur, 0.1f) / 2, reach = 3 * sigma;
-    run(Run::shapes).count++;
-    batch.push_back({{x - reach, y - reach, w + 2 * reach, h + 2 * reach}, {}, {color.r, color.g, color.b, color.a}, {},
-                     {6, 0, 0, 0}, {w / 2, h / 2, std::min(radius, std::min(w, h) / 2), sigma}});
+    const float sigma = std::max (blur, 0.1f) / 2, reach = 3 * sigma;
+    run (Run::shapes).count++;
+    batch.push_back (
+        { { x - reach, y - reach, w + 2 * reach, h + 2 * reach }, {}, { color.r, color.g, color.b, color.a }, {},
+            { 6, 0, 0, 0 }, { w / 2, h / 2, std::min (radius, std::min (w, h) / 2), sigma } });
 }
 
-void Draw2D::circle(float cx, float cy, float radius, Color fill, float border, Color borderColor)
+void Draw2D::circle (float cx, float cy, float radius, Color fill, float border, Color borderColor)
 {
-    rect(cx - radius, cy - radius, 2 * radius, 2 * radius, radius, fill, border, borderColor);
+    rect (cx - radius, cy - radius, 2 * radius, 2 * radius, radius, fill, border, borderColor);
 }
 
-void Draw2D::line(float x0, float y0, float x1, float y1, float width, Color color)
+void Draw2D::line (float x0, float y0, float x1, float y1, float width, Color color)
 {
-    const float xy[] = {x0, y0, x1, y1};
-    polyline(xy, 2, width, color);
+    const float xy[] = { x0, y0, x1, y1 };
+    polyline (xy, 2, width, color);
 }
 
-void Draw2D::polyline(const float *xy, size_t count, float width, Color color)
+void Draw2D::polyline (const float* xy, size_t count, float width, Color color)
 {
-    if (count < 2) return;
-    run(Run::lines).count += uint32_t(count);
-    const float style = float(styles.size());
-    styles.push_back({{color.r, color.g, color.b, color.a}, width / 2, {}});
+    if (count < 2)
+        return;
+    run (Run::lines).count += uint32_t (count);
+    const float style = float (styles.size());
+    styles.push_back ({ { color.r, color.g, color.b, color.a }, width / 2, {} });
     for (size_t i = 0; i < count; ++i)
-        points.push_back({xy[2 * i], xy[2 * i + 1], style, i == 0 ? 1.0f : 0.0f});
+        points.push_back ({ xy[2 * i], xy[2 * i + 1], style, i == 0 ? 1.0f : 0.0f });
 }
 
 // Triangulates a simple polygon by ear clipping: repeatedly cut off a
 // convex corner with no other point inside it. O(n^2), fine for the few
 // hundred points of a curve.
-void Draw2D::fill(const float *xy, size_t count, Color color)
+void Draw2D::fill (const float* xy, size_t count, Color color)
 {
-    if (count < 3) return;
-    std::vector<size_t> left(count);
-    for (size_t i = 0; i < count; ++i) left[i] = i;
-    auto x = [&](size_t i) { return xy[2 * i]; };
-    auto y = [&](size_t i) { return xy[2 * i + 1]; };
+    if (count < 3)
+        return;
+    std::vector<size_t> left (count);
+    for (size_t i = 0; i < count; ++i)
+        left[i] = i;
+    auto x = [&] (size_t i) { return xy[2 * i]; };
+    auto y = [&] (size_t i) { return xy[2 * i + 1]; };
     float area = 0; // twice the signed area: its sign is the winding
-    for (size_t i = 0, j = count - 1; i < count; j = i++) area += x(j) * y(i) - x(i) * y(j);
+    for (size_t i = 0, j = count - 1; i < count; j = i++)
+        area += x (j) * y (i) - x (i) * y (j);
     const float winding = area < 0 ? -1.0f : 1.0f;
-    auto cross = [&](size_t a, size_t b, size_t c) {
-        return ((x(b) - x(a)) * (y(c) - y(a)) - (y(b) - y(a)) * (x(c) - x(a))) * winding;
+    auto cross = [&] (size_t a, size_t b, size_t c) {
+        return ((x (b) - x (a)) * (y (c) - y (a)) - (y (b) - y (a)) * (x (c) - x (a))) * winding;
     };
-    Run &r = run(Run::fills);
-    auto emit = [&](size_t i) { fillVertices.push_back({x(i), y(i), {color.r, color.g, color.b, color.a}}); };
+    Run& r = run (Run::fills);
+    auto emit = [&] (size_t i) { fillVertices.push_back ({ x (i), y (i), { color.r, color.g, color.b, color.a } }); };
     size_t guard = 0;
     while (left.size() > 3 && guard++ < count * count)
     {
@@ -546,118 +565,131 @@ void Draw2D::fill(const float *xy, size_t count, Color color)
         for (size_t k = 0; k < left.size() && !cut; ++k)
         {
             const size_t a = left[(k + left.size() - 1) % left.size()], b = left[k], c = left[(k + 1) % left.size()];
-            const float corner = cross(a, b, c);
-            if (std::abs(corner) < 1e-6f) // no area: a repeated or in-line point, which can go
+            const float corner = cross (a, b, c);
+            if (std::abs (corner) < 1e-6f) // no area: a repeated or in-line point, which can go
             {
-                left.erase(left.begin() + std::ptrdiff_t(k));
+                left.erase (left.begin() + std::ptrdiff_t (k));
                 cut = true;
                 break;
             }
-            if (corner < 0) continue; // reflex: not an ear
+            if (corner < 0)
+                continue; // reflex: not an ear
             bool empty = true;
             for (size_t p : left)
-                if (p != a && p != b && p != c && cross(a, b, p) >= 0 && cross(b, c, p) >= 0 && cross(c, a, p) >= 0)
+                if (p != a && p != b && p != c && cross (a, b, p) >= 0 && cross (b, c, p) >= 0 && cross (c, a, p) >= 0)
                 {
                     empty = false;
                     break;
                 }
-            if (!empty) continue;
-            emit(a), emit(b), emit(c);
+            if (!empty)
+                continue;
+            emit (a), emit (b), emit (c);
             r.count += 3;
-            left.erase(left.begin() + std::ptrdiff_t(k));
+            left.erase (left.begin() + std::ptrdiff_t (k));
             cut = true;
         }
-        if (!cut) break; // not simple after all: give up on the rest
+        if (!cut)
+            break; // not simple after all: give up on the rest
     }
-    if (left.size() == 3) emit(left[0]), emit(left[1]), emit(left[2]), r.count += 3;
+    if (left.size() == 3)
+        emit (left[0]), emit (left[1]), emit (left[2]), r.count += 3;
     // The edge: a hairline along the outline smooths the triangles' hard edges.
-    std::vector<float> outline(xy, xy + 2 * count);
-    outline.push_back(xy[0]), outline.push_back(xy[1]);
-    polyline(outline.data(), count + 1, 1, color);
+    std::vector<float> outline (xy, xy + 2 * count);
+    outline.push_back (xy[0]), outline.push_back (xy[1]);
+    polyline (outline.data(), count + 1, 1, color);
 }
 
-void Draw2D::arc(float cx, float cy, float radius, float width, float from, float to, Color color)
+void Draw2D::arc (float cx, float cy, float radius, float width, float from, float to, Color color)
 {
     const float r = radius + width / 2 + 1;
-    run(Run::shapes).count++;
-    batch.push_back({{cx - r, cy - r, 2 * r, 2 * r}, {from, to, 0, 0}, {color.r, color.g, color.b, color.a}, {},
-                     {3, width / 2, 0, 0}, {}});
+    run (Run::shapes).count++;
+    batch.push_back ({ { cx - r, cy - r, 2 * r, 2 * r }, { from, to, 0, 0 }, { color.r, color.g, color.b, color.a }, {},
+        { 3, width / 2, 0, 0 }, {} });
 }
 
 // Reads one UTF-8 character from text at i, moving i past it. Malformed
 // bytes read as U+FFFD.
-static uint32_t nextCodepoint(std::string_view text, size_t &i)
+static uint32_t nextCodepoint (std::string_view text, size_t& i)
 {
     const unsigned char c = text[i++];
-    if (c < 0x80) return c;
+    if (c < 0x80)
+        return c;
     const int extra = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : c >= 0xC0 ? 1 : -1;
-    if (extra < 0) return 0xFFFD;
+    if (extra < 0)
+        return 0xFFFD;
     uint32_t codepoint = c & (0x3F >> extra);
     for (int k = 0; k < extra; ++k)
     {
-        if (i >= text.size() || (text[i] & 0xC0) != 0x80) return 0xFFFD;
+        if (i >= text.size() || (text[i] & 0xC0) != 0x80)
+            return 0xFFFD;
         codepoint = codepoint << 6 | (text[i++] & 0x3F);
     }
     return codepoint;
 }
 
-float Draw2D::measure(float textSize, std::string_view text, int font)
+float Draw2D::measure (float textSize, std::string_view text, int font)
 {
     float width = 0;
     for (size_t i = 0; i < text.size();)
-        if (const uint32_t c = nextCodepoint(text, i); c >= ' ') width += glyph(font, c).advance;
+        if (const uint32_t c = nextCodepoint (text, i); c >= ' ')
+            width += glyph (font, c).advance;
     return width * textSize / bakeSize;
 }
 
-float Draw2D::text(float x, float y, float textSize, std::string_view text, Color color, Align align, int font)
+float Draw2D::text (float x, float y, float textSize, std::string_view text, Color color, Align align, int font)
 {
-    const float width = measure(textSize, text, font);
-    if (align == Align::center) x -= width / 2;
-    if (align == Align::right) x -= width;
+    const float width = measure (textSize, text, font);
+    if (align == Align::center)
+        x -= width / 2;
+    if (align == Align::right)
+        x -= width;
     const float k = textSize / bakeSize;
     // Small text: glyphs made at this size, each drawn on a whole pixel from
     // the bitmap shifted nearest the pen's fraction of one; the pen still
     // advances by the exact widths, so layout doesn't change.
-    const int pixelSize = textSize < smallText ? int(std::lround(textSize)) : 0;
-    const float baseline = pixelSize ? std::round(y) : y;
+    const int pixelSize = textSize < smallText ? int (std::lround (textSize)) : 0;
+    const float baseline = pixelSize ? std::round (y) : y;
     for (size_t i = 0; i < text.size();)
     {
-        const uint32_t c = nextCodepoint(text, i);
-        if (c < ' ') continue;
-        const float advance = glyph(font, c).advance; // a copy: the next lookup may rehash the map
-        float whole = std::floor(x);
-        int phase = int(std::lround((x - whole) * 4));
-        if (phase == 4) whole += 1, phase = 0;
-        const Glyph &g = glyph(font, c, pixelSize, pixelSize ? phase : 0);
+        const uint32_t c = nextCodepoint (text, i);
+        if (c < ' ')
+            continue;
+        const float advance = glyph (font, c).advance; // a copy: the next lookup may rehash the map
+        float whole = std::floor (x);
+        int phase = int (std::lround ((x - whole) * 4));
+        if (phase == 4)
+            whole += 1, phase = 0;
+        const Glyph& g = glyph (font, c, pixelSize, pixelSize ? phase : 0);
         if (g.w > 0)
         {
-            run(Run::shapes).count++;
+            run (Run::shapes).count++;
             if (pixelSize)
-                batch.push_back({{whole + g.x, baseline + g.y, g.w, g.h}, {g.u0, g.v0, g.u1, g.v1},
-                                 {color.r, color.g, color.b, color.a}, {}, {4, 0, 0, 0}, {}});
+                batch.push_back ({ { whole + g.x, baseline + g.y, g.w, g.h }, { g.u0, g.v0, g.u1, g.v1 },
+                    { color.r, color.g, color.b, color.a }, {}, { 4, 0, 0, 0 }, {} });
             else
-                batch.push_back({{x + g.x * k, y + g.y * k, g.w * k, g.h * k}, {g.u0, g.v0, g.u1, g.v1},
-                                 {color.r, color.g, color.b, color.a}, {}, {1, 0, 0, 0}, {}});
+                batch.push_back ({ { x + g.x * k, y + g.y * k, g.w * k, g.h * k }, { g.u0, g.v0, g.u1, g.v1 },
+                    { color.r, color.g, color.b, color.a }, {}, { 1, 0, 0, 0 }, {} });
         }
         x += advance * k;
     }
     return width;
 }
 
-int Draw2D::addImage(const uint8_t *rgba, int width, int height)
+int Draw2D::addImage (const uint8_t* rgba, int width, int height)
 {
-    if (!device || !rgba || width <= 0 || height <= 0) return -1;
+    if (!device || !rgba || width <= 0 || height <= 0)
+        return -1;
     wgpu::TextureDescriptor textureDescriptor;
-    textureDescriptor.size = {uint32_t(width), uint32_t(height), 1};
+    textureDescriptor.size = { uint32_t (width), uint32_t (height), 1 };
     textureDescriptor.format = wgpu::TextureFormat::RGBA8Unorm;
     textureDescriptor.usage = wgpu::TextureUsage::TextureBinding | wgpu::TextureUsage::CopyDst;
-    const wgpu::Texture texture = device.CreateTexture(&textureDescriptor);
+    const wgpu::Texture texture = device.CreateTexture (&textureDescriptor);
     wgpu::TexelCopyTextureInfo destination;
     destination.texture = texture;
     wgpu::TexelCopyBufferLayout layout;
-    layout.bytesPerRow = uint32_t(width) * 4;
-    layout.rowsPerImage = uint32_t(height);
-    device.GetQueue().WriteTexture(&destination, rgba, size_t(width) * height * 4, &layout, &textureDescriptor.size);
+    layout.bytesPerRow = uint32_t (width) * 4;
+    layout.rowsPerImage = uint32_t (height);
+    device.GetQueue().WriteTexture (&destination, rgba, size_t (width) * height * 4, &layout, &textureDescriptor.size);
     wgpu::BindGroupEntry entries[3];
     entries[0].binding = 0;
     entries[0].buffer = uniforms;
@@ -666,111 +698,123 @@ int Draw2D::addImage(const uint8_t *rgba, int width, int height)
     entries[2].binding = 2;
     entries[2].sampler = sampler;
     wgpu::BindGroupDescriptor descriptor;
-    descriptor.layout = pipeline.GetBindGroupLayout(0);
+    descriptor.layout = pipeline.GetBindGroupLayout (0);
     descriptor.entryCount = 3;
     descriptor.entries = entries;
-    images.push_back(device.CreateBindGroup(&descriptor));
-    imageTextures.push_back(texture);
-    imageSizes.push_back({width, height});
-    imageVersions.push_back(0);
-    return int(images.size() - 1);
+    images.push_back (device.CreateBindGroup (&descriptor));
+    imageTextures.push_back (texture);
+    imageSizes.push_back ({ width, height });
+    imageVersions.push_back (0);
+    return int (images.size() - 1);
 }
 
-void Draw2D::updateImage(int number, const uint8_t *rgba, int x, int y, int width, int height)
+void Draw2D::updateImage (int number, const uint8_t* rgba, int x, int y, int width, int height)
 {
-    if (number < 0 || number >= int(images.size()) || !rgba || width <= 0 || height <= 0) return;
-    const auto [imageWidth, imageHeight] = imageSizes[size_t(number)];
-    if (x < 0 || y < 0 || x + width > imageWidth || y + height > imageHeight) return;
+    if (number < 0 || number >= int (images.size()) || !rgba || width <= 0 || height <= 0)
+        return;
+    const auto [imageWidth, imageHeight] = imageSizes[size_t (number)];
+    if (x < 0 || y < 0 || x + width > imageWidth || y + height > imageHeight)
+        return;
     wgpu::TexelCopyTextureInfo destination;
-    destination.texture = imageTextures[size_t(number)];
-    destination.origin = {uint32_t(x), uint32_t(y), 0};
+    destination.texture = imageTextures[size_t (number)];
+    destination.origin = { uint32_t (x), uint32_t (y), 0 };
     wgpu::TexelCopyBufferLayout layout;
-    layout.bytesPerRow = uint32_t(width) * 4;
-    layout.rowsPerImage = uint32_t(height);
-    const wgpu::Extent3D extent = {uint32_t(width), uint32_t(height), 1};
-    device.GetQueue().WriteTexture(&destination, rgba, size_t(width) * height * 4, &layout, &extent);
-    ++imageVersions[size_t(number)];
+    layout.bytesPerRow = uint32_t (width) * 4;
+    layout.rowsPerImage = uint32_t (height);
+    const wgpu::Extent3D extent = { uint32_t (width), uint32_t (height), 1 };
+    device.GetQueue().WriteTexture (&destination, rgba, size_t (width) * height * 4, &layout, &extent);
+    ++imageVersions[size_t (number)];
 }
 
-int Draw2D::addImage(std::string_view fileBytes)
+int Draw2D::addImage (std::string_view fileBytes)
 {
     int width = 0, height = 0, channels = 0;
-    unsigned char *rgba = stbi_load_from_memory(reinterpret_cast<const unsigned char *>(fileBytes.data()),
-                                                int(fileBytes.size()), &width, &height, &channels, 4);
-    if (!rgba) return -1;
-    const int number = addImage(rgba, width, height);
-    stbi_image_free(rgba);
+    unsigned char* rgba = stbi_load_from_memory (reinterpret_cast<const unsigned char*> (fileBytes.data()),
+        int (fileBytes.size()), &width, &height, &channels, 4);
+    if (!rgba)
+        return -1;
+    const int number = addImage (rgba, width, height);
+    stbi_image_free (rgba);
     return number;
 }
 
-int Draw2D::addSvg(std::string_view svg, int width, int height)
+int Draw2D::addSvg (std::string_view svg, int width, int height)
 {
-    if (width <= 0 || height <= 0) return -1;
-    std::string text(svg); // nanosvg parses in place
-    NSVGimage *parsed = nsvgParse(text.data(), "px", 96);
+    if (width <= 0 || height <= 0)
+        return -1;
+    std::string text (svg); // nanosvg parses in place
+    NSVGimage* parsed = nsvgParse (text.data(), "px", 96);
     if (!parsed || parsed->width <= 0 || parsed->height <= 0)
     {
-        if (parsed) nsvgDelete(parsed);
+        if (parsed)
+            nsvgDelete (parsed);
         return -1;
     }
-    const float scale = std::min(width / parsed->width, height / parsed->height);
-    const int w = std::max(1, int(std::lround(parsed->width * scale))), h = std::max(1, int(std::lround(parsed->height * scale)));
-    std::vector<unsigned char> rgba(size_t(w) * h * 4);
-    NSVGrasterizer *rasterizer = nsvgCreateRasterizer();
-    nsvgRasterize(rasterizer, parsed, 0, 0, scale, rgba.data(), w, h, w * 4);
-    nsvgDeleteRasterizer(rasterizer);
-    nsvgDelete(parsed);
-    return addImage(rgba.data(), w, h);
+    const float scale = std::min (width / parsed->width, height / parsed->height);
+    const int w = std::max (1, int (std::lround (parsed->width * scale))),
+              h = std::max (1, int (std::lround (parsed->height * scale)));
+    std::vector<unsigned char> rgba (size_t (w) * h * 4);
+    NSVGrasterizer* rasterizer = nsvgCreateRasterizer();
+    nsvgRasterize (rasterizer, parsed, 0, 0, scale, rgba.data(), w, h, w * 4);
+    nsvgDeleteRasterizer (rasterizer);
+    nsvgDelete (parsed);
+    return addImage (rgba.data(), w, h);
 }
 
-void Draw2D::imageSize(int number, int &width, int &height) const
+void Draw2D::imageSize (int number, int& width, int& height) const
 {
-    const bool known = number >= 0 && number < int(imageSizes.size());
-    width = known ? imageSizes[size_t(number)].first : 0;
-    height = known ? imageSizes[size_t(number)].second : 0;
+    const bool known = number >= 0 && number < int (imageSizes.size());
+    width = known ? imageSizes[size_t (number)].first : 0;
+    height = known ? imageSizes[size_t (number)].second : 0;
 }
 
-void Draw2D::image(int number, float x, float y, float w, float h, Corners r, Color tint, Source source)
+void Draw2D::image (int number, float x, float y, float w, float h, Corners r, Color tint, Source source)
 {
-    if (number < 0 || number >= int(images.size())) return;
-    Run &into = run(Run::shapes, number);
+    if (number < 0 || number >= int (images.size()))
+        return;
+    Run& into = run (Run::shapes, number);
     into.count++;
-    into.version = imageVersions[size_t(number)];
-    batch.push_back({{x, y, w, h}, {source.u0, source.v0, source.u1, source.v1}, {tint.r, tint.g, tint.b, tint.a}, {}, {2, 0, 0, 0},
-                     {r.topLeft, r.topRight, r.bottomRight, r.bottomLeft}});
+    into.version = imageVersions[size_t (number)];
+    batch.push_back (
+        { { x, y, w, h }, { source.u0, source.v0, source.u1, source.v1 }, { tint.r, tint.g, tint.b, tint.a }, {},
+            { 2, 0, 0, 0 }, { r.topLeft, r.topRight, r.bottomRight, r.bottomLeft } });
 }
 
-void Draw2D::pushClip(float x, float y, float w, float h)
+void Draw2D::pushClip (float x, float y, float w, float h)
 {
-    const auto &outer = clips.back();
-    const float x0 = std::max(std::floor(x), float(outer[0])), y0 = std::max(std::floor(y), float(outer[1]));
-    const float x1 = std::min(std::ceil(x + w), float(outer[0] + outer[2]));
-    const float y1 = std::min(std::ceil(y + h), float(outer[1] + outer[3]));
-    clips.push_back({uint32_t(x0), uint32_t(y0), uint32_t(std::max(x1 - x0, 0.0f)), uint32_t(std::max(y1 - y0, 0.0f))});
+    const auto& outer = clips.back();
+    const float x0 = std::max (std::floor (x), float (outer[0])), y0 = std::max (std::floor (y), float (outer[1]));
+    const float x1 = std::min (std::ceil (x + w), float (outer[0] + outer[2]));
+    const float y1 = std::min (std::ceil (y + h), float (outer[1] + outer[3]));
+    clips.push_back (
+        { uint32_t (x0), uint32_t (y0), uint32_t (std::max (x1 - x0, 0.0f)), uint32_t (std::max (y1 - y0, 0.0f)) });
 }
 
 void Draw2D::popClip()
 {
-    if (clips.size() > 1) clips.pop_back();
+    if (clips.size() > 1)
+        clips.pop_back();
 }
 
-void Draw2D::custom(std::function<void(const wgpu::RenderPassEncoder &)> draw, uint64_t version)
+void Draw2D::custom (std::function<void (const wgpu::RenderPassEncoder&)> draw, uint64_t version)
 {
-    Run &r = run(Run::custom);
+    Run& r = run (Run::custom);
     r.callback = callbacks.size();
     r.version = version;
-    callbacks.push_back(std::move(draw));
+    callbacks.push_back (std::move (draw));
 }
 
 // Grows a buffer to hold at least `bytes`, doubling to avoid churn.
-static void reserve(const wgpu::Device &device, wgpu::Buffer &buffer, size_t &capacity, size_t bytes, wgpu::BufferUsage usage)
+static void reserve (
+    const wgpu::Device& device, wgpu::Buffer& buffer, size_t& capacity, size_t bytes, wgpu::BufferUsage usage)
 {
-    if (bytes <= capacity) return;
-    capacity = std::max(bytes, 2 * capacity);
+    if (bytes <= capacity)
+        return;
+    capacity = std::max (bytes, 2 * capacity);
     wgpu::BufferDescriptor descriptor;
-    descriptor.size = (capacity + 15) & ~size_t(15);
+    descriptor.size = (capacity + 15) & ~size_t (15);
     descriptor.usage = usage | wgpu::BufferUsage::CopyDst;
-    buffer = device.CreateBuffer(&descriptor);
+    buffer = device.CreateBuffer (&descriptor);
 }
 
 // A hash of the recorded draws, runs and canvas size: FNV-1a's mixing, a
@@ -778,60 +822,63 @@ static void reserve(const wgpu::Device &device, wgpu::Buffer &buffer, size_t &ca
 uint64_t Draw2D::signature() const
 {
     uint64_t hash = 14695981039346656037ull;
-    auto add = [&](const void *data, size_t bytes) {
-        const auto *p = static_cast<const uint8_t *>(data);
+    auto add = [&] (const void* data, size_t bytes) {
+        const auto* p = static_cast<const uint8_t*> (data);
         for (; bytes >= 8; p += 8, bytes -= 8)
         {
             uint64_t word;
-            std::memcpy(&word, p, 8);
+            std::memcpy (&word, p, 8);
             hash = (hash ^ word) * 1099511628211ull;
         }
-        for (; bytes; ++p, --bytes) hash = (hash ^ *p) * 1099511628211ull;
+        for (; bytes; ++p, --bytes)
+            hash = (hash ^ *p) * 1099511628211ull;
     };
-    add(size, sizeof(size));
-    add(batch.data(), batch.size() * sizeof(Instance));
-    add(styles.data(), styles.size() * sizeof(LineStyle));
-    add(points.data(), points.size() * sizeof(LinePoint));
-    add(fillVertices.data(), fillVertices.size() * sizeof(FillVertex));
-    for (const Run &r : runs)
-        add(&r.kind, sizeof(r.kind)), add(&r.first, 2 * sizeof(uint32_t)), add(r.clip, sizeof(r.clip)), add(&r.image, sizeof(r.image)),
-            add(&r.version, sizeof(r.version));
+    add (size, sizeof (size));
+    add (batch.data(), batch.size() * sizeof (Instance));
+    add (styles.data(), styles.size() * sizeof (LineStyle));
+    add (points.data(), points.size() * sizeof (LinePoint));
+    add (fillVertices.data(), fillVertices.size() * sizeof (FillVertex));
+    for (const Run& r : runs)
+        add (&r.kind, sizeof (r.kind)), add (&r.first, 2 * sizeof (uint32_t)), add (r.clip, sizeof (r.clip)),
+            add (&r.image, sizeof (r.image)), add (&r.version, sizeof (r.version));
     return hash;
 }
 
 bool Draw2D::changed() const
 {
     recorded = signature(); // flush reuses it
-    for (const Run &r : runs)
-        if (r.kind == Run::custom && r.version == 0) return true;
+    for (const Run& r : runs)
+        if (r.kind == Run::custom && r.version == 0)
+            return true;
     return recorded != drawn;
 }
 
-void Draw2D::flush(const wgpu::RenderPassEncoder &pass)
+void Draw2D::flush (const wgpu::RenderPassEncoder& pass)
 {
-    if (!pipeline) return;
+    if (!pipeline)
+        return;
     drawn = recorded ? recorded : signature();
     recorded = 0;
     if (size[0] != uniformSize[0] || size[1] != uniformSize[1])
     {
-        const float data[4] = {size[0], size[1], 0, 0};
-        device.GetQueue().WriteBuffer(uniforms, 0, data, sizeof(data));
+        const float data[4] = { size[0], size[1], 0, 0 };
+        device.GetQueue().WriteBuffer (uniforms, 0, data, sizeof (data));
         uniformSize[0] = size[0], uniformSize[1] = size[1];
     }
 
     // Everything goes up in one write per buffer; the runs then draw slices of it.
     if (!batch.empty())
     {
-        const uint64_t bytes = batch.size() * sizeof(Instance);
-        reserve(device, instances, capacity, bytes, wgpu::BufferUsage::Vertex);
-        device.GetQueue().WriteBuffer(instances, 0, batch.data(), bytes);
+        const uint64_t bytes = batch.size() * sizeof (Instance);
+        reserve (device, instances, capacity, bytes, wgpu::BufferUsage::Vertex);
+        device.GetQueue().WriteBuffer (instances, 0, batch.data(), bytes);
     }
     if (points.size() >= 2)
     {
-        const size_t styleBytes = styles.size() * sizeof(LineStyle), pointBytes = points.size() * sizeof(LinePoint);
+        const size_t styleBytes = styles.size() * sizeof (LineStyle), pointBytes = points.size() * sizeof (LinePoint);
         const size_t oldStyles = styleCapacity, oldPoints = pointCapacity;
-        reserve(device, lineStyles, styleCapacity, styleBytes, wgpu::BufferUsage::Storage);
-        reserve(device, linePoints, pointCapacity, pointBytes, wgpu::BufferUsage::Storage);
+        reserve (device, lineStyles, styleCapacity, styleBytes, wgpu::BufferUsage::Storage);
+        reserve (device, linePoints, pointCapacity, pointBytes, wgpu::BufferUsage::Storage);
         if (!lineBindGroup || oldStyles != styleCapacity || oldPoints != pointCapacity)
         {
             wgpu::BindGroupEntry entries[3];
@@ -842,50 +889,52 @@ void Draw2D::flush(const wgpu::RenderPassEncoder &pass)
             entries[2].binding = 2;
             entries[2].buffer = linePoints;
             wgpu::BindGroupDescriptor descriptor;
-            descriptor.layout = linePipeline.GetBindGroupLayout(0);
+            descriptor.layout = linePipeline.GetBindGroupLayout (0);
             descriptor.entryCount = 3;
             descriptor.entries = entries;
-            lineBindGroup = device.CreateBindGroup(&descriptor);
+            lineBindGroup = device.CreateBindGroup (&descriptor);
         }
-        device.GetQueue().WriteBuffer(lineStyles, 0, styles.data(), styleBytes);
-        device.GetQueue().WriteBuffer(linePoints, 0, points.data(), pointBytes);
+        device.GetQueue().WriteBuffer (lineStyles, 0, styles.data(), styleBytes);
+        device.GetQueue().WriteBuffer (linePoints, 0, points.data(), pointBytes);
     }
 
     if (!fillVertices.empty())
     {
-        const size_t bytes = fillVertices.size() * sizeof(FillVertex);
-        reserve(device, fillBuffer, fillCapacity, bytes, wgpu::BufferUsage::Vertex);
-        device.GetQueue().WriteBuffer(fillBuffer, 0, fillVertices.data(), bytes);
+        const size_t bytes = fillVertices.size() * sizeof (FillVertex);
+        reserve (device, fillBuffer, fillCapacity, bytes, wgpu::BufferUsage::Vertex);
+        device.GetQueue().WriteBuffer (fillBuffer, 0, fillVertices.data(), bytes);
     }
 
-    for (const Run &r : runs)
+    for (const Run& r : runs)
     {
-        if (r.clip[2] == 0 || r.clip[3] == 0) continue; // clipped away entirely
-        pass.SetScissorRect(r.clip[0], r.clip[1], r.clip[2], r.clip[3]);
+        if (r.clip[2] == 0 || r.clip[3] == 0)
+            continue; // clipped away entirely
+        pass.SetScissorRect (r.clip[0], r.clip[1], r.clip[2], r.clip[3]);
         if (r.kind == Run::fills && r.count)
         {
-            pass.SetPipeline(fillPipeline);
-            pass.SetBindGroup(0, fillBindGroup);
-            pass.SetVertexBuffer(0, fillBuffer);
-            pass.Draw(r.count, 1, r.first);
+            pass.SetPipeline (fillPipeline);
+            pass.SetBindGroup (0, fillBindGroup);
+            pass.SetVertexBuffer (0, fillBuffer);
+            pass.Draw (r.count, 1, r.first);
         }
         if (r.kind == Run::shapes && r.count)
         {
-            pass.SetPipeline(pipeline);
-            pass.SetBindGroup(0, r.image >= 0 ? images[size_t(r.image)] : bindGroup);
-            pass.SetVertexBuffer(0, instances);
-            pass.Draw(4, r.count, 0, r.first);
+            pass.SetPipeline (pipeline);
+            pass.SetBindGroup (0, r.image >= 0 ? images[size_t (r.image)] : bindGroup);
+            pass.SetVertexBuffer (0, instances);
+            pass.Draw (4, r.count, 0, r.first);
         }
         // Instance i is the segment from point i to i + 1, so n points draw n - 1.
         if (r.kind == Run::lines && r.count >= 2)
         {
-            pass.SetPipeline(linePipeline);
-            pass.SetBindGroup(0, lineBindGroup);
-            pass.Draw(4, r.count - 1, 0, r.first);
+            pass.SetPipeline (linePipeline);
+            pass.SetBindGroup (0, lineBindGroup);
+            pass.Draw (4, r.count - 1, 0, r.first);
         }
-        if (r.kind == Run::custom) callbacks[r.callback](pass);
+        if (r.kind == Run::custom)
+            callbacks[r.callback](pass);
     }
-    pass.SetScissorRect(0, 0, uint32_t(size[0]), uint32_t(size[1]));
+    pass.SetScissorRect (0, 0, uint32_t (size[0]), uint32_t (size[1]));
 }
 
-}
+} // namespace gpu

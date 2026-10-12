@@ -11,9 +11,13 @@
 // a native WebView embedded in their window (on Linux, in a helper process),
 // which loads the same page through the same extension. Sizing policy stays
 // with the plugin.
-namespace webview {
+namespace webview
+{
 
-namespace platform { class Page; }
+namespace platform
+{
+class Page;
+}
 
 class Gui
 {
@@ -22,37 +26,40 @@ public:
     ~Gui();
 
     // Call from clap_plugin.init: looks up the host's and the plugin's webview extensions.
-    void init(const clap_plugin_t *plugin, const clap_host_t *host);
+    void init (const clap_plugin_t* plugin, const clap_host_t* host);
 
     // clap.gui
-    bool isApiSupported(const char *api, bool floating) const;
-    bool getPreferredApi(const char **api, bool *floating) const;
-    bool create(const char *api, bool floating);
+    bool isApiSupported (const char* api, bool floating) const;
+    bool getPreferredApi (const char** api, bool* floating) const;
+    bool create (const char* api, bool floating);
     void destroy();
-    bool isCreated() const { return created; }
-    bool setParent(const clap_window_t *window);
-    void setSize(uint32_t width, uint32_t height);
+    bool isCreated() const
+    {
+        return created;
+    }
+    bool setParent (const clap_window_t* window);
+    void setSize (uint32_t width, uint32_t height);
     // clap.gui sizes per page point: 1 on macOS, the window's scale on Windows.
     float pixelsPerPoint() const;
     bool show();
     bool hide();
 
     // On Linux the page needs servicing from the host's main thread timer.
-    void onTimer(clap_id timer);
+    void onTimer (clap_id timer);
 
     // Sends to whichever WebView shows the page. Hosts that open the page
     // without clap.gui.create still receive messages. Fails if none is open.
-    bool send(const core::Value &message);
+    bool send (const core::Value& message);
 
 private:
     std::unique_ptr<platform::Page> openPage();
 
-    const clap_plugin_t *plugin = nullptr;
-    const clap_host_t *host = nullptr;
-    const clap_plugin_webview_t *pluginWebview = nullptr;
-    const clap_host_webview_t *hostWebview = nullptr;
-    const clap_host_gui_t *hostGui = nullptr;
-    const clap_host_timer_support_t *hostTimers = nullptr;
+    const clap_plugin_t* plugin = nullptr;
+    const clap_host_t* host = nullptr;
+    const clap_plugin_webview_t* pluginWebview = nullptr;
+    const clap_host_webview_t* hostWebview = nullptr;
+    const clap_host_gui_t* hostGui = nullptr;
+    const clap_host_timer_support_t* hostTimers = nullptr;
     clap_id timer = CLAP_INVALID_ID;
     bool created = false;
     std::unique_ptr<platform::Page> page;
@@ -65,4 +72,4 @@ private:
     int restarts = 0;
 };
 
-}
+} // namespace webview

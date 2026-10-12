@@ -3,42 +3,51 @@
 #include "native.h"
 
 // The same steps as CHOC's own DesktopWindow::setContent().
-namespace webview::platform {
+namespace webview::platform
+{
 
-const char *const windowApi = CLAP_WINDOW_API_WIN32;
+const char* const windowApi = CLAP_WINDOW_API_WIN32;
 const bool needsTimer = false;
 
-void *attach(void *view, const clap_window_t *parent)
+void* attach (void* view, const clap_window_t* parent)
 {
-    HWND child = (HWND)view, host = (HWND)parent->win32;
-    if (!IsWindow(host)) return nullptr;
-    const LONG_PTR style = GetWindowLongPtrW(child, GWL_STYLE);
-    SetWindowLongPtrW(child, GWL_STYLE, (style & ~LONG_PTR(WS_POPUP)) | WS_CHILD | WS_CLIPSIBLINGS);
-    SetParent(child, host);
+    HWND child = (HWND) view, host = (HWND) parent->win32;
+    if (!IsWindow (host))
+        return nullptr;
+    const LONG_PTR style = GetWindowLongPtrW (child, GWL_STYLE);
+    SetWindowLongPtrW (child, GWL_STYLE, (style & ~LONG_PTR (WS_POPUP)) | WS_CHILD | WS_CLIPSIBLINGS);
+    SetParent (child, host);
     RECT area = {};
-    GetClientRect(host, &area);
-    SetWindowPos(child, nullptr, 0, 0, area.right, area.bottom,
-                 SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    GetClientRect (host, &area);
+    SetWindowPos (child, nullptr, 0, 0, area.right, area.bottom, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
     return host;
 }
 
-void detach(void *view, void *)
+void detach (void* view, void*)
 {
-    ShowWindow((HWND)view, SW_HIDE);
-    SetParent((HWND)view, nullptr);
+    ShowWindow ((HWND) view, SW_HIDE);
+    SetParent ((HWND) view, nullptr);
 }
 
-void setSize(void *view, uint32_t width, uint32_t height)
+void setSize (void* view, uint32_t width, uint32_t height)
 {
-    SetWindowPos((HWND)view, nullptr, 0, 0, int(width), int(height),
-                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos ((HWND) view, nullptr, 0, 0, int (width), int (height), SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-void setVisible(void *view, bool visible) { ShowWindow((HWND)view, visible ? SW_SHOW : SW_HIDE); }
+void setVisible (void* view, bool visible)
+{
+    ShowWindow ((HWND) view, visible ? SW_SHOW : SW_HIDE);
+}
 
-float scale(void *view) { return float(GetDpiForWindow((HWND)view)) / 96.0f; }
+float scale (void* view)
+{
+    return float (GetDpiForWindow ((HWND) view)) / 96.0f;
+}
 
 // Before there is a view, the system's scale is the best guess.
-float defaultScale() { return float(GetDpiForSystem()) / 96.0f; }
-
+float defaultScale()
+{
+    return float (GetDpiForSystem()) / 96.0f;
 }
+
+} // namespace webview::platform

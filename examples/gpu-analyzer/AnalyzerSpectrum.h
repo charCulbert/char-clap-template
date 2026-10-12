@@ -35,7 +35,10 @@ struct AnalyzerSpectrum
     static constexpr int hop = 240; // 5 ms at 48 kHz: the short window's step
 
     // While nothing pushes.
-    AnalyzerSpectrum() { input.prepare (2, ringSize); }
+    AnalyzerSpectrum()
+    {
+        input.prepare (2, ringSize);
+    }
 
     // Audio thread: never blocks or allocates.
     void push (const float* left, const float* right, uint32_t frames) noexcept
@@ -66,7 +69,7 @@ struct AnalyzerSpectrum
         // long gap (the page was closed), only the last 100 ms: resonators
         // forget older input. (Sample positions are unsigned and may wrap,
         // so compare distances.)
-        if (! started || end - input.getPosition() > uint32_t (20 * Long::hop))
+        if (!started || end - input.getPosition() > uint32_t (20 * Long::hop))
         {
             const uint32_t from = end > uint32_t (20 * Long::hop) ? end - 20 * Long::hop : uint32_t (hop);
             const uint32_t first = (from + Long::hop - 1) / Long::hop * Long::hop; // on every resolution's hop grid
@@ -103,14 +106,18 @@ struct AnalyzerSpectrum
     }
 
     // The display's frequency scale: logarithmic, every octave the same width.
-    static double scale (double hz) { return std::log (hz); }
+    static double scale (double hz)
+    {
+        return std::log (hz);
+    }
 
 private:
     static constexpr int ringSize = 65536;
 
     // The newest `count` samples up to the hop's end, the mix of both
     // channels; false if the writer overtook the read.
-    static bool readMix (const chardsp::AnalysisBuffer<float>& input, int count, std::vector<float>& mix, std::vector<float>& right)
+    static bool readMix (
+        const chardsp::AnalysisBuffer<float>& input, int count, std::vector<float>& mix, std::vector<float>& right)
     {
         mix.resize (size_t (count));
         right.resize (size_t (count));
@@ -148,8 +155,10 @@ private:
             // Periodic, zero-padded to twice its length, and rotated so the
             // window's centre is sample 0 ("zero phase"): then a sine's
             // neighbouring bins agree in phase and interpolate cleanly.
-            spectrum.prepare ({ .size = windowSize, .fftSize = fftSize, .window = chardsp::SpectrumWindow::blackmanHarris,
-                                .periodic = true });
+            spectrum.prepare ({ .size = windowSize,
+                .fftSize = fftSize,
+                .window = chardsp::SpectrumWindow::blackmanHarris,
+                .periodic = true });
 
             const double windowBinHz = double (rate) / windowSize, step = std::pow (2.0, 1.0 / 24);
             hz.clear();
@@ -166,7 +175,8 @@ private:
             gain.resize (hz.size());
             for (size_t b = 0; b < hz.size(); ++b)
             {
-                twist[b] = std::exp (std::complex<double> (-2 * pi * 2 * widthHz[b] / hopRate, 2 * pi * hz[b] / hopRate));
+                twist[b] =
+                    std::exp (std::complex<double> (-2 * pi * 2 * widthHz[b] / hopRate, 2 * pi * hz[b] / hopRate));
                 gain[b] = 1 - std::abs (twist[b]);
             }
             state1.assign (hz.size(), 0.0);
@@ -177,7 +187,7 @@ private:
         // writer overtook while it was read is left out.
         void step (const chardsp::AnalysisBuffer<float>& input, std::vector<float>& block)
         {
-            if (! readMix (input, windowSize, block, other))
+            if (!readMix (input, windowSize, block, other))
                 return;
             spectrum.process (block.data());
             const std::complex<float>* bins = spectrum.getBins();
@@ -187,8 +197,8 @@ private:
                 // The FFT's value at the band's centre, interpolated between bins.
                 const double bin = std::min (hz[b] / binHz, fftSize / 2 - 1.001);
                 const int k = int (bin);
-                const std::complex<double> atCentre = std::complex<double> (bins[k]) * (k + 1 - bin)
-                                                 + std::complex<double> (bins[k + 1]) * (bin - k);
+                const std::complex<double> atCentre =
+                    std::complex<double> (bins[k]) * (k + 1 - bin) + std::complex<double> (bins[k + 1]) * (bin - k);
                 state1[b] = state1[b] * twist[b] + atCentre * gain[b];
                 state2[b] = state2[b] * twist[b] + state1[b] * gain[b];
             }
@@ -202,7 +212,8 @@ private:
             display.assign (bandCount, -140.0);
             for (size_t b = 0; b < hz.size(); ++b)
             {
-                const int d = int (std::floor ((scale (hz[b]) - scale (minHz)) / (scale (maxHz) - scale (minHz)) * bandCount));
+                const int d =
+                    int (std::floor ((scale (hz[b]) - scale (minHz)) / (scale (maxHz) - scale (minHz)) * bandCount));
                 if (d < 0 || d >= bandCount)
                     continue;
                 const double amplitude = std::abs (state2[b]) * spectrum.getScale();
@@ -222,7 +233,8 @@ private:
                 for (int g = d0 + 1; g < d1; ++g)
                 {
                     const double t = double (g - d0) / (d1 - d0), t2 = t * t, t3 = t2 * t;
-                    display[g] = (2 * t3 - 3 * t2 + 1) * y0 + (t3 - 2 * t2 + t) * t0 + (-2 * t3 + 3 * t2) * y1 + (t3 - t2) * t1;
+                    display[g] =
+                        (2 * t3 - 3 * t2 + 1) * y0 + (t3 - 2 * t2 + t) * t0 + (-2 * t3 + 3 * t2) * y1 + (t3 - t2) * t1;
                 }
             }
             // Beyond this resolution's first and last bands, hold their levels,

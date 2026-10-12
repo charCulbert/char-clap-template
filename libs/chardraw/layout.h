@@ -17,7 +17,8 @@
 // hit-testing (Clay_PointerOver), floating boxes for popups and tooltips,
 // scroll containers (scroll with .clip = {.vertical = true,
 // .childOffset = Clay_GetScrollOffset()}).
-namespace gpu {
+namespace gpu
+{
 
 struct Rect
 {
@@ -29,33 +30,39 @@ class Layout
 public:
     // Room for maxElements boxes a frame (text runs count too). Clay's
     // default, 8192, takes 6 MB; a plugin's interface needs far fewer.
-    explicit Layout(int maxElements = 2048);
+    explicit Layout (int maxElements = 2048);
     ~Layout();
 
     // Starts declaring a frame: the canvas in pixels, and pixels per point.
-    void begin(Draw2D &draw, float width, float height, float scale);
+    void begin (Draw2D& draw, float width, float height, float scale);
     // The pointer, in pixels, for Clay_Hovered and Clay_PointerOver. Clay tests
     // it against the previous frame's layout. Call it from View::pointer.
-    void pointer(float x, float y, bool down);
+    void pointer (float x, float y, bool down);
     // Wheel notches (positive away from the user) for the scroll container
     // under the pointer. Call it from View::pointer.
-    void wheel(float notches);
+    void wheel (float notches);
     // Clay keeps pointers to text until end(); this keeps the characters alive.
-    Clay_String text(std::string characters);
+    Clay_String text (std::string characters);
     // Marks a box as custom: pass the result as .custom = {.customData = ...}.
-    void *custom(int kind, void *data = nullptr);
+    void* custom (int kind, void* data = nullptr);
     // A soft shadow under a box with a background: pass the result as
     // .userData (which Layout keeps for this). Offset and blur in points.
-    void *shadow(Color color, float blur = 8, float dx = 0, float dy = 2);
+    void* shadow (Color color, float blur = 8, float dx = 0, float dy = 2);
     // A Draw2D image for a box: pass the result as .image = {.imageData = ...}.
     // The box's backgroundColor alpha, if set, fades it.
-    static void *image(int number) { return reinterpret_cast<void *>(intptr_t(number) + 1); }
+    static void* image (int number)
+    {
+        return reinterpret_cast<void*> (intptr_t (number) + 1);
+    }
     // Makes this layout's Clay context Clay's current one, which begin()
     // does: for asking Clay about the last frame between frames (from input
     // or a screen reader), when another instance's may be current.
-    void activate() const { Clay_SetCurrentContext(context); }
+    void activate() const
+    {
+        Clay_SetCurrentContext (context);
+    }
     // Computes the layout, draws it, and calls onCustom for each custom box.
-    void end(const std::function<void(int kind, void *data, Rect pixels)> &onCustom);
+    void end (const std::function<void (int kind, void* data, Rect pixels)>& onCustom);
     // What the last end() laid out, in order: each element's id and box
     // (pixels), with its words for a line of text. Screen readers read it.
     struct Drawn
@@ -68,12 +75,20 @@ public:
     std::vector<Drawn> drawn;
 
 private:
-    struct Custom { int kind; void *data; };
-    struct Shadow { Color color; float blur, dx, dy; };
+    struct Custom
+    {
+        int kind;
+        void* data;
+    };
+    struct Shadow
+    {
+        Color color;
+        float blur, dx, dy;
+    };
     std::deque<Shadow> shadows;
     std::vector<char> memory;
-    Clay_Context *context = nullptr;
-    Draw2D *draw = nullptr;
+    Clay_Context* context = nullptr;
+    Draw2D* draw = nullptr;
     float scale = 1;
     float pointerX = -1e9f, pointerY = -1e9f;
     bool pointerDown = false;
@@ -84,6 +99,9 @@ private:
 };
 
 // Clay colors are 0-255.
-inline Clay_Color clayColor(Color c) { return {c.r * 255, c.g * 255, c.b * 255, c.a * 255}; }
-
+inline Clay_Color clayColor (Color c)
+{
+    return { c.r * 255, c.g * 255, c.b * 255, c.a * 255 };
 }
+
+} // namespace gpu
