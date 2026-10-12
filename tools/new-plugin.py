@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Starts a new CLAP plugin project from one of the examples.
 
-    python3 tools/new-plugin.py --from filter --name "Warm Filter" \\
-        --vendor "Your Name" --dest ~/Development/warm-filter
+    python3 tools/new-plugin.py --from imgui-filter --name "My Plugin" \\
+        --vendor "Your Name" --dest ~/Development/my-plugin
 
 Anything left out is asked for. The new folder gets the example's files with
 its names swapped for yours, only the libraries it uses (libs/), a GitHub
@@ -22,21 +22,21 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-# What each example is called now, and so what gets replaced.
+# Each example, by its folder in examples/: what it's called now, and so what gets replaced.
 EXAMPLES = {
-    "synth": dict(folder="webview-synth", name="WebView Synth", target="WebViewSynth",
+    "webview-synth": dict(name="WebView Synth", target="WebViewSynth",
                   id="com.charlieculbert.webviewsynth", subtype="WvSy", libs=["core", "webview"],
                   notices=["clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "choc"]),
-    "analyzer": dict(folder="gpu-analyzer", name="GPU Analyzer", target="GpuAnalyzer",
+    "gpu-analyzer": dict(name="GPU Analyzer", target="GpuAnalyzer",
                      id="com.charlieculbert.gpuanalyzer", subtype="GpAn", libs=["core", "gpu", "draw2d"],
                      notices=["clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "signalsmith-basics", "inter", "emscripten"]),
-    "spectrogram": dict(folder="gpu-spectrogram", name="GPU Spectrogram", target="GpuSpectrogram",
+    "gpu-spectrogram": dict(name="GPU Spectrogram", target="GpuSpectrogram",
                         id="com.charlieculbert.gpuspectrogram", subtype="GpSg", libs=["core", "gpu", "draw2d"],
                         notices=["clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "cicuetea", "plex", "emscripten"]),
-    "filter": dict(folder="imgui-filter", name="ImGui Filter", target="ImGuiFilter",
+    "imgui-filter": dict(name="ImGui Filter", target="ImGuiFilter",
                    id="com.charlieculbert.imguifilter", subtype="ImFl", libs=["core", "gpu"],
                    notices=["clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "imgui", "cmajor", "inter", "emscripten"]),
-    "gain": dict(folder="headless-gain", name="Headless Gain", target="HeadlessGain",
+    "headless-gain": dict(name="Headless Gain", target="HeadlessGain",
                  id="com.charlieculbert.headlessgain", subtype="HdGn", libs=["core"],
                  notices=["clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem"]),
 }
@@ -107,7 +107,7 @@ def words(text):
 
 def four_char_code(text):
     """An AudioUnit code from a name: two letters of each of the first two
-    words ("Warm Filter" -> "WaFi"), or four of one word."""
+    words ("My Plugin" -> "MyPl"), or four of one word."""
     parts = [w for w in words(text) if w[0].isalpha()] or ["Plug"]
     code = parts[0][:2].capitalize() + parts[1][:2].capitalize() if len(parts) > 1 else parts[0][:4].capitalize()
     return (code + "xxxx")[:4]
@@ -124,10 +124,11 @@ def ask(label, default=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--from", dest="example", choices=EXAMPLES,
-                        help="gain (no UI), synth (web page UI), analyzer (Draw2D and Clay on WebGPU: our own drawing), "
-                             "spectrogram (Draw2D's views and controls), filter (Dear ImGui)")
-    parser.add_argument("--name", help='the plugin\'s name, e.g. "Warm Filter"')
+    parser.add_argument("--from", dest="example",
+                        help="an example's folder in examples/: headless-gain (no UI), webview-synth (a web page), "
+                             "gpu-analyzer (Draw2D and Clay on WebGPU, its own drawing), gpu-spectrogram (Draw2D's "
+                             "views and controls), imgui-filter (Dear ImGui)")
+    parser.add_argument("--name", help='the plugin\'s name, e.g. "My Plugin"')
     parser.add_argument("--vendor", help="you or your company")
     parser.add_argument("--dest", help="the new project's folder (must not exist yet, or be empty)")
     parser.add_argument("--id", help="reverse-DNS plugin ID (default: com.<vendor>.<name>)")
@@ -137,9 +138,9 @@ def main():
     parser.add_argument("--license", default="MIT", help='"MIT" (default), or "none" to add no LICENSE file')
     args = parser.parse_args()
 
-    example = args.example or ask("Example (gain, synth, analyzer, spectrogram, filter)", "filter")
+    example = Path(args.example or ask(f"Example ({', '.join(EXAMPLES)})", "imgui-filter")).name
     if example not in EXAMPLES:
-        sys.exit(f"unknown example: {example}")
+        sys.exit(f"unknown example: {example} (one of {', '.join(EXAMPLES)})")
     old = EXAMPLES[example]
     name = args.name or ask("Name")
     vendor = args.vendor or ask("Vendor")
@@ -188,7 +189,7 @@ def main():
         return any(part.startswith("build") or part == ".DS_Store" for part in path.parts)
 
     # The example, at the project's root; libs/ beside it.
-    source = REPO / "examples" / old["folder"]
+    source = REPO / "examples" / example
     for path in sorted(source.rglob("*")):
         relative = path.relative_to(source)
         if path.is_file() and not skip(relative):
@@ -206,9 +207,9 @@ def main():
     def fix_workflow(text):
         text = re.sub(r"on:\n  push:\n    branches: .*\n    paths:\n(?:      - .*\n)+  pull_request:\n    paths:\n(?:      - .*\n)+",
                       "on:\n  push:\n    branches: [main] # other branches run through their pull request\n  pull_request:\n", text)
-        text = text.replace(f"PROJECT: examples/{old['folder']}", "PROJECT: .")
+        text = text.replace(f"PROJECT: examples/{example}", "PROJECT: .")
         return text.replace(" Runs when the plugin or a library\n# it uses changes.", "")
-    copy(REPO / ".github" / "workflows" / f"{old['folder']}.yml",
+    copy(REPO / ".github" / "workflows" / f"{example}.yml",
          dest / ".github" / "workflows" / "build.yml", fix_workflow)
 
     # A VS Code task that builds and opens the plugin in clap-host, if it's installed. The task's
@@ -216,7 +217,7 @@ def main():
     if shutil.which("clap-host"):
         (dest / ".vscode").mkdir()
         (dest / ".vscode" / "clap-host.txt").write_text(
-            "panel\n" + ("" if example == "gain" else "gui.open\n"), encoding="utf-8")
+            "panel\n" + ("" if example == "headless-gain" else "gui.open\n"), encoding="utf-8")
         (dest / ".vscode" / "tasks.json").write_text(json.dumps({"version": "2.0.0", "tasks": [
             {"label": "Build", "type": "shell", "command": "cmake -B build && cmake --build build --config Release --parallel",
              "group": {"kind": "build", "isDefault": True}, "problemMatcher": ["$gcc"]},
@@ -226,7 +227,7 @@ def main():
              "dependsOn": "Build", "problemMatcher": []},
         ]}, indent=2) + "\n", encoding="utf-8")
 
-    (dest / ".gitignore").write_text("build*/\n.DS_Store\n", encoding="utf-8")
+    (dest / ".gitignore").write_text("build*/\n.cache/\n.idea/\n.DS_Store\n*.swp\n", encoding="utf-8")
     if args.license.lower() == "mit":
         (dest / "LICENSE").write_text(MIT.format(year=datetime.date.today().year, vendor=vendor), encoding="utf-8")
     notices = "\n".join(f"- {title}: {license}. {url}" for title, url, license in (NOTICES[n] for n in old["notices"]))

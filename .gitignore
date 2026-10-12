@@ -16,8 +16,10 @@ build*/
 *.mobileprovision
 *.p8
 
-# Editor caches
+# Editor caches and swap files
 .cache/
+.idea/
+*.swp
 
 # Python leaves this when check-templates.py loads new-plugin.py
 __pycache__/
