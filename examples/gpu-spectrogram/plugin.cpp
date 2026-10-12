@@ -51,7 +51,7 @@ enum SettingId
     // How it's shown, which only the interface uses.
     S_LOW, S_HIGH,       // the frequency range, Hz (the interface stops at Nyquist); the upper from 100 Hz, to zoom in on the bass
     S_FLOOR, S_CEILING,  // the level range, dB
-    S_SCALE,             // gpu::Spectrogram::Scale: linear, log, mel
+    S_SCALE,             // gpu::Spectrogram::Scale: linear, log
     S_PALETTE,           // the colour map: gpu::ColourScheme::presets, 0 magma, 1 viridis
     S_SCROLL_RATE,       // points a second, whatever the hop
     S_PIANO, S_SNAP, S_CURSOR, // on or off: the piano strip, snapping to peaks, and the readout under the pointer
@@ -76,7 +76,7 @@ static const Setting settings[S_COUNT] = {
     {"High frequency", 100, 96000, 24000},
     {"Floor", -160, -20, -100}, // the interface keeps it 10 dB under the ceiling
     {"Ceiling", -20, 12, 0},
-    {"Scale", 0, 2, 1},
+    {"Scale", 0, 1, 1}, // an earlier state's 2 (mel, since removed) loads as log
     {"Colour map", 0, 6, 0}, // a new name: an earlier state's "Palette" (five maps) is left unread
     {"Scroll rate", 25, 200, 100},
     {"Piano", 0, 1, 1},

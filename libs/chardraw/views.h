@@ -362,8 +362,8 @@ inline void spectrum(Ui &ui, const char *name, const float *decibels, const floa
 
 // A scrolling spectrogram: the caller adds one column at a time (a value in
 // decibels per frequency, as an FFT gives), newest on the right, and it keeps
-// the last columns that fit. Frequencies go up the side on a linear, log or
-// mel scale. It keeps the values it was given, so a new scale, range or
+// the last columns that fit. Frequencies go up the side on a linear or log
+// scale. It keeps the values it was given, so a new scale, range or
 // colour scheme redraws the whole history, and it sends the GPU only new columns.
 // Time goes across one column per add(), or (pixelsPerSecond) at a steady
 // rate whatever the columns' rate. probe() says what's under the pointer.
@@ -371,7 +371,7 @@ inline void spectrum(Ui &ui, const char *name, const float *decibels, const floa
 class Spectrogram
 {
 public:
-    enum class Scale { linear, log, mel };
+    enum class Scale { linear, log };
     struct Options
     {
         float minFrequency = 20, maxFrequency = 24000;
@@ -489,7 +489,7 @@ public:
                 ui.draw.image(image, at.x + w1, at.y, at.w - w1, at.h, {}, {1, 1, 1, 1}, {0, 0, float((count - first) / n), 1});
         }
         drawn = {r, at.x, at.w, end - count, count, ui.s};
-        static const char *const scales[] = {"linear", "log", "mel"};
+        static const char *const scales[] = {"linear", "log"};
         char about[200];
         int length = std::snprintf(about, sizeof about, "Spectrogram, newest on the right: %g Hz to %g Hz on a %s scale, %g to %g dB",
                                    options.minFrequency, options.maxFrequency, scales[int(options.scale)], options.minDecibels,
@@ -512,8 +512,7 @@ public:
 
     // Frequencies to mark up the side of r (pixels), lowest first: round
     // numbers, as many as fit `gap` pixels apart. Linear: a step of 1, 2 or 5
-    // times a power of ten. Log and mel, a decade at a time (they crowd
-    // differently in each): its start alone, or 1, 2 and 5 times it, or
+    // times a power of ten. Log, a decade at a time: its start alone, or 1, 2 and 5 times it, or
     // steps of 1, 0.5, 0.2, 0.1... times it (30, 40, 50 in a narrow range;
     // 41, 42, 43 in a narrower one), the finest that fits.
     std::vector<float> frequencyMarks(Rect r, float gap) const
@@ -691,8 +690,6 @@ private:
             const float floor = std::max(low, 1.0f);
             return floor * std::pow(high / floor, fraction);
         }
-        if (options.scale == Scale::mel)
-            return 700 * (std::pow(10.0f, (mel(low) + (mel(high) - mel(low)) * fraction) / 2595) - 1);
         return low + (high - low) * fraction;
     }
     float fractionOf(float hz) const
@@ -703,10 +700,8 @@ private:
             const float floor = std::max(low, 1.0f);
             return std::log(std::max(hz, 1e-3f) / floor) / std::log(high / floor);
         }
-        if (options.scale == Scale::mel) return (mel(hz) - mel(low)) / (mel(high) - mel(low));
         return (hz - low) / (high - low);
     }
-    static float mel(float hz) { return 2595 * std::log10(1 + hz / 700); }
 
     // Which bins each row shows, top row first: the loudest of those in its
     // band, or between the two either side of a band with none in it.

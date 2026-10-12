@@ -51,7 +51,7 @@ automating them.
 | Channel | Mix, Left or Right | Mix |
 | Frequency range | lower 0 to 500 Hz, upper 100 Hz to Nyquist | 20 Hz to 24 kHz |
 | Level range | floor −160 to −20 dB, ceiling −20 to 12 dB, the floor 10 dB under the ceiling at least | −100 to 0 dB |
-| Scale | linear, log or mel | log |
+| Scale | linear or log | log |
 | Colours | Magma, Viridis, Inferno, Plasma, Cividis, Turbo or Grayscale | Magma |
 | Scroll rate | 25 to 200 points a second, whatever the hop | 100 |
 | Piano strip, snap, cursor readout, labels, click tone | on or off | on |

@@ -2330,7 +2330,6 @@ static void spectrogramMarks()
     CHECK(narrow.size() >= 6 && narrow.front() == 40 && narrow.back() == 46); // a hertz apart
     const std::vector<float> linear = marks(0, 1000, S::linear, 400, 18);
     CHECK(linear.size() == 21 && linear[1] == 50); // 50 Hz is 20 pixels
-    CHECK(marks(20, 24000, S::mel, 430, 28).size() >= 5);
 }
 
 // A spectrum's curve: a pixel apart, through each bin's level where it

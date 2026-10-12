@@ -683,7 +683,7 @@ private:
                     static const char *schemes[gpu::ColourScheme::presetCount + 1];
                     for (int i = 0; i < gpu::ColourScheme::presetCount; ++i) schemes[i] = gpu::ColourScheme::presets[i].name;
                     schemes[gpu::ColourScheme::presetCount] = "Theme";
-                    static const char *const scales[] = {"Linear", "Log", "Mel"};
+                    static const char *const scales[] = {"Linear", "Log"};
                     static const char *const scrolls[] = {"A column a frame", "100 pt/s"};
                     gpu::Spectrogram::Options o = spectrogram.settings();
                     int scale = int(o.scale), inTime = o.pixelsPerSecond > 0;
@@ -691,7 +691,7 @@ private:
                     {
                         ui.dropdown(schemes, gpu::ColourScheme::presetCount + 1, scheme, 7);
                         ui.label("Colours");
-                        if (ui.segmented(scales, 3, scale, 8)) o.scale = gpu::Spectrogram::Scale(scale);
+                        if (ui.segmented(scales, 2, scale, 8)) o.scale = gpu::Spectrogram::Scale(scale);
                         ui.label("Frequency scale");
                     }
                     CLAY({.layout = {.childGap = 12, .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}}})
