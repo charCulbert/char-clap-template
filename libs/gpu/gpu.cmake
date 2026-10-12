@@ -186,11 +186,21 @@ function(gpu_wclap_resources out name folder)
     set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_LICENSES
         "emscripten=${GPU_DIR}/licenses/emscripten-${version}.txt"
         "emdawnwebgpu=${GPU_DIR}/licenses/emdawnwebgpu-${GPU_DAWN_VERSION}.txt")
+    # The page takes its downloads from where this build took them: a local
+    # checkout of the template (FETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE) above all,
+    # so the page and the module build from the same libs/.
+    set(forward "")
+    get_cmake_property(cached CACHE_VARIABLES)
+    foreach(variable ${cached})
+        if(variable MATCHES "^(FETCHCONTENT_SOURCE_DIR_.+|FETCHCONTENT_(UPDATES|FULLY)_DISCONNECTED|CPM_.+_SOURCE|CPM_SOURCE_CACHE)$")
+            list(APPEND forward "-D${variable}=$CACHE{${variable}}")
+        endif()
+    endforeach()
     ExternalProject_Add(${name}_page
         SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
         BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/page-build"
         CONFIGURE_COMMAND "${EMCMAKE}" "${CMAKE_COMMAND}" -S <SOURCE_DIR> -B <BINARY_DIR>
-            -DGPU_PAGE=ON -DCMAKE_BUILD_TYPE=Release
+            -DGPU_PAGE=ON -DCMAKE_BUILD_TYPE=Release ${forward}
         BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR>
         INSTALL_COMMAND ""
         BUILD_ALWAYS ON)
