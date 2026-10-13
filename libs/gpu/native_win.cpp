@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <cwchar>
 #include <thread>
 #include <string>
 #include <vector>
@@ -300,6 +301,17 @@ static HINSTANCE thisModule()
     GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
         reinterpret_cast<LPCWSTR> (&thisModule), &module);
     return module;
+}
+
+// The view's window class, named for this module: two plugins, or one loaded
+// where another was, never find each other's class (REAPER on Windows
+// crashed creating a view with a class an unloaded plugin had left behind).
+static const wchar_t* className()
+{
+    static wchar_t name[48];
+    if (!name[0])
+        std::swprintf (name, sizeof (name) / sizeof (name[0]), L"GpuView%p", static_cast<void*> (thisModule()));
+    return name;
 }
 
 static unsigned modifiers()
@@ -653,12 +665,11 @@ Window* create (const Parent& parent, uint32_t width, uint32_t height, Callbacks
     HWND host = static_cast<HWND> (parent.handle);
     if (!IsWindow (host))
         return nullptr;
-    static const wchar_t* className = L"GpuView"; // per module: other plugins' classes don't clash
     WNDCLASSEXW windowClass = { sizeof (windowClass) };
     windowClass.lpfnWndProc = windowProc;
     windowClass.hInstance = thisModule();
     windowClass.hCursor = LoadCursor (nullptr, IDC_ARROW);
-    windowClass.lpszClassName = className;
+    windowClass.lpszClassName = className();
     RegisterClassExW (&windowClass); // fails harmlessly when already registered
 
     auto* window = new Window { nullptr, std::move (callbacks) };
@@ -666,7 +677,7 @@ Window* create (const Parent& parent, uint32_t width, uint32_t height, Callbacks
     // as DPI-unaware (Ableton's "Auto scale plugin window") would otherwise
     // get a view drawn at the screen's DPI into a 96 DPI window.
     const DPI_AWARENESS_CONTEXT awareness = SetThreadDpiAwarenessContext (GetWindowDpiAwarenessContext (host));
-    window->hwnd = CreateWindowExW (0, className, L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 0, 0, int (width),
+    window->hwnd = CreateWindowExW (0, className(), L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 0, 0, int (width),
         int (height), host, nullptr, thisModule(), nullptr);
     if (awareness)
         SetThreadDpiAwarenessContext (awareness);
@@ -769,6 +780,10 @@ void destroy (Window* window)
         delete reinterpret_cast<AccessRequest*> (m.lParam); // requests the window won't live to see
     DestroyWindow (window->hwnd);
     delete window;
+    // A class outlives its DLL unless unregistered, with its window procedure
+    // pointing into the unloaded code.
+    if (ourWindows.empty())
+        UnregisterClassW (className(), thisModule());
 }
 
 // The parent window's sizes on Windows are already physical pixels.
