@@ -863,7 +863,7 @@ static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
     }
 
     const double id = message["id"].number (-1);
-    if (!(id >= 0 && id < P_COUNT))
+    if (!(id >= 0 && id < double (P_COUNT)))
         return false;
     const uint32_t i = (uint32_t) id;
 
