@@ -7,16 +7,16 @@
 //                    {type: "resize", width, height, scale}: the page's new size in CSS pixels
 import {sendMessage, onMessage} from './lib/messages.js';
 
-// Each parameter's control, by its CLAP id (P_* in plugin.cpp), in order: a
+// Each parameter's control, by its name (the table in plugin.cpp), in order: a
 // knob or an upright slider, its value as text, and optionally a shorter name
 // to show, whether it's logarithmic, whether it fills from its default (as
 // chardraw's Ui::Fill::fromDefault: a pan's from C) rather than its minimum,
 // and the element it goes in (#controls unless it says; before the meter, if
 // that's in there too).
 const layout = [
-  {id: 1, control: 'knob', fromDefault: true,
+  {name: 'Pan', control: 'knob', fromDefault: true,
    text: v => Math.abs(v) < 0.005 ? 'C' : `${Math.round(Math.abs(v) * 100)} ${v < 0 ? 'L' : 'R'}`},
-  {id: 0, control: 'vslider', into: '#fader', text: v => `${v.toFixed(1)} dB`},
+  {name: 'Gain', control: 'vslider', into: '#fader', text: v => `${v.toFixed(1)} dB`},
 ];
 
 const controls = [];
@@ -117,7 +117,7 @@ function control(p, {control: kind, text, label, log, fromDefault}) {
 function build(params) {
   controls.forEach(c => c.element.remove());
   for (const entry of layout) {
-    const p = params.find(p => p.id === entry.id);
+    const p = params.find(p => p.name === entry.name);
     if (!p) continue;
     controls[p.id] = control(p, entry);
     const container = document.querySelector(entry.into ?? '#controls');

@@ -3,6 +3,7 @@
 // as the system is). Parameters arrive and go back as the messages plugin.cpp
 // lists; the meter's levels arrive as "meter" messages.
 #include "chardraw/ui.h"
+#include "../params.h" // the parameters' ids, as plugin.cpp's
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -10,8 +11,6 @@
 
 namespace
 {
-
-constexpr uint32_t cutoffId = 0, releaseId = 1; // as P_CUTOFF and P_RELEASE in plugin.cpp
 
 std::string hertz (double value) // "440 Hz", "1.20 kHz"
 {
@@ -94,8 +93,8 @@ public:
     }
     bool record (float width, float height, float scale) override
     {
-        gpu::Param* cutoff = params.find (cutoffId);
-        gpu::Param* release = params.find (releaseId);
+        gpu::Param* cutoff = params.find (P_CUTOFF);
+        gpu::Param* release = params.find (P_RELEASE);
         ui.theme = ui.theme.withColors (darkMode);
         ui.begin (width, height, scale);
         CLAY ({ .layout = { .sizing = { CLAY_SIZING_GROW (0), CLAY_SIZING_GROW (0) },

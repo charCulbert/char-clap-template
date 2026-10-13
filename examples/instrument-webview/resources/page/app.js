@@ -6,13 +6,13 @@
 //                    {type: "resize", width, height, scale}: the page's new size in CSS pixels
 import {sendMessage, onMessage} from './lib/messages.js';
 
-// Each parameter's control, by its CLAP id (P_* in plugin.cpp), in order: a
+// Each parameter's control, by its name (the table in plugin.cpp), in order: a
 // knob or an upright slider, its value as text, and optionally a shorter name
 // to show, whether it's logarithmic, and the element it goes in (#controls
 // unless it says; before the meter, if that's in there too).
 const layout = [
-  {id: 0, control: 'knob', label: 'Cutoff', log: true, text: v => v < 1000 ? `${v.toFixed(0)} Hz` : `${(v / 1000).toFixed(2)} kHz`},
-  {id: 1, control: 'knob', log: true, text: v => v < 1 ? `${(v * 1000).toFixed(0)} ms` : `${v.toFixed(2)} s`},
+  {name: 'Filter cutoff', control: 'knob', label: 'Cutoff', log: true, text: v => v < 1000 ? `${v.toFixed(0)} Hz` : `${(v / 1000).toFixed(2)} kHz`},
+  {name: 'Release', control: 'knob', log: true, text: v => v < 1 ? `${(v * 1000).toFixed(0)} ms` : `${v.toFixed(2)} s`},
 ];
 
 const controls = [];
@@ -110,7 +110,7 @@ function control(p, {control: kind, text, label, log}) {
 function build(params) {
   controls.forEach(c => c.element.remove());
   for (const entry of layout) {
-    const p = params.find(p => p.id === entry.id);
+    const p = params.find(p => p.name === entry.name);
     if (!p) continue;
     controls[p.id] = control(p, entry);
     const container = document.querySelector(entry.into ?? '#controls');

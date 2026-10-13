@@ -3,6 +3,7 @@
 // Clay in chardraw's palette (dark or light, as the system is). Parameters arrive and go back as the messages plugin.cpp
 // lists; the meter's levels arrive as "meter" messages.
 #include "chardraw/ui.h"
+#include "../params.h" // the parameters' ids, as plugin.cpp's
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -10,8 +11,6 @@
 
 namespace
 {
-
-constexpr uint32_t gainId = 0, panId = 1; // as P_GAIN and P_PAN in plugin.cpp
 
 std::string panText (double value)
 {
@@ -89,14 +88,12 @@ public:
     }
     bool record (float width, float height, float scale) override
     {
-        gpu::Param* gain = params.find (gainId);
-        gpu::Param* pan = params.find (panId);
+        gpu::Param* gain = params.find (P_GAIN);
+        gpu::Param* pan = params.find (P_PAN);
         ui.theme = ui.theme.withColors (darkMode);
         ui.begin (width, height, scale);
         // A mixer channel strip: Pan on top, and under it the Gain fader with
         // the meter beside it, as tall as the window allows.
-        const float knobHeight = 52 + 3.2f * ui.theme.textSize; // as Ui::knob lays out a 52-point knob
-        const float faderHeight = std::max (80.0f, height / scale - 2 * 16 - knobHeight - 12);
         const uint16_t textRoom = uint16_t (1.6f * ui.theme.textSize); // the fader's value above it and name below
         CLAY ({ .layout = { .sizing = { CLAY_SIZING_GROW (0), CLAY_SIZING_GROW (0) },
                     .padding = CLAY_PADDING_ALL (16),
@@ -110,7 +107,7 @@ public:
             CLAY ({ .layout = { .sizing = { CLAY_SIZING_FIT (0), CLAY_SIZING_GROW (0) }, .childGap = 6 } })
             {
                 if (gain)
-                    ui.vslider (params, gain, "%.1f dB", false, faderHeight);
+                    ui.vslider (params, gain, "%.1f dB", false, 0); // 0: grows
                 CLAY ({ .layout = { .sizing = { CLAY_SIZING_FIT (0), CLAY_SIZING_GROW (0) },
                             .padding = { 0, 0, textRoom, textRoom },
                             .childGap = 3 } })

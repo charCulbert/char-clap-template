@@ -18,7 +18,8 @@
 // Every example has every extension, so a plugin becomes another kind by
 // filling in bodies; an unused one returns 0 or false and says what goes there.
 //
-// entry.cpp is the entry point that makes it. libs/ holds the reusable parts:
+// params.h numbers the parameters, for this file and the interface. entry.cpp
+// is the entry point that makes the plugin. libs/ holds the reusable parts:
 // the message codec and file loader (core/), and the presenter that shows a
 // gpu::View in the host's window (gpu/).
 #include "clap/clap.h"
@@ -44,14 +45,10 @@
 #include "core/messages.h"
 #include "core/resources.h"
 #include "gpu/gui.h"
+#include "params.h" // the parameters' ids
 
 static_assert (std::atomic<float>::is_always_lock_free);
 static_assert (std::atomic<bool>::is_always_lock_free);
-
-// Parameters, by their CLAP id.
-#define P_GAIN (0) // dB
-#define P_PAN (1)  // -1 left .. 1 right
-#define P_COUNT (2)
 
 struct MyPlugin
 {
@@ -152,29 +149,54 @@ static const clap_plugin_note_ports_t extensionNotePorts = {
 
 // ---- Parameters -----------------------------------------------------------
 
+// How a parameter's value reads as text: value_to_text and text_to_value
+// have a case for each.
+enum ParamUnit
+{
+    UNIT_DECIBELS, // "-6.0 dB"
+    UNIT_PAN,      // "C", "50 L", "50 R"
+};
+
+// Each parameter, in the order of its id (params.h): what get_info tells the
+// host, and what the rest of this file reads. The name is also the key its
+// value is saved under in the state, so renaming one loses saved values
+// (unless State load reads the old name too).
+struct Param
+{
+    clap_id id;
+    const char* name;
+    double min, max, defaultValue;
+    clap_param_info_flags flags;
+    ParamUnit unit;
+};
+static constexpr Param paramTable[] = {
+    { P_GAIN, "Gain", -60.0, 12.0, 0.0, CLAP_PARAM_IS_AUTOMATABLE, UNIT_DECIBELS },
+    { P_PAN, "Pan", -1.0, 1.0, 0.0, CLAP_PARAM_IS_AUTOMATABLE, UNIT_PAN },
+};
+static_assert (std::size (paramTable) == P_COUNT, "a row for each id in params.h");
+static_assert (
+    [] {
+        for (uint32_t i = 0; i < P_COUNT; i++)
+            if (paramTable[i].id != i)
+                return false;
+        return true;
+    }(),
+    "the rows in the order of their ids");
+
 static const clap_plugin_params_t extensionParams = {
     .count = [] (const clap_plugin_t* plugin) -> uint32_t { return P_COUNT; },
 
     .get_info = [] (const clap_plugin_t* _plugin, uint32_t index, clap_param_info_t* information) -> bool {
         if (index >= P_COUNT)
             return false;
+        const Param& param = paramTable[index];
         memset (information, 0, sizeof (clap_param_info_t));
-        information->id = index;
-        information->flags = CLAP_PARAM_IS_AUTOMATABLE;
-        if (index == P_GAIN)
-        {
-            information->min_value = -60.0;
-            information->max_value = 12.0;
-            information->default_value = 0.0;
-            strcpy (information->name, "Gain");
-        }
-        else
-        {
-            information->min_value = -1.0;
-            information->max_value = 1.0;
-            information->default_value = 0.0;
-            strcpy (information->name, "Pan");
-        }
+        information->id = param.id;
+        information->flags = param.flags;
+        information->min_value = param.min;
+        information->max_value = param.max;
+        information->default_value = param.defaultValue;
+        snprintf (information->name, sizeof (information->name), "%s", param.name);
         return true;
     },
 
@@ -189,30 +211,38 @@ static const clap_plugin_params_t extensionParams = {
     },
 
     .value_to_text = [] (const clap_plugin_t* _plugin, clap_id id, double value, char* display, uint32_t size) -> bool {
-        if (id == P_GAIN)
-            snprintf (display, size, "%.1f dB", value);
-        else if (id == P_PAN)
-            snprintf (display, size, value == 0 ? "C" : value < 0 ? "%.0f L" : "%.0f R", fabs (value) * 100);
-        else
+        if (id >= P_COUNT)
             return false;
-        return true;
+        switch (paramTable[id].unit)
+        {
+            case UNIT_DECIBELS:
+                snprintf (display, size, "%.1f dB", value);
+                return true;
+            case UNIT_PAN:
+                snprintf (display, size, value == 0 ? "C" : value < 0 ? "%.0f L" : "%.0f R", fabs (value) * 100);
+                return true;
+        }
+        return false;
     },
 
     .text_to_value = [] (const clap_plugin_t* _plugin, clap_id id, const char* display, double* value) -> bool {
         if (id >= P_COUNT)
             return false;
         char* end = nullptr;
-        const double number = strtod (display, &end); // "-6 dB" reads as -6
-        if (id == P_PAN)
+        const double number = strtod (display, &end); // "440 Hz" reads as 440
+        const bool read = end != display;
+        while (*end == ' ')
+            end++;
+        switch (paramTable[id].unit)
         {
-            // "C", "50 L", "50 R"
-            if (end == display)
-                return display[0] == 'C' ? (*value = 0, true) : false;
-            *value = fmin (number, 100) / 100 * (strchr (end, 'L') ? -1 : 1);
-            return true;
+            case UNIT_DECIBELS:
+                *value = number;
+                return read;
+            case UNIT_PAN: // "C", "50 L", "50 R"
+                *value = read ? fmin (number, 100) / 100 * (strchr (end, 'L') ? -1 : 1) : 0;
+                return read || display[0] == 'C';
         }
-        *value = number;
-        return end != display;
+        return false;
     },
 
     .flush =
@@ -366,13 +396,11 @@ static void PluginProcessEvent (MyPlugin* plugin, const clap_event_header_t* eve
             if (valueEvent->param_id >= P_COUNT)
                 return;
             uint32_t i = (uint32_t) valueEvent->param_id;
-            // Kept in range, whatever the host sends (get_info only reads a table).
-            clap_param_info_t information = {};
-            extensionParams.get_info (&plugin->plugin, i, &information);
-            const double value = valueEvent->value == valueEvent->value ? valueEvent->value
-                                                                        : information.default_value; // NaN: the default
-            plugin->parameters[i].store (
-                (float) fmin (fmax (value, information.min_value), information.max_value), std::memory_order_relaxed);
+            // Kept in range, whatever the host sends.
+            const Param& param = paramTable[i];
+            const double value =
+                valueEvent->value == valueEvent->value ? valueEvent->value : param.defaultValue; // NaN: the default
+            plugin->parameters[i].store ((float) fmin (fmax (value, param.min), param.max), std::memory_order_relaxed);
             plugin->changed[i].store (true, std::memory_order_release);
 
             // Tell the UI on the main thread (see on_main_thread).
@@ -487,9 +515,8 @@ static const clap_plugin_state_t extensionState = {
         core::Value::Map state { { "version", 1 } };
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
-            clap_param_info_t information = {};
-            extensionParams.get_info (_plugin, i, &information);
-            state[information.name] = (double) plugin->mainParameters[i].load (std::memory_order_relaxed);
+            const Param& param = paramTable[i];
+            state[param.name] = (double) plugin->mainParameters[i].load (std::memory_order_relaxed);
         }
         state["window width"] = plugin->guiWidth;
         state["window height"] = plugin->guiHeight;
@@ -526,11 +553,10 @@ static const clap_plugin_state_t extensionState = {
         // Anything missing from the state keeps its default.
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
-            clap_param_info_t information = {};
-            extensionParams.get_info (_plugin, i, &information);
-            const double value = (*state)[information.name].number (information.default_value);
+            const Param& param = paramTable[i];
+            const double value = (*state)[param.name].number (param.defaultValue);
             plugin->mainParameters[i].store (
-                (float) fmin (fmax (value, information.min_value), information.max_value), std::memory_order_relaxed);
+                (float) fmin (fmax (value, param.min), param.max), std::memory_order_relaxed);
             plugin->mainChanged[i].store (true, std::memory_order_release);
         }
         // The window takes its size when it next opens.
@@ -698,11 +724,9 @@ static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
         core::Value::Array params;
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
-            clap_param_info_t information = {};
-            extensionParams.get_info (&plugin->plugin, i, &information);
-            params.push_back (core::Value::Map { { "id", (double) information.id }, { "name", information.name },
-                { "min", information.min_value }, { "max", information.max_value },
-                { "default", information.default_value } });
+            const Param& param = paramTable[i];
+            params.push_back (core::Value::Map { { "id", (double) param.id }, { "name", param.name },
+                { "min", param.min }, { "max", param.max }, { "default", param.defaultValue } });
         }
         plugin->gui.send (core::Value::Map { { "type", "params" }, { "params", params } });
         PluginSendValues (plugin);
@@ -716,11 +740,9 @@ static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
 
     if (type == "change")
     {
-        clap_param_info_t information = {};
-        extensionParams.get_info (&plugin->plugin, i, &information);
-        const double value = message["value"].number (information.default_value);
-        plugin->mainParameters[i].store (
-            (float) fmin (fmax (value, information.min_value), information.max_value), std::memory_order_relaxed);
+        const Param& param = paramTable[i];
+        const double value = message["value"].number (param.defaultValue);
+        plugin->mainParameters[i].store ((float) fmin (fmax (value, param.min), param.max), std::memory_order_relaxed);
         plugin->mainChanged[i].store (true, std::memory_order_release);
     }
     else if (type == "begin")
@@ -768,9 +790,8 @@ static const clap_plugin_t pluginClass = {
 
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
-            clap_param_info_t information = {};
-            extensionParams.get_info (_plugin, i, &information);
-            float defaultValue = (float) information.default_value;
+            const Param& param = paramTable[i];
+            float defaultValue = (float) param.defaultValue;
             plugin->mainParameters[i].store (defaultValue, std::memory_order_relaxed);
             plugin->parameters[i].store (defaultValue, std::memory_order_relaxed);
         }
