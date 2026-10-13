@@ -367,7 +367,7 @@ public:
     bool envelope (std::vector<Point>& points);
     bool steps (std::vector<float>& values);
     // A piano keyboard filling the width, heightPoints tall. Its notes come
-    // back from the next frame's call (drawing happens at end()).
+    // back from this call, played where it was laid out last frame.
     Notes piano (int lowest, int highest, float heightPoints = 126,
         const std::function<bool (int)>& lit = {}, // 126: as compost's
         int index = 0);
@@ -744,16 +744,17 @@ private:
     bool leftAfterRelease = false;       // the pointer left the view after a release this frame hasn't seen
 
     // Each piano's, by its id: the note held down, a note-off owed since it
-    // went away with a key held, and (laid out) what it reported last frame.
+    // went away with a key held.
     struct Keyboard
     {
         uint32_t id;
         int playing = -1, owed = -1;
-        Notes notes;
     };
     std::vector<Keyboard> keyboards;
     Keyboard& keyboardOf (uint32_t id);
-    Notes keyboard (uint32_t id, int lowest, int highest, Rect r, const std::function<bool (int)>& lit);
+    // play: takes the pointer and returns the notes; show: draws it.
+    Notes keyboard (
+        uint32_t id, int lowest, int highest, Rect r, const std::function<bool (int)>& lit, bool play, bool show);
     int grabbedPoint = -1;    // the envelope point being dragged
     uint32_t numberDrag = 0;  // the number box being dragged
     bool numberMoved = false; // past its dead zone

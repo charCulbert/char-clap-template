@@ -1829,16 +1829,13 @@ static void twoPianos()
     CHECK (upper.height == 60 && lower.y >= upper.y + upper.height);
     pointer (ui, View::Pointer::down, upper.x + upper.width / 2, upper.y + 50);
     draw();
-    draw(); // (a laid-out piano's notes come from the next frame's call)
     const int held = top.on;
     CHECK (held >= 60 && bottom.on == -1 && bottom.off == -1);
     pointer (ui, View::Pointer::up, upper.x + upper.width / 2, upper.y + 50);
     draw();
-    draw();
     CHECK (top.off == held && bottom.off == -1);
     // The upper one goes while a key is held: its note ends when it's back.
     pointer (ui, View::Pointer::down, upper.x + upper.width / 2, upper.y + 50);
-    draw();
     draw();
     CHECK (top.on == held);
     showTop = false;
@@ -1847,10 +1844,72 @@ static void twoPianos()
     draw();
     CHECK (bottom.on == -1 && bottom.off == -1);
     showTop = true;
-    top = {};
-    draw();
     draw();
     CHECK (top.off == held && top.on == -1);
+}
+
+// A laid-out piano's notes come back from the call that declares it, the
+// frame its key goes down or up, as the Rect overload's do: at scale 1 and 2
+// (the layout is in points, the pointer in pixels).
+static void pianoNotesSameFrame()
+{
+    for (const float scale : { 1.0f, 2.0f })
+    {
+        Ui ui;
+        Ui::Notes notes;
+        auto draw = [&] {
+            ui.begin (400 * scale, 300 * scale, scale);
+            CLAY ({ .layout = {
+                        .sizing = { CLAY_SIZING_GROW (0), CLAY_SIZING_GROW (0) }, .padding = CLAY_PADDING_ALL (10) } })
+            {
+                notes = ui.piano (60, 71, 60);
+            }
+            ui.end (wgpu::RenderPassEncoder {});
+        };
+        draw();
+        const Clay_BoundingBox b = box ("Piano");
+        const float x = (b.x + b.width / 2) * scale, y = (b.y + 50) * scale; // below the black keys
+        pointer (ui, View::Pointer::down, x, y);
+        draw();
+        const int held = notes.on;
+        CHECK (held >= 60 && held <= 71 && notes.off == -1);
+        pointer (ui, View::Pointer::up, x, y);
+        draw();
+        CHECK (notes.on == -1 && notes.off == held);
+    }
+}
+
+// A press and release inside one frame (a quick tap, or a slow host): the
+// note-on comes back that frame and its off from the next call, and the
+// piano asks for that frame. Drawn as an idle host draws, once for the input
+// and then only while animating() asks, no note is left sounding.
+static void pianoTapWithinAFrame()
+{
+    for (const bool laidOut : { false, true })
+    {
+        Ui ui;
+        int ons = 0, offs = 0, frames = 0;
+        auto draw = [&] {
+            frame (ui, [&] {
+                const Ui::Notes n = laidOut ? ui.piano (60, 71, 60) : ui.piano (60, 71, gpu::Rect { 10, 10, 140, 60 });
+                ons += n.on >= 0, offs += n.off >= 0;
+            });
+            ++frames;
+        };
+        draw();
+        draw();
+        while (ui.animating() && frames < 10)
+            draw();
+        const Clay_BoundingBox b = box ("Piano");
+        const float x = laidOut ? b.x + b.width / 2 : 80, y = laidOut ? b.y + 50 : 60;
+        pointer (ui, View::Pointer::down, x, y);
+        pointer (ui, View::Pointer::up, x, y);
+        frames = 0;
+        do
+            draw();
+        while (ui.animating() && frames < 20);
+        CHECK (ons == 1 && offs == 1);
+    }
 }
 
 static void editors()
@@ -3207,6 +3266,8 @@ int main()
     spectrumCurve();
     pianoNotes();
     twoPianos();
+    pianoNotesSameFrame();
+    pianoTapWithinAFrame();
     editors();
     twoEditorsAtOnce();
     editorKeysAndScreenReader();

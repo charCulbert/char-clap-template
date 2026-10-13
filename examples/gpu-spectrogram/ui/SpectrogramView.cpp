@@ -531,11 +531,16 @@ private:
         const int first = int (std::floor (69 + 12 * std::log2 (bottom / a4))) - 1,
                   last = int (std::ceil (69 + 12 * std::log2 (top / a4))) + 1;
 
-        // The key under the pointer: the nearest note, but beside a black
-        // key (past its 0.6 of the width) the white key on that side of its middle.
+        // A press and release within one frame (a quick tap, or a slow
+        // host) plays the key for that frame, stopped from the next, which
+        // it asks for: as ui.piano sends a tap's note-off.
         const gpu::Ui::Area keys = ui.area (&heldNote, r.x, r.y, w, r.h, gpu::Ui::eachPress);
-        if (keys.held && !keys.released)
+        if (keys.held && (!keys.released || keys.pressed))
         {
+            if (keys.released)
+                ui.animate();
+            // The key under the pointer: the nearest note, but beside a black
+            // key (past its 0.6 of the width) the white key on that side of its middle.
             const float at = std::clamp (keys.y, r.y, r.y + r.h - 1);
             const double pitch = 69 + 12 * std::log2 (spectrogram.frequencyAt (r, at) / a4);
             int note = int (std::lround (pitch));

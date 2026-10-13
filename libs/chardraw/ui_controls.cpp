@@ -1401,14 +1401,16 @@ Ui::Keyboard& Ui::keyboardOf (uint32_t id)
 
 Ui::Notes Ui::piano (int lowest, int highest, Rect r, const std::function<bool (int)>& lit, int index)
 {
-    return keyboard (id ("Piano", index).id, lowest, highest, r, lit);
+    return keyboard (id ("Piano", index).id, lowest, highest, r, lit, true, true);
 }
 
-Ui::Notes Ui::keyboard (uint32_t identity, int lowest, int highest, Rect r, const std::function<bool (int)>& lit)
+Ui::Notes Ui::keyboard (
+    uint32_t identity, int lowest, int highest, Rect r, const std::function<bool (int)>& lit, bool play, bool show)
 {
     Keyboard& board = keyboardOf (identity);
     Notes notes;
-    notes.off = std::exchange (board.owed, -1);
+    if (play)
+        notes.off = std::exchange (board.owed, -1);
     int whites = 0;
     for (int n = lowest; n <= highest; ++n)
         whites += !isBlack (n);
@@ -1446,24 +1448,32 @@ Ui::Notes Ui::keyboard (uint32_t identity, int lowest, int highest, Rect r, cons
         if (!isBlack (n) && inside (keyRect (n)))
             under = n;
 
-    // Every press plays: a quick second one is the note again, not a double-click.
-    const auto a = area (reinterpret_cast<const void*> (uintptr_t (identity)), r.x, r.y, r.w, r.h, eachPress);
-    if (a.held && under != board.playing && (under >= 0 || !a.pressed)) // pressed, or slid onto another key
+    if (play)
     {
-        if (board.playing >= 0)
-            notes.off = board.playing;
-        board.playing = under, notes.on = under;
+        // Every press plays: a quick second one is the note again, not a double-click.
+        const auto a = area (reinterpret_cast<const void*> (uintptr_t (identity)), r.x, r.y, r.w, r.h, eachPress);
+        if (a.held && under != board.playing && (under >= 0 || !a.pressed)) // pressed, or slid onto another key
+        {
+            if (board.playing >= 0)
+                notes.off = board.playing;
+            board.playing = under, notes.on = under;
+        }
+        // Let go: its off now, or from the next call for a note begun in this one
+        // (a tap within a frame), as a call's off is always of the note before its on.
+        if (a.released && board.playing >= 0)
+        {
+            if (notes.on == board.playing)
+                board.owed = board.playing;
+            else
+                notes.off = board.playing;
+            board.playing = -1;
+        }
+        // A note played or owed: one more frame, so an off owed is sent
+        // without waiting for input (an idle host draws only for that).
+        settle |= notes.on >= 0 || notes.off >= 0 || board.owed >= 0;
     }
-    // Let go: its off now, or from the next call for a note begun in this one
-    // (a tap within a frame), as a call's off is always of the note before its on.
-    if (a.released && board.playing >= 0)
-    {
-        if (notes.on == board.playing)
-            board.owed = board.playing;
-        else
-            notes.off = board.playing;
-        board.playing = -1;
-    }
+    if (!show)
+        return notes;
 
     // Square keys with a hairline edge; a pressed one in the accent; each C
     // named at its foot ("C4" is MIDI 60), small and muted.
@@ -1504,7 +1514,12 @@ Ui::Notes Ui::piano (int lowest, int highest, float heightPoints, const std::fun
         .custom = { .customData = layout.custom (pianoBox, &placed.emplace_back (std::move (board))) } })
     {}
     lastElement = pid.id;
-    return std::exchange (keyboardOf (pid.id).notes, {});
+    // Played here, where it was laid out last frame (as Clay hit-tests every
+    // element), so its notes come back from this call; drawn at end().
+    const Rect last = bounds (pid); // (points)
+    if (last.w <= 0 || last.h <= 0)
+        return { -1, std::exchange (keyboardOf (pid.id).owed, -1) };
+    return keyboard (pid.id, lowest, highest, { last.x * s, last.y * s, last.w * s, last.h * s }, lit, true, false);
 }
 
 bool Ui::envelope (std::vector<Point>& points, Rect r)

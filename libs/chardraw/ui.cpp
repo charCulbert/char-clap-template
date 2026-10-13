@@ -286,7 +286,7 @@ bool Ui::record()
         else if (kind == imageKnobBox)
             imageKnob (*c->params, c->p, c->image, c->frames, r, c->log, c->across);
         else if (kind == pianoBox)
-            keyboardOf (c->keyboard).notes = keyboard (c->keyboard, c->lowest, c->highest, r, c->lit);
+            keyboard (c->keyboard, c->lowest, c->highest, r, c->lit, false, true);
         else if (kind == envelopeBox)
         {
             if (envelope (*c->points, r))
@@ -391,7 +391,7 @@ bool Ui::record()
             lockPointer (false);
         for (Keyboard& k : keyboards) // a piano: its note ends, told by its next call
             if (reinterpret_cast<const void*> (uintptr_t (k.id)) == active && k.playing >= 0)
-                k.owed = std::exchange (k.playing, -1);
+                k.owed = std::exchange (k.playing, -1), settle = true;
         active = nullptr, numberDrag = 0, held = {};
     }
     activeSeen = false;
