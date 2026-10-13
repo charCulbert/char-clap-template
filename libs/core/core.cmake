@@ -48,7 +48,7 @@ function(core_add_to target)
         endif()
     endif()
     # On in this template's CI: the code compiled into the target (the plugin's,
-    # and imgui's and chardraw's sources), not the SDKs it links.
+    # and chardraw's sources), not the SDKs it links.
     if(WARNINGS_AS_ERRORS)
         set_target_properties(${target} PROPERTIES COMPILE_WARNING_AS_ERROR ON)
     endif()
@@ -76,12 +76,12 @@ function(core_ship_resources name folder)
         endif()
     endforeach()
     core_third_party_licenses(licenses ${ARG_LICENSES})
-    foreach(format clap vst3 auv2 auv3 standalone aax)
+    foreach(format clap vst3 auv2 auv3 standalone)
         set(target ${name}_${format})
         if(NOT TARGET ${target})
             continue()
         endif()
-        if(APPLE OR format MATCHES "vst3|aax")
+        if(APPLE OR format STREQUAL "vst3")
             set(destination "$<TARGET_FILE_DIR:${target}>/../Resources")
         else()
             # next to a loose binary (TARGET_FILE here would make the target depend on itself)
@@ -114,9 +114,9 @@ function(core_ship_resources name folder)
         # The linker signs only the binary; sign the bundle so its resources are
         # sealed too, or `codesign -v` (and stricter hosts) reject it. A build
         # that only copies resources changes the bundle without relinking, so
-        # sign it again at the end of every build. AUv3 and AAX are signed by
-        # their own build steps.
-        if(APPLE AND NOT format MATCHES "auv3|aax")
+        # sign it again at the end of every build. The AUv3 is signed by its
+        # own build step.
+        if(APPLE AND NOT format STREQUAL "auv3")
             add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND codesign --force --sign - "$<TARGET_BUNDLE_DIR:${target}>"
                 VERBATIM)

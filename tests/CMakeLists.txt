@@ -1,4 +1,4 @@
-# Tests for the shared code and the examples' DSP (not copied into new plugins).
+# Tests for the shared code (not copied into new plugins).
 # Built by the top-level CMakeLists.txt, or alone:
 #   cmake -S tests -B build-tests && cmake --build build-tests && ctest --test-dir build-tests
 cmake_minimum_required(VERSION 3.28)
@@ -19,14 +19,6 @@ if(NODE)
     add_test(NAME messages_js COMMAND "${NODE}" "${CMAKE_CURRENT_SOURCE_DIR}/messages.test.mjs" "$<TARGET_FILE:messages_test>")
 endif()
 
-include(../examples/gpu-analyzer/signalsmith-dsp.cmake)
-add_executable(spectrum_test spectrum_test.cpp)
-target_include_directories(spectrum_test PRIVATE ${SIGNALSMITH_DSP_INCLUDE})
-add_test(NAME spectrum COMMAND spectrum_test)
-add_executable(spectrogram_test spectrogram_test.cpp)
-target_include_directories(spectrogram_test PRIVATE ${SIGNALSMITH_DSP_INCLUDE})
-add_test(NAME spectrogram COMMAND spectrogram_test)
-
 # The GPU interface's drawing, layout and controls (libs/chardraw). draw2d_test
 # needs a WebGPU adapter (a software one will do) and skips without one.
 include(../libs/gpu/gpu.cmake)
@@ -38,7 +30,7 @@ add_test(NAME ui COMMAND ui_test)
 add_executable(draw2d_test draw2d_test.cpp ../libs/gpu/context.cpp ../libs/gpu/params.cpp ../libs/core/messages.cpp)
 chardraw_add_to(draw2d_test)
 target_link_libraries(draw2d_test PRIVATE dawn::webgpu_dawn)
-add_test(NAME draw2d COMMAND draw2d_test "${CMAKE_CURRENT_SOURCE_DIR}/../examples/gui-gallery/resources/fonts/BarlowSemiCondensed-Medium.ttf")
+add_test(NAME draw2d COMMAND draw2d_test "${CMAKE_CURRENT_SOURCE_DIR}/../examples/chardraw-gallery/resources/fonts/BarlowSemiCondensed-Medium.ttf")
 set_tests_properties(draw2d PROPERTIES SKIP_RETURN_CODE 77)
 add_executable(context_test context_test.cpp ../libs/gpu/context.cpp)
 target_link_libraries(context_test PRIVATE dawn::webgpu_dawn)
@@ -46,6 +38,6 @@ add_test(NAME context COMMAND context_test)
 set_tests_properties(context PROPERTIES SKIP_RETURN_CODE 77)
 
 # The tests are assert()s, so keep them in every build type.
-foreach(test resources_test messages_test spectrum_test spectrogram_test ui_test draw2d_test context_test)
+foreach(test resources_test messages_test ui_test draw2d_test context_test)
     target_compile_options(${test} PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
 endforeach()

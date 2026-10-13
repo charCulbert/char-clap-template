@@ -11,7 +11,6 @@ build*/
 .env.*
 
 # SDKs and signing material must stay outside the repository
-/aax-sdk*/
 *.p12
 *.mobileprovision
 *.p8
