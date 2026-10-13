@@ -82,15 +82,40 @@ the standalone app, and AU on macOS, into `build/` (on Windows into
 dependencies and takes a few minutes. On Windows and Linux, copy the
 `.clap.resources` folder along with the `.clap`.
 
+Each new project downloads the same dependencies again (Dawn, the VST3 SDK
+and the rest, about a minute) unless you give them a shared folder. Set
+`CPM_SOURCE_CACHE` once, in your shell's profile, and every project after the
+first configures from it:
+
+```sh
+export CPM_SOURCE_CACHE=$HOME/.cache/CPM      # macOS, Linux
+setx CPM_SOURCE_CACHE %LOCALAPPDATA%\CPM       # Windows, for new terminals
+```
+
+clap-wrapper keeps the SDKs it downloads there, and `libs/` keeps its
+downloads in its `downloads/` folder. Delete the folder to start again.
+
 ### Where to edit
 
 All in `plugin.cpp`, unless it says otherwise:
 
 - **DSP:** `PluginRenderAudio`, and `PluginNoteOn` and `PluginNoteOff` for
   notes.
-- **Parameters:** the `P_*` defines and `extensionParams`.
+- **Parameters:** an id in `params.h`, and a row in `paramTable` (name,
+  range, default, flags, unit) under Parameters. The CLAP params functions
+  read the table; a new unit needs a case in `value_to_text` and
+  `text_to_value`. Then the DSP reads `plugin->parameters[P_YOURS]`, and a
+  chardraw interface finds it with `params.find (P_YOURS)` (a web page, by
+  its name).
+- **Recalled settings** (saved with the state, not automatable): the four
+  steps under Recalled settings, which the window size follows. A change
+  calls `PluginSettingChanged`, which tells the host the project needs saving.
 - **Window size:** `guiWidth`, `guiHeight`, and the `GUI_MIN_*` and `GUI_MAX_*`
-  defines under Recalled settings.
+  defines under Recalled settings. A chardraw interface also reports the
+  smallest size its content fits (a "minimum size" message): the window can't
+  be made smaller, and grows to it if it opens smaller. clap-host's
+  `gui.check` fails a plugin that opens smaller than its content, so after
+  adding a control, check the default size still fits it.
 - **Interface:** `ui/` for a chardraw interface, `resources/page/` for a web
   page.
 - **Instrument or effect:** start from the right one. To switch, change all of:
@@ -124,6 +149,7 @@ cmake -B build -DFETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE=/abs/path/to/char-clap-te
 ```
 examples/<name>/
   plugin.cpp        the plugin: descriptor, ports, parameters, state, GUI, audio
+  params.h          the parameters' ids, shared with the interface
   entry.cpp         the CLAP entry point
   ui/               the interface's C++ (chardraw starters)
   resources/        files shipped with the plugin: page/, fonts/, ...
@@ -216,7 +242,9 @@ Each needs its own build folder:
 | WCLAP | [WASI SDK 33](https://github.com/WebAssembly/wasi-sdk/releases); for GPU interfaces also [Emscripten 4.0.11](https://emscripten.org) | `cmake -B build-wclap -DCMAKE_TOOLCHAIN_FILE=<wasi-sdk>/share/cmake/wasi-sdk-p1.cmake` |
 | iOS app (AUv3), web page starters | Xcode | `cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS` |
 
-A WCLAP comes out as `build-wclap/<Name>.wclap.tar.gz`. Load it in a browser
+A WCLAP comes out as `build-wclap/<Target>.wclap.tar.gz`, named for the CMake
+target, which has no spaces (`MyPlugin` for "My Plugin"), since a WCLAP is
+served on the web. Load it in a browser
 host: [browser-test-host](https://webclap.github.io/browser-test-host/),
 [daw.charlieculbert.com](https://daw.charlieculbert.com) or
 [openDAW](https://opendaw.studio).
@@ -227,7 +255,7 @@ host: [browser-test-host](https://webclap.github.io/browser-test-host/),
 ctest --test-dir build                                       # after building at the top of this repository
 clap-validator validate build/My\ Plugin.clap                 # CLAP
 pluginval --validate build/My\ Plugin.vst3 --strictness-level 5   # VST3, opens the GUI too
-auval -v aufx MyPl YoNa                                      # AU: type, subtype, manufacturer
+auval -v aumu MyPl YoNa                                      # AU: type (aumu instrument, aufx effect), subtype, manufacturer
 python3 tools/check-templates.py                             # a project from each starter, built and validated
 ```
 
