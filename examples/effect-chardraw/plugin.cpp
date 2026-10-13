@@ -55,6 +55,7 @@ struct MyPlugin
     clap_plugin_t plugin;
     const clap_host_t* host;
     const clap_host_params_t* hostParams;
+    const clap_host_state_t* hostState; // mark_dirty: a recalled setting changed
     float sampleRate;
 
     // Parameter values live twice: `parameters` on the audio thread, and
@@ -65,7 +66,8 @@ struct MyPlugin
     std::atomic<bool> changed[P_COUNT], mainChanged[P_COUNT];
     std::atomic<bool> gestureBegin[P_COUNT], gestureEnd[P_COUNT];
 
-    // Recalled settings (main thread): the window's size, in points.
+    // Recalled settings (main thread; see Recalled settings below): the
+    // window's size, in points.
     double guiWidth = 160, guiHeight = 380;
 
     // The peak meter: the highest level per output channel since the main
@@ -76,7 +78,9 @@ struct MyPlugin
 
     // The UI connection.
     gpu::Gui gui;
-    std::atomic<bool> uiDirty; // the host changed a parameter: send the UI the values
+    const clap_host_gui_t* hostGui;             // request_resize, when the content outgrows the window
+    double contentWidth = 0, contentHeight = 0; // the view's "minimum size", in points
+    std::atomic<bool> uiDirty;                  // the host changed a parameter: send the UI the values
 };
 
 // The extension tables refer to these before their definitions further down.
@@ -338,9 +342,28 @@ static bool PluginSyncAudioToMain (MyPlugin* plugin)
 
 // ---- Recalled settings ----------------------------------------------------
 
-// The window's size (guiWidth and guiHeight, in points): the state keeps it,
-// so the window opens as it was left. It isn't a CLAP parameter, so hosts
-// don't list or automate it. These are its limits, in points.
+// Settings saved with the plugin's state, but not CLAP parameters, so hosts
+// don't list or automate them. Here, the window's size (guiWidth and
+// guiHeight, in points), so the window opens as it was left. A new setting
+// takes the same four steps as the window's size; for a number, `tuning`:
+//   1. MyPlugin        double tuning = 440;
+//   2. State save      state["tuning"] = plugin->tuning;
+//   3. State load      plugin->tuning = (*state)["tuning"].number (plugin->tuning);
+//   4. Where it changes, on the main thread (a UI message, see
+//      PluginReceiveMessage):
+//                      plugin->tuning = value;
+//                      PluginSettingChanged (plugin);
+
+// Tells the host a setting changed, so it saves the project with it. (A
+// parameter's change needs no call: the host sees its event.)
+static void PluginSettingChanged (MyPlugin* plugin)
+{
+    if (plugin->hostState)
+        plugin->hostState->mark_dirty (plugin->host);
+}
+
+// The window's limits, in points. The view's content can raise the minimum: see
+// PluginClampSize.
 #define GUI_MIN_WIDTH (120)
 #define GUI_MIN_HEIGHT (260)
 #define GUI_MAX_WIDTH (1600)
@@ -614,15 +637,20 @@ static const clap_plugin_webview_t extensionWebview = {
 
 // clap.gui: size policy is ours; creating and embedding the view is gpu::Gui's.
 
-// Clamps a clap.gui size, which is in pixels outside macOS, to the limits.
+// Clamps a clap.gui size, which is in pixels outside macOS, to the limits:
+// GUI_MIN_* and GUI_MAX_*, and the view's content.
 static void PluginClampSize (const MyPlugin* plugin, uint32_t& width, uint32_t& height)
 {
     const float scale = plugin->gui.pixelsPerPoint();
     const auto clamp = [scale] (uint32_t value, float low, float high) {
         return std::clamp (value, uint32_t (std::ceil (low * scale)), uint32_t (high * scale));
     };
-    width = clamp (width, GUI_MIN_WIDTH, GUI_MAX_WIDTH);
-    height = clamp (height, GUI_MIN_HEIGHT, GUI_MAX_HEIGHT);
+    // The least is GUI_MIN_*, or the view's content ("minimum size") if more.
+    const double leastWidth = std::min<double> (std::max<double> (GUI_MIN_WIDTH, plugin->contentWidth), GUI_MAX_WIDTH);
+    const double leastHeight =
+        std::min<double> (std::max<double> (GUI_MIN_HEIGHT, plugin->contentHeight), GUI_MAX_HEIGHT);
+    width = clamp (width, leastWidth, GUI_MAX_WIDTH);
+    height = clamp (height, leastHeight, GUI_MAX_HEIGHT);
 }
 
 // The size to report to clap.gui, clamped so get_size never reports a size set_size refuses.
@@ -684,8 +712,13 @@ static const clap_plugin_gui_t extensionGui = {
         PluginClampSize (plugin, allowedWidth, allowedHeight);
         if (allowedWidth != width || allowedHeight != height)
             return false;
-        plugin->guiWidth = width / plugin->gui.pixelsPerPoint();
-        plugin->guiHeight = height / plugin->gui.pixelsPerPoint();
+        const double newWidth = width / plugin->gui.pixelsPerPoint(), newHeight = height / plugin->gui.pixelsPerPoint();
+        if (newWidth != plugin->guiWidth || newHeight != plugin->guiHeight)
+        {
+            plugin->guiWidth = newWidth;
+            plugin->guiHeight = newHeight;
+            PluginSettingChanged (plugin);
+        }
         plugin->gui.setSize (width, height);
         return true;
     },
@@ -713,6 +746,7 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //   UI -> plugin  {type: "ready"}
 //                 {type: "begin" | "end", id}     a drag starts or ends
 //                 {type: "change", id, value}
+//                 {type: "minimum size", width, height}  what the content fits, in points
 //   plugin -> UI  {type: "params", params: [{id, name, min, max, default}]}
 //                 {type: "values", values: [value per parameter id]}
 //                 {type: "meter", peaks: [left, right]}  the highest level since the last, 1 = 0 dBFS
@@ -730,6 +764,24 @@ static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
         }
         plugin->gui.send (core::Value::Map { { "type", "params" }, { "params", params } });
         PluginSendValues (plugin);
+        return true;
+    }
+
+    if (type == "minimum size")
+    {
+        // The window's minimum rises to the view's content; and if the window
+        // is smaller now, it asks the host for the size that fits.
+        plugin->contentWidth = message["width"].number (0);
+        plugin->contentHeight = message["height"].number (0);
+        const float scale = plugin->gui.pixelsPerPoint();
+        const uint32_t oldWidth = uint32_t (std::lround (plugin->guiWidth * scale)),
+                       oldHeight = uint32_t (std::lround (plugin->guiHeight * scale));
+        uint32_t width = oldWidth, height = oldHeight;
+        PluginClampSize (plugin, width, height);
+        // A host that agrees needn't call set_size afterwards: take the size then.
+        if (plugin->hostGui && (width != oldWidth || height != oldHeight)
+            && plugin->hostGui->request_resize (plugin->host, width, height))
+            extensionGui.set_size (&plugin->plugin, width, height);
         return true;
     }
 
@@ -786,6 +838,8 @@ static const clap_plugin_t pluginClass = {
         MyPlugin* plugin = (MyPlugin*) _plugin->plugin_data;
 
         plugin->hostParams = (const clap_host_params_t*) plugin->host->get_extension (plugin->host, CLAP_EXT_PARAMS);
+        plugin->hostState = (const clap_host_state_t*) plugin->host->get_extension (plugin->host, CLAP_EXT_STATE);
+        plugin->hostGui = (const clap_host_gui_t*) plugin->host->get_extension (plugin->host, CLAP_EXT_GUI);
         plugin->gui.init (_plugin, plugin->host);
 
         for (uint32_t i = 0; i < P_COUNT; i++)

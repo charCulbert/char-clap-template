@@ -70,6 +70,7 @@ struct MyPlugin
     clap_plugin_t plugin;
     const clap_host_t* host;
     const clap_host_params_t* hostParams;
+    const clap_host_state_t* hostState; // mark_dirty: a recalled setting changed
     float sampleRate;
 
     // Parameter values live twice: `parameters` on the audio thread, and
@@ -80,7 +81,8 @@ struct MyPlugin
     std::atomic<bool> changed[P_COUNT], mainChanged[P_COUNT];
     std::atomic<bool> gestureBegin[P_COUNT], gestureEnd[P_COUNT];
 
-    // Recalled settings (main thread): the window's size, in points.
+    // Recalled settings (main thread; see Recalled settings below): the
+    // window's size, in points.
     double guiWidth = 300, guiHeight = 150;
 
     // The DSP's state (audio thread): the voices playing, and the filter's
@@ -360,9 +362,27 @@ static bool PluginSyncAudioToMain (MyPlugin* plugin)
 
 // ---- Recalled settings ----------------------------------------------------
 
-// The window's size (guiWidth and guiHeight, in points): the state keeps it,
-// so the window opens as it was left. It isn't a CLAP parameter, so hosts
-// don't list or automate it. These are its limits, in points.
+// Settings saved with the plugin's state, but not CLAP parameters, so hosts
+// don't list or automate them. Here, the window's size (guiWidth and
+// guiHeight, in points), so the window opens as it was left. A new setting
+// takes the same four steps as the window's size; for a number, `tuning`:
+//   1. MyPlugin        double tuning = 440;
+//   2. State save      state["tuning"] = plugin->tuning;
+//   3. State load      plugin->tuning = (*state)["tuning"].number (plugin->tuning);
+//   4. Where it changes, on the main thread (a UI message, see
+//      PluginReceiveMessage):
+//                      plugin->tuning = value;
+//                      PluginSettingChanged (plugin);
+
+// Tells the host a setting changed, so it saves the project with it. (A
+// parameter's change needs no call: the host sees its event.)
+static void PluginSettingChanged (MyPlugin* plugin)
+{
+    if (plugin->hostState)
+        plugin->hostState->mark_dirty (plugin->host);
+}
+
+// The window's limits, in points.
 #define GUI_MIN_WIDTH (240)
 #define GUI_MIN_HEIGHT (130)
 #define GUI_MAX_WIDTH (1600)
@@ -771,8 +791,14 @@ static const clap_plugin_gui_t extensionGui = {
         PluginClampSize (plugin, allowedWidth, allowedHeight);
         if (allowedWidth != width || allowedHeight != height)
             return false;
-        plugin->guiWidth = width / PluginPixelsPerPoint (plugin);
-        plugin->guiHeight = height / PluginPixelsPerPoint (plugin);
+        const double newWidth = width / PluginPixelsPerPoint (plugin),
+                     newHeight = height / PluginPixelsPerPoint (plugin);
+        if (newWidth != plugin->guiWidth || newHeight != plugin->guiHeight)
+        {
+            plugin->guiWidth = newWidth;
+            plugin->guiHeight = newHeight;
+            PluginSettingChanged (plugin);
+        }
         plugin->gui.setSize (width, height);
         return true;
     },
@@ -891,6 +917,7 @@ static const clap_plugin_t pluginClass = {
         MyPlugin* plugin = (MyPlugin*) _plugin->plugin_data;
 
         plugin->hostParams = (const clap_host_params_t*) plugin->host->get_extension (plugin->host, CLAP_EXT_PARAMS);
+        plugin->hostState = (const clap_host_state_t*) plugin->host->get_extension (plugin->host, CLAP_EXT_STATE);
         plugin->hostGui = (const clap_host_gui_t*) plugin->host->get_extension (plugin->host, CLAP_EXT_GUI);
         plugin->gui.init (_plugin, plugin->host);
 

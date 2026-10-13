@@ -118,11 +118,21 @@ public:
             }
         }
         ui.resizeGrip (width, height);
-        return ui.record();
+        const bool changed = ui.record();
+        // The smallest size the content fits, in points: plugin.cpp keeps the
+        // window at least this big (its "minimum size" message).
+        if (ui.layout.minimumWidth != minimumSent[0] || ui.layout.minimumHeight != minimumSent[1])
+        {
+            minimumSent[0] = ui.layout.minimumWidth, minimumSent[1] = ui.layout.minimumHeight;
+            send (core::Value::Map {
+                { "type", "minimum size" }, { "width", minimumSent[0] }, { "height", minimumSent[1] } });
+        }
+        return changed;
     }
 
 private:
     float shown[2] = {}, held[2] = {}; // the meter, 0..1
+    float minimumSent[2] = {};         // the last "minimum size" sent
     gpu::Params params;
     gpu::Ui ui;
 };
