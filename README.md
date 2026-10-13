@@ -36,7 +36,7 @@ It needs Python 3.8 or later (`py` on Windows).
 You get the example renamed to your plugin, a CI workflow, a LICENSE and
 THIRD_PARTY_NOTICES.md. Its `CMakeLists.txt` fetches this repository's
 `libs/` at a release tag (see
-[Using the template as a dependency](#using-the-template-as-a-dependency)).
+[Updating the template](#updating-the-template)).
 Make it from a checkout of that tag, so the example matches the libraries; it
 warns when you don't.
 
@@ -88,40 +88,20 @@ All in `plugin.cpp`, unless it says otherwise:
     `CMakeLists.txt`, and `AU:` in your project's `.github/workflows/build.yml`
     (here, the example's own workflow, `.github/workflows/<example>.yml`).
 
-## Using the template as a dependency
+## Updating the template
 
-A plugin fetches this repository at a release tag and includes the libraries
-it uses. `new-plugin.py` writes this for you:
+Your plugin's `CMakeLists.txt` fetches this repository's `libs/` at a release
+tag (`GIT_TAG v0.1.0`). To update, read the
+[release notes](https://github.com/charCulbert/char-clap-template/releases)
+from your version up, then change the tag. Before 1.0, a minor bump (0.1 to
+0.2) may need changes in your plugin; a patch bump won't.
 
-```cmake
-include(FetchContent)
-FetchContent_Declare(clap_template
-    GIT_REPOSITORY https://github.com/charCulbert/char-clap-template.git
-    GIT_TAG v0.1.0
-    GIT_SHALLOW TRUE
-    SOURCE_SUBDIR none)
-FetchContent_MakeAvailable(clap_template)
-set(LIBS "${clap_template_SOURCE_DIR}/libs")
-include(${LIBS}/core/core.cmake)   # and gpu, chardraw or webview
-```
-
-`SOURCE_SUBDIR none` keeps this repository's own `CMakeLists.txt` out of your
-build; it stops with an error if added with `add_subdirectory`.
-
-**To update,** read the [release notes](https://github.com/charCulbert/char-clap-template/releases)
-from your version up: a release that needs your code, CMake or CI to change
-says so under Breaking. Then
-set `GIT_TAG` to the new tag. Versions start at 0.x, so a minor bump (0.1 to
-0.2) may break your plugin; a patch bump won't.
-
-**To work on the template and a plugin together,** point the plugin at your
+To work on the template and a plugin together, build the plugin against your
 checkout:
 
 ```sh
-cmake -B build -DFETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE="$PWD/../char-clap-template"   # an absolute path
+cmake -B build -DFETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE=/abs/path/to/char-clap-template
 ```
-
-A GPU plugin's WCLAP page build uses the same checkout.
 
 ## What's where
 
