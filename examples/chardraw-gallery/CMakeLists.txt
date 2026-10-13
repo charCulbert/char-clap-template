@@ -1,4 +1,4 @@
-# GUI Gallery: every feature of the GPU interface (libs/gpu, libs/chardraw), one
+# chardraw Gallery: every feature of the GPU interface (libs/gpu, libs/chardraw), one
 # page each, for checking it in real hosts. CLAP, VST3 and a standalone app natively, and a WCLAP.
 #
 #   cmake -B build && cmake --build build
@@ -8,7 +8,7 @@ if(CMAKE_HOST_APPLE AND NOT CMAKE_SYSTEM_NAME AND NOT DEFINED CMAKE_OSX_ARCHITEC
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
 endif()
 
-project(GuiGallery VERSION 1.0.0 LANGUAGES C CXX)
+project(ChardrawGallery VERSION 1.0.0 LANGUAGES C CXX)
 if(APPLE)
     enable_language(OBJC OBJCXX)
 endif()
@@ -39,12 +39,12 @@ endif()
 
 include(${LIBS}/core/core.cmake)
 
-add_library(GuiGallery_impl STATIC plugin.cpp)
-core_add_to(GuiGallery_impl)
-gpu_add_to(GuiGallery_impl)
+add_library(ChardrawGallery_impl STATIC plugin.cpp)
+core_add_to(ChardrawGallery_impl)
+gpu_add_to(ChardrawGallery_impl)
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI") # a WCLAP's interface is the page, built with Emscripten
-    chardraw_add_to(GuiGallery_impl)
-    target_sources(GuiGallery_impl PRIVATE ui/GalleryView.cpp)
+    chardraw_add_to(ChardrawGallery_impl)
+    target_sources(ChardrawGallery_impl PRIVATE ui/GalleryView.cpp)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         # GCC 13 at -O2 reports a write past the end of the 2-element
         # core::Value array of an initializer list in data(), from inside
@@ -63,26 +63,26 @@ if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
 endif()
 
 make_clapfirst_plugins(
-    TARGET_NAME GuiGallery
-    IMPL_TARGET GuiGallery_impl
+    TARGET_NAME ChardrawGallery
+    IMPL_TARGET ChardrawGallery_impl
     ENTRY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/entry.cpp"
-    OUTPUT_NAME "GUI Gallery"
-    BUNDLE_IDENTIFIER "com.charlieculbert.guigallery"
+    OUTPUT_NAME "chardraw Gallery"
+    BUNDLE_IDENTIFIER "com.charlieculbert.chardrawgallery"
     BUNDLE_VERSION "${PROJECT_VERSION}"
     AUV2_MANUFACTURER_NAME "Charlie Culbert"
     AUV2_MANUFACTURER_CODE "ChCu"
-    AUV2_SUBTYPE_CODE "GuGa"
+    AUV2_SUBTYPE_CODE "ChGa"
     AUV2_INSTRUMENT_TYPE "aufx"
     PLUGIN_FORMATS ${formats}
     WINDOWS_FOLDER_VST3 TRUE # a folder, so its resources can travel inside it
-    STANDALONE_CONFIGURATIONS standalone "GUI Gallery" "com.charlieculbert.guigallery"
+    STANDALONE_CONFIGURATIONS standalone "chardraw Gallery" "com.charlieculbert.chardrawgallery"
     COPY_AFTER_BUILD FALSE)
 
 # Slide's fonts (https://github.com/charCulbert/slide): Barlow Semi Condensed
 # for names, IBM Plex Mono for numbers.
 if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
-    gpu_wclap_resources(resources GuiGallery resources)
-    core_ship_resources(GuiGallery "${resources}" DEPENDS GuiGallery_resources)
+    gpu_wclap_resources(resources ChardrawGallery resources)
+    core_ship_resources(ChardrawGallery "${resources}" DEPENDS ChardrawGallery_resources)
 else()
-    core_ship_resources(GuiGallery "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+    core_ship_resources(ChardrawGallery "${CMAKE_CURRENT_SOURCE_DIR}/resources")
 endif()

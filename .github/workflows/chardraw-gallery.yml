@@ -1,23 +1,23 @@
-name: GUI Gallery
+name: chardraw Gallery
 
-# Builds and validates the GUI Gallery (examples/gui-gallery) on macOS, Windows
+# Builds and validates the chardraw Gallery (examples/chardraw-gallery) on macOS, Windows
 # and Linux, and as a WCLAP; uploads the plugins only once they pass. Runs when
 # it or a library it uses changes.
 on:
   push:
     paths:
-      - examples/gui-gallery/**
+      - examples/chardraw-gallery/**
       - libs/core/**
       - libs/gpu/**
       - libs/chardraw/**
-      - .github/workflows/gallery.yml
+      - .github/workflows/chardraw-gallery.yml
   pull_request:
     paths:
-      - examples/gui-gallery/**
+      - examples/chardraw-gallery/**
       - libs/core/**
       - libs/gpu/**
       - libs/chardraw/**
-      - .github/workflows/gallery.yml
+      - .github/workflows/chardraw-gallery.yml
   workflow_dispatch:
 
 # A newer push cancels the run still going for an older one.
@@ -29,10 +29,10 @@ permissions:
   contents: read
 
 env:
-  PROJECT: examples/gui-gallery  # the folder with the plugin's CMakeLists.txt
-  TARGET: GuiGallery      # TARGET_NAME there
-  NAME: "GUI Gallery"     # OUTPUT_NAME there: the plugin files' names
-  AU: "aufx GuGa ChCu"    # AUv2 type, subtype, manufacturer (for auval)
+  PROJECT: examples/chardraw-gallery  # the folder with the plugin's CMakeLists.txt
+  TARGET: ChardrawGallery      # TARGET_NAME there
+  NAME: "chardraw Gallery"     # OUTPUT_NAME there: the plugin files' names
+  AU: "aufx ChGa ChCu"    # AUv2 type, subtype, manufacturer (for auval)
 
 jobs:
   native:
@@ -55,7 +55,7 @@ jobs:
       - name: Build
         run: |
           cmake -S "$PROJECT" -B build -DWARNINGS_AS_ERRORS=ON
-          targets="${TARGET}_clap ${TARGET}_vst3"
+          targets="${TARGET}_clap ${TARGET}_vst3 ${TARGET}_standalone"
           if [ "$RUNNER_OS" = macOS ]; then targets="$targets ${TARGET}_auv2"; fi
           cmake --build build --config Release --parallel 4 --target $targets
 

@@ -1,6 +1,6 @@
 // Laid out as nakst's CLAP tutorial: https://nakst.gitlab.io/tutorial/clap-part-1.html
 //
-// GUI Gallery: a page of every feature of the GPU interface (libs/gpu,
+// chardraw Gallery: a page of every feature of the GPU interface (libs/gpu,
 // libs/chardraw), for checking how it looks and performs in real hosts. Audio
 // passes through; its four parameters exist only for the controls to edit.
 // A showcase, not a starting point: tools/new-plugin.py doesn't offer it.
@@ -84,8 +84,8 @@ static const char* const pluginFeatures[] = {
 
 static const clap_plugin_descriptor_t pluginDescriptor = {
     .clap_version = CLAP_VERSION_INIT,
-    .id = "com.charlieculbert.guigallery",
-    .name = "GUI Gallery",
+    .id = "com.charlieculbert.chardrawgallery",
+    .name = "chardraw Gallery",
     .vendor = "Charlie Culbert",
     .url = "https://github.com/charCulbert",
     .manual_url = "https://github.com/charCulbert",

@@ -1,4 +1,4 @@
-// GUI Gallery's interface: tabs, a theme switch, and one page per area of the
+// chardraw Gallery's interface: tabs, a theme switch, and one page per area of the
 // framework. Every cell draws one feature and says underneath what it should
 // look like, so a wrong drawing is visible at a glance.
 //
@@ -626,7 +626,7 @@ private:
         std::vector<int16_t> samples (rate);
         for (uint32_t i = 0; i < rate; ++i)
             samples[i] = int16_t (std::lround (4096 * std::sin (6.283185307179586 * 440 * i / rate)));
-        const std::filesystem::path path = std::filesystem::temp_directory_path() / "GUI Gallery tone.wav";
+        const std::filesystem::path path = std::filesystem::temp_directory_path() / "chardraw Gallery tone.wav";
         std::ofstream out (path, std::ios::binary);
         auto u32 = [&] (uint32_t v) { out.write (reinterpret_cast<const char*> (&v), 4); }; // little-endian hosts
         auto u16 = [&] (uint16_t v) { out.write (reinterpret_cast<const char*> (&v), 2); };
