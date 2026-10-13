@@ -443,6 +443,10 @@ static void PluginRenderAudio (
             voice.phase -= floorf (voice.phase);
         }
         plugin->filtered += (sum * 0.2f - plugin->filtered) * fraction;
+        // As it decays to silence it would pass through subnormal numbers,
+        // which are slow on most CPUs: stop at zero first.
+        if (fabsf (plugin->filtered) < 1e-20f)
+            plugin->filtered = 0;
         output[0][index] = output[1][index] = plugin->filtered;
     }
 }
