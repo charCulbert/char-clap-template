@@ -64,6 +64,14 @@ Param* Params::find (std::string_view name)
     return nullptr;
 }
 
+Param* Params::find (uint32_t id)
+{
+    for (auto& p : params)
+        if (p.id == int64_t (id) && !p.name.empty()) // (one no longer listed has no name)
+            return &p;
+    return nullptr;
+}
+
 void Params::begin (Param& p)
 {
     p.dragging = true;

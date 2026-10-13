@@ -8,6 +8,7 @@
 #include "../libs/chardraw/ui.h"
 #include "../libs/chardraw/views.h"
 #include "../libs/chardraw/dock.h"
+#include <algorithm>
 #include <set>
 #include <thread>
 #include <chrono>
@@ -423,6 +424,53 @@ static void parameterToggleAndSegmented()
     for (const gpu::Accessible& n : ui.accessibility()->nodes)
         named |= n.role == gpu::Accessible::Role::radioGroup && n.name == "B";
     CHECK (named);
+}
+
+// A parameter's controls write its value with a printf format or a function,
+// and show a label of their own in place of its name; screen readers still
+// hear its name. Params finds a parameter by its CLAP id as well as by name.
+static void parameterFormats()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams (params); // A and B: 0..1, ids 0 and 1
+    gpu::Param *a = params.find (0u), *b = params.find (1u);
+    CHECK (a && a == params.find ("A") && b && b == params.find ("B") && !params.find (2u));
+
+    const Ui::Format dB { "%.1f dB", "Lvl" }, plain;
+    CHECK (dB (3) == "3.0 dB" && dB.name (*a) == "Lvl" && plain (0.25) == "0.25" && plain.name (*a) == "A");
+    auto percent = [] (double v) { return std::to_string (int (std::lround (v * 100))) + " %"; };
+    auto draw = [&] {
+        frame (ui, [&] {
+            ui.knob (params, a, { percent, "Amt" });
+            ui.numberBox (params, a, percent);
+            ui.slider (params, b, { "%.1f", "Bee" });
+            ui.readout (params, b, nullptr, { percent, "Bee" }); // its label from the format
+            ui.vslider (params, b, "%.3f");                      // a plain format, as before
+        });
+    };
+    draw();
+    std::vector<std::string> aValues, bValues;
+    bool shortNames = false;
+    for (const gpu::Accessible& n : ui.accessibility()->nodes)
+    {
+        if (n.name == "A")
+            aValues.push_back (n.value);
+        if (n.name == "B")
+            bValues.push_back (n.value);
+        shortNames |= n.name == "Amt" || n.name == "Bee";
+    }
+    std::sort (bValues.begin(), bValues.end()); // (laid-out controls are described at end())
+    CHECK (aValues == (std::vector<std::string> { "50 %", "50 %" }));
+    CHECK (bValues == (std::vector<std::string> { "0.5", "0.500", "50 %" }));
+    CHECK (!shortNames);
+
+    // A parameter no longer listed isn't found by its id either.
+    core::Value::Array list;
+    list.push_back (
+        core::Value::Map { { "id", 1.0 }, { "name", "B" }, { "min", 0.0 }, { "max", 1.0 }, { "default", 0.5 } });
+    params.receive (core::Value::Map { { "type", "params" }, { "params", list } });
+    CHECK (!params.find (0u) && params.find (1u) == b);
 }
 
 // Controls describe themselves for screen readers, and take their requests.
@@ -3230,6 +3278,7 @@ int main()
     submenus();
     keyboardFocus();
     knobDragAndKeys();
+    parameterFormats();
     screenReader();
     screenReaderReading();
     screenReaderFocusesParts();

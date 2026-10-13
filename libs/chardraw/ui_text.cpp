@@ -490,15 +490,14 @@ bool Ui::textField (std::string& value, float widthPoints, int index)
 
 // Drag up or down for the value (Shift for fine), as ImGui's DragFloat;
 // double-click to type one.
-void Ui::numberBox (Params& params, Param* p, const char* format, bool log, float widthPoints)
+void Ui::numberBox (Params& params, Param* p, const Format& format, bool log, float widthPoints)
 {
     if (!p)
         return;
     const Clay_ElementId nid = id ("Number", p->id);
     const void* me = reinterpret_cast<const void*> (uintptr_t (nid.id));
-    char shown[32];
-    std::snprintf (shown, sizeof (shown), format, p->value);
-    Described& self = describeParam (me, params, *p, shown, {});
+    const std::string shown = format (p->value);
+    Described& self = describeParam (me, params, *p, shown.c_str(), {});
     self.node.role = Accessible::Role::spinButton, self.element = nid.id;
     std::string typed = plainNumber (p->value);
     const std::string before = typed;
@@ -656,7 +655,7 @@ void Ui::numberBox (Params& params, Param* p, const char* format, bool log, floa
     lastElement = nid.id;
 }
 
-void Ui::readout (Params& params, Param* p, const char* label, const char* format, bool log, float widthPoints)
+void Ui::readout (Params& params, Param* p, const char* label, const Format& format, bool log, float widthPoints)
 {
     if (p)
         readout (params, *p, label, format, log, nullptr, 0, widthPoints);
@@ -665,23 +664,21 @@ void Ui::readout (Params& params, Param* p, const char* label, const char* forma
 void Ui::readout (Params& params, Param* p, const char* label, const char* const* items, int count, float widthPoints)
 {
     if (p && count > 0)
-        readout (params, *p, label, nullptr, false, items, count, widthPoints);
+        readout (params, *p, label, Format {}, false, items, count, widthPoints);
 }
 
 // Text that changes when dragged, as char-spectrum's Smoothing readout; with
 // items, an enumeration a click steps through.
-void Ui::readout (Params& params, Param& p, const char* label, const char* format, bool log, const char* const* items,
+void Ui::readout (Params& params, Param& p, const char* label, const Format& format, bool log, const char* const* items,
     int count, float widthPoints)
 {
     const Clay_ElementId rid = id ("Readout", p.id);
     const void* me = reinterpret_cast<const void*> (uintptr_t (rid.id));
     const int item = items ? std::clamp (int (std::lround (p.value - p.min)), 0, count - 1) : 0;
-    char shown[32];
-    if (items)
-        std::snprintf (shown, sizeof (shown), "%s", items[item]);
-    else
-        std::snprintf (shown, sizeof (shown), format, p.value);
-    Described& self = describeParam (me, params, p, shown, {});
+    const std::string shown = items ? std::string (items[item]) : format (p.value);
+    if (!label)
+        label = format.name (p).c_str();
+    Described& self = describeParam (me, params, p, shown.c_str(), {});
     self.node.role = Accessible::Role::spinButton, self.element = rid.id;
     order.push_back (me);
     // A value a step from this one: items, or a fraction of the range.

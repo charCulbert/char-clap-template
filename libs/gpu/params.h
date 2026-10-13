@@ -1,5 +1,6 @@
 #pragma once
 #include "../core/messages.h"
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <string>
@@ -27,8 +28,10 @@ public:
     // Handles "params" and "values"; returns false for other messages.
     bool receive (const core::Value& message);
 
-    // Stays valid for the Params' life, through a new "params" list.
+    // Stays valid for the Params' life, through a new "params" list. By
+    // name, or by the CLAP parameter id; nullptr for one not listed.
     Param* find (std::string_view name);
+    Param* find (uint32_t id);
     void begin (Param& p);
     void change (Param& p, double value); // clamps to the range
     void end (Param& p);

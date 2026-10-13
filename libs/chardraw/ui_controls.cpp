@@ -178,7 +178,16 @@ bool Ui::control (Params& params, Param& p, const void* me, float x, float y, fl
     return true;
 }
 
-void Ui::knob (Params& params, Param* p, Rect box, const char* format, bool log)
+std::string Ui::Format::operator() (double value) const
+{
+    if (text)
+        return text (value);
+    char shown[64];
+    std::snprintf (shown, sizeof (shown), format ? format : "%.2f", value);
+    return shown;
+}
+
+void Ui::knob (Params& params, Param* p, Rect box, const Format& format, bool log)
 {
     if (!p)
         return;
@@ -200,39 +209,37 @@ void Ui::knob (Params& params, Param* p, Rect box, const char* format, bool log)
     draw.line (cx + std::sin (angle) * inner * 0.3f, cy - std::cos (angle) * inner * 0.3f,
         cx + std::sin (angle) * inner * 0.9f, cy - std::cos (angle) * inner * 0.9f, (dragging ? 2.0f : 1.4f) * s,
         dragging ? theme.accent : theme.text);
-    char value[32];
-    std::snprintf (value, sizeof (value), format, p->value);
-    describeParam (me, params, *p, value, box).node.orientation = 2; // dragged up and down
+    const std::string value = format (p->value);
+    describeParam (me, params, *p, value.c_str(), box).node.orientation = 2; // dragged up and down
     typeInto (me, &p->defaultValue, *p);
     if (!valueEntry (params, *p, me, &p->defaultValue, { box.x, cy + r + 0.3f * size, box.w, 1.3f * size },
             Draw2D::Align::center))
         draw.text (cx, cy + r + 1.3f * size, size, value, theme.text, Draw2D::Align::center, theme.valueFont);
-    draw.text (cx, cy + r + 2.6f * size, size, p->name, theme.dim, Draw2D::Align::center, theme.labelFont);
+    draw.text (cx, cy + r + 2.6f * size, size, format.name (*p), theme.dim, Draw2D::Align::center, theme.labelFont);
 }
 
 // As compost's slider: the name on the left and the value on the right above
 // a 3-point track, filled with the accent up to the value, and a 2-point
 // thumb line across it.
-void Ui::slider (Params& params, Param* p, Rect box, const char* format, bool log)
+void Ui::slider (Params& params, Param* p, Rect box, const Format& format, bool log)
 {
     if (!p)
         return;
     const float px = box.x, py = box.y, w = box.w, h = box.h, size = theme.textSize * s;
-    char value[32];
-    std::snprintf (value, sizeof (value), format, p->value);
+    const std::string value = format (p->value);
     // The value first: a click on it types, rather than starting a drag.
     const float valueWidth = std::max (draw.measure (size, value, theme.valueFont), 3 * size) + 4 * s;
     const void* me = controlId (*p, px, py);
     typeInto (me, &p->max, *p);
     const bool typing = valueEntry (
         params, *p, me, &p->max, { px + w - valueWidth, py, valueWidth, 1.4f * size }, Draw2D::Align::right);
-    describeParam (me, params, *p, value, box).node.orientation = 1;
+    describeParam (me, params, *p, value.c_str(), box).node.orientation = 1;
     const bool dragging = control (params, *p, me, px, py, w, h, false, w, log, true, sliderDrag == Drag::absolute);
     const bool hot = dragging || (!active && over (px, py, w, h));
     const float u = float (toUnit (*p, p->value, log)), thumb = 1.125f * size, track = py + h - thumb / 2;
     if (focusShown (me))
         draw.rect (px - 3 * s, py - 2 * s, w + 6 * s, h + 4 * s, theme.radius * s, { 0, 0, 0, 0 }, 1 * s, theme.accent);
-    draw.text (px, py + size, size, p->name, theme.dim, Draw2D::Align::left, theme.labelFont);
+    draw.text (px, py + size, size, format.name (*p), theme.dim, Draw2D::Align::left, theme.labelFont);
     if (!typing)
         draw.text (px + w, py + size, size, value, theme.dim, Draw2D::Align::right, theme.valueFont);
     draw.rect (px, track - 1.5f * s, w, 3 * s, 0, theme.track);
@@ -1134,7 +1141,7 @@ bool Ui::dropdown (Params& params, Param* p, const char* const* items, int count
     return true;
 }
 
-void Ui::knob (Params& params, Param* p, const char* format, bool log, float diameter)
+void Ui::knob (Params& params, Param* p, const Format& format, bool log, float diameter)
 {
     if (!p)
         return;
@@ -1148,7 +1155,7 @@ void Ui::knob (Params& params, Param* p, const char* format, bool log, float dia
     lastElement = kid.id;
 }
 
-void Ui::slider (Params& params, Param* p, const char* format, bool log)
+void Ui::slider (Params& params, Param* p, const Format& format, bool log)
 {
     if (!p)
         return;
@@ -1162,7 +1169,7 @@ void Ui::slider (Params& params, Param* p, const char* format, bool log)
 }
 
 // Upright: the value above, the name below, filled from the bottom.
-void Ui::vslider (Params& params, Param* p, Rect box, const char* format, bool log)
+void Ui::vslider (Params& params, Param* p, Rect box, const Format& format, bool log)
 {
     if (!p)
         return;
@@ -1175,11 +1182,11 @@ void Ui::vslider (Params& params, Param* p, Rect box, const char* format, bool l
     const float u = float (toUnit (*p, p->value, log)), y = bottom - (bottom - top) * u;
     if (focusShown (me))
         draw.rect (box.x, box.y, box.w, box.h, theme.radius * s, { 0, 0, 0, 0 }, 1 * s, theme.accent);
-    char value[32];
-    std::snprintf (value, sizeof (value), format, p->value);
-    describeParam (me, params, *p, value, box).node.orientation = 2;
+    const std::string value = format (p->value);
+    describeParam (me, params, *p, value.c_str(), box).node.orientation = 2;
     draw.text (cx, box.y + size, size, value, theme.dim, Draw2D::Align::center, theme.valueFont);
-    draw.text (cx, box.y + box.h - 0.3f * size, size, p->name, theme.dim, Draw2D::Align::center, theme.labelFont);
+    draw.text (
+        cx, box.y + box.h - 0.3f * size, size, format.name (*p), theme.dim, Draw2D::Align::center, theme.labelFont);
     draw.rect (cx - 1.5f * s, top, 3 * s, bottom - top, 0, theme.track);
     draw.rect (cx - 1.5f * s, y, 3 * s, bottom - y, 0, theme.accent);
     const float thumbHeight = (hot ? 3.0f : 2.0f) * s;
@@ -1274,7 +1281,7 @@ void Ui::meter (float level, float peak, Rect r)
         draw.rect (r.x, r.y + r.h * (1 - peak) - 0.5f * s, r.w, 1 * s, 0, theme.text);
 }
 
-void Ui::vslider (Params& params, Param* p, const char* format, bool log, float heightPoints)
+void Ui::vslider (Params& params, Param* p, const Format& format, bool log, float heightPoints)
 {
     if (!p)
         return;

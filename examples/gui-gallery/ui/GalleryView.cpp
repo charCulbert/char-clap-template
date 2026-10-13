@@ -23,6 +23,18 @@ namespace
 
 constexpr float pi = 3.14159265f;
 
+// A frequency as a plugin's value_to_text would write it: hertz below
+// 1 kHz, then kilohertz. A Ui::Format's text, for Cutoff's controls.
+std::string hertz (double hz)
+{
+    char text[32];
+    if (hz < 1000)
+        std::snprintf (text, sizeof text, "%.0f Hz", hz);
+    else
+        std::snprintf (text, sizeof text, "%.2f kHz", hz / 1000);
+    return text;
+}
+
 // A pipeline of the gallery's own, drawn in order with Draw2D's shapes through
 // Draw2D::custom: diagonal stripes over the whole target, which the clip
 // around the custom draw cuts to its cell.
@@ -524,7 +536,7 @@ private:
     }
 
     // A parameter's context menu, for the knob or slider declared just before.
-    void parameterMenu (gpu::Param* p, const char* format)
+    void parameterMenu (gpu::Param* p, const gpu::Ui::Format& format)
     {
         static const char* const items[] = { "Reset to default", "Copy value" };
         const int chosen = ui.contextMenu (items, 2);
@@ -536,25 +548,27 @@ private:
             params.change (*p, p->defaultValue);
             params.end (*p);
         }
-        char value[32];
-        std::snprintf (value, sizeof (value), format, p->value);
         if (chosen == 1 && copyText)
-            copyText (value);
+            copyText (format (p->value));
     }
 
     void controlsPage()
     {
         static const char* const names[] = { "Gain", "Mix", "Cutoff", "Drive" };
-        static const char* const formats[] = { "%.1f dB", "%.0f %%", "%.0f Hz", "%.1f" };
+        // Cutoff's value from a function (Hz, then kHz) and shown as "Freq";
+        // screen readers still hear "Cutoff".
+        static const gpu::Ui::Format formats[] = { "%.1f dB", "%.0f %%", { hertz, "Freq" }, "%.1f" };
         row ([&] {
-            cell ("Knobs: drag, Shift fine, wheel, double-click resets, Tab + arrows, right-click or Menu key", [&] {
-                for (int i = 0; i < 4; ++i)
-                {
-                    ui.knob (params, params.find (names[i]), formats[i], i == 2);
-                    ui.tooltip (names[i]);
-                    parameterMenu (params.find (names[i]), formats[i]);
-                }
-            });
+            cell ("Knobs: drag, Shift fine, wheel, double-click resets, Tab + arrows, right-click or Menu key; Cutoff "
+                  "labelled Freq, its value in Hz or kHz",
+                [&] {
+                    for (int i = 0; i < 4; ++i)
+                    {
+                        ui.knob (params, params.find (names[i]), formats[i], i == 2);
+                        ui.tooltip (names[i]);
+                        parameterMenu (params.find (names[i]), formats[i]);
+                    }
+                });
         });
         row ([&] {
             cell ("Sliders (compost style): fill to the value, thumb thickens on hover; a press puts the value there, "
@@ -1128,7 +1142,7 @@ private:
                                 .layoutDirection = CLAY_TOP_TO_BOTTOM } })
                     {
                         ui.readout (params, params.find ("Gain"), "Gain", "%.1f dB", false, 150);
-                        ui.readout (params, params.find ("Cutoff"), "Cutoff", "%.0f Hz", true, 150);
+                        ui.readout (params, params.find ("Cutoff"), "Cutoff", hertz, true, 150);
                         ui.readout (params, params.find ("Drive"), "Drive", "%.2f", false, 150);
                     }
                 });
@@ -1161,7 +1175,7 @@ private:
     void morePage()
     {
         static const char* const names[] = { "Gain", "Mix", "Cutoff", "Drive" };
-        static const char* const formats[] = { "%.1f dB", "%.0f %%", "%.0f Hz", "%.1f" };
+        static const gpu::Ui::Format formats[] = { "%.1f dB", "%.0f %%", hertz, "%.1f" };
         row ([&] {
             cell (
                 "Number boxes: drag right or up, Shift fine, double-click resets, type a number or Enter to edit", [&] {

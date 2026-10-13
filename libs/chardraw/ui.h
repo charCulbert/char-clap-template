@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 // Modelled on, where named below:
@@ -205,6 +206,37 @@ public:
         draw.flush (pass);
     }
 
+    // How a parameter's knob, slider, number box or readout shows it. Its
+    // value's text: a printf format of the value ("%.1f dB"; a plain string
+    // converts to this), or text, a function of the value ("5 ms" or
+    // "1.20 s", an item's name, a percent of a 0..1 range). label: the name
+    // shown with it in place of the parameter's, e.g. a short one under a
+    // small knob; screen readers still hear the parameter's name (a
+    // ui.label() after the control changes that). For example
+    //   ui.knob (params, ratio, { "%.2f", "Ratio" });
+    //   ui.knob (params, attack, { msOrSeconds, "A" }); // std::string msOrSeconds (double)
+    struct Format
+    {
+        Format (const char* format = "%.2f", const char* label = nullptr)
+            : format (format)
+            , label (label ? label : "")
+        {}
+        template <typename F>
+            requires std::is_invocable_r_v<std::string, const F&, double>
+        Format (F text, const char* label = nullptr)
+            : text (std::move (text))
+            , label (label ? label : "")
+        {}
+        const char* format = "%.2f";
+        std::function<std::string (double)> text; // when set, used in place of format
+        std::string label;                        // empty: the parameter's name
+        std::string operator() (double value) const;
+        const std::string& name (const Param& p) const
+        {
+            return label.empty() ? p.name : label;
+        }
+    };
+
     // A piano's note-on and note-off this frame, -1 for none. The off is of
     // the note before the on (a slide from key to key): send it first.
     struct Notes
@@ -312,7 +344,7 @@ public:
     // default. Focused, the arrows step it (Shift fine, Alt large), as a
     // knob's, Delete or Backspace reset it, and Enter or a digit types a
     // value. Escape cancels a drag.
-    void numberBox (Params& params, Param* p, const char* format, bool log = false, float widthPoints = 64);
+    void numberBox (Params& params, Param* p, const Format& format, bool log = false, float widthPoints = 64);
     // A parameter as a line of text, its label then its value, for laying
     // over a plot (char-spectrum's readouts): drag up or down (Shift for
     // fine) or scroll over it to change it, double-click for the default.
@@ -322,9 +354,9 @@ public:
     // time), Page Up and Down step further, Home and End go to the ends,
     // and Delete or Backspace reset it (Escape only cancels a drag).
     // widthPoints 0: as wide as its text; else the value is right-aligned in
-    // that width.
+    // that width. label nullptr: the format's label, else the parameter's name.
     void readout (
-        Params& params, Param* p, const char* label, const char* format, bool log = false, float widthPoints = 0);
+        Params& params, Param* p, const char* label, const Format& format, bool log = false, float widthPoints = 0);
     void readout (
         Params& params, Param* p, const char* label, const char* const* items, int count, float widthPoints = 0);
     // A header that opens and closes the section under it: declare the
@@ -357,9 +389,9 @@ public:
     bool window (const char* title, Rect& frame, bool& open, const std::function<void()>& contents,
         WindowLimits limits = {}, int index = 0, Area* header = nullptr);
     // Controls of their own size, in the layout.
-    void knob (Params& params, Param* p, const char* format, bool log = false, float diameter = 44);
-    void slider (Params& params, Param* p, const char* format, bool log = false);
-    void vslider (Params& params, Param* p, const char* format, bool log = false, float heightPoints = 140);
+    void knob (Params& params, Param* p, const Format& format, bool log = false, float diameter = 44);
+    void slider (Params& params, Param* p, const Format& format, bool log = false);
+    void vslider (Params& params, Param* p, const Format& format, bool log = false, float heightPoints = 140);
     void xyPad (Params& params, Param* x, Param* y);                  // fills the space it's given
     void meter (float level, float peak = -1, float widthPoints = 6); // 0..1, filled from the bottom
     // The envelope and steps editors, filling the space they're given.
@@ -378,14 +410,14 @@ public:
     // box, or anywhere else Clay doesn't place things.
     // A rotary control with its value and name below; drag up/down to change.
     // log: logarithmic mapping (min > 0).
-    void knob (Params& params, Param* p, Rect r, const char* format, bool log = false);
+    void knob (Params& params, Param* p, Rect r, const Format& format, bool log = false);
     // A horizontal slider, its name and value above it; drag left/right.
-    void slider (Params& params, Param* p, Rect r, const char* format, bool log = false);
+    void slider (Params& params, Param* p, Rect r, const Format& format, bool log = false);
     // A knob drawn from a filmstrip: frames of a Draw2D image, stacked down
     // (or across) from the minimum to the maximum. Drags like knob.
     void imageKnob (Params& params, Param* p, int image, int frames, Rect r, bool log = false, bool across = false);
     // An upright slider, its value above and name below; drag up/down.
-    void vslider (Params& params, Param* p, Rect r, const char* format, bool log = false);
+    void vslider (Params& params, Param* p, Rect r, const Format& format, bool log = false);
     // A point dragged in two dimensions: x and y each a parameter.
     void xyPad (Params& params, Param* x, Param* y, Rect r);
     void meter (float level, float peak, Rect r);
@@ -531,7 +563,7 @@ private:
     {
         Params* params;
         Param* p;
-        const char* format;
+        Format format;
         bool log;
         Param* second = nullptr;    // an XY pad's y
         float level = 0, peak = -1; // a meter's
@@ -641,7 +673,7 @@ private:
     bool editKeys (uint32_t field, std::string& value, bool overField, float textX = NAN);
     static std::string plainNumber (double value);
     bool valueEntry (Params& params, Param& p, const void* control, const void* id, Rect r, Draw2D::Align align);
-    void readout (Params& params, Param& p, const char* label, const char* format, bool log, const char* const* items,
+    void readout (Params& params, Param& p, const char* label, const Format& format, bool log, const char* const* items,
         int count, float widthPoints);
     void startEditing (uint32_t field, std::string text, bool selectAll = false);
     void keysToEdit();

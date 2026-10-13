@@ -141,6 +141,20 @@ in the browser:
   VoiceOver, Narrator, NVDA and Orca through AccessKit, and to browsers as
   ARIA elements over the canvas.
 
+A knob, slider, number box or readout for a parameter takes a `Ui::Format`:
+a printf format as before, or a function that writes the value, with an
+optional short label shown in place of the parameter's name. Screen readers
+still hear the full name. `gpu::Params::find` takes a name or a CLAP id.
+
+```cpp
+ui.knob (params, params.find (kAttack), { msOrSeconds, "A" }); // "5 ms", "1.20 s"
+ui.knob (params, ratio, { "%.2f", "Ratio" });
+```
+
+`ui.piano` returns its notes from the call that declares it. A tap shorter
+than a frame owes its note-off to the next call, and the piano asks for that
+frame itself.
+
 Linux GPU builds are x86_64 only: Dawn's and AccessKit's prebuilt libraries
 have no other Linux architecture.
 
