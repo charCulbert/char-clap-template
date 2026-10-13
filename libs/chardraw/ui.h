@@ -215,21 +215,33 @@ public:
     // ui.label() after the control changes that). For example
     //   ui.knob (params, ratio, { "%.2f", "Ratio" });
     //   ui.knob (params, attack, { msOrSeconds, "A" }); // std::string msOrSeconds (double)
+    // fill: where a knob's or slider's accent starts. fromMinimum, as a
+    // level's; fromDefault, from the default to the value either way, as a
+    // pan's from C (empty at the default):
+    //   ui.knob (params, pan, { panText, "Pan", Ui::Fill::fromDefault });
+    enum class Fill
+    {
+        fromMinimum,
+        fromDefault
+    };
     struct Format
     {
-        Format (const char* format = "%.2f", const char* label = nullptr)
+        Format (const char* format = "%.2f", const char* label = nullptr, Fill fill = Fill::fromMinimum)
             : format (format)
             , label (label ? label : "")
+            , fill (fill)
         {}
         template <typename F>
             requires std::is_invocable_r_v<std::string, const F&, double>
-        Format (F text, const char* label = nullptr)
+        Format (F text, const char* label = nullptr, Fill fill = Fill::fromMinimum)
             : text (std::move (text))
             , label (label ? label : "")
+            , fill (fill)
         {}
         const char* format = "%.2f";
         std::function<std::string (double)> text; // when set, used in place of format
         std::string label;                        // empty: the parameter's name
+        Fill fill = Fill::fromMinimum;
         std::string operator() (double value) const;
         const std::string& name (const Param& p) const
         {
@@ -581,6 +593,8 @@ private:
     // 0..1 position of a value, and back.
     static double toUnit (const Param& p, double v, bool log);
     static double fromUnit (const Param& p, double u, bool log);
+    // Where a knob's or slider's fill starts, 0..1 of its travel.
+    static float fillStart (const Param& p, const Format& format, bool log);
     // Handles all input for the control with rectangle x,y,w,h. Returns true
     // while that control is being dragged.
     static const void* controlId (const Param& p, float x, float y);

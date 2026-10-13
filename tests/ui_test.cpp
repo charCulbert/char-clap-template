@@ -465,6 +465,22 @@ static void parameterFormats()
     CHECK (bValues == (std::vector<std::string> { "0.5", "0.500", "50 %" }));
     CHECK (!shortNames);
 
+    // Filled from the minimum unless asked to fill from the default (a pan's
+    // C); either draws at, below and above the default.
+    const Ui::Format pan { "%.2f", "Pan", Ui::Fill::fromDefault };
+    CHECK (dB.fill == Ui::Fill::fromMinimum && plain.fill == Ui::Fill::fromMinimum);
+    CHECK (pan.fill == Ui::Fill::fromDefault && Ui::Format (percent, nullptr, Ui::Fill::fromDefault).fill == pan.fill);
+    for (double v : { 0.0, 0.5, 1.0 })
+    {
+        a->value = v;
+        frame (ui, [&] {
+            ui.knob (params, a, pan);
+            ui.slider (params, a, pan);
+            ui.vslider (params, a, pan);
+        });
+    }
+    a->value = 0.5;
+
     // A parameter no longer listed isn't found by its id either.
     core::Value::Array list;
     list.push_back (

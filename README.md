@@ -160,11 +160,14 @@ in the browser:
 A knob, slider, number box or readout for a parameter takes a `Ui::Format`:
 a printf format as before, or a function that writes the value, with an
 optional short label shown in place of the parameter's name. Screen readers
-still hear the full name. `gpu::Params::find` takes a name or a CLAP id.
+still hear the full name. With `Ui::Fill::fromDefault`, a knob or slider
+fills from the parameter's default to its value, as a pan knob fills from C.
+`gpu::Params::find` takes a name or a CLAP id.
 
 ```cpp
 ui.knob (params, params.find (kAttack), { msOrSeconds, "A" }); // "5 ms", "1.20 s"
 ui.knob (params, ratio, { "%.2f", "Ratio" });
+ui.knob (params, pan, { panText, "Pan", Ui::Fill::fromDefault });
 ```
 
 `ui.piano` returns its notes from the call that declares it. A tap shorter

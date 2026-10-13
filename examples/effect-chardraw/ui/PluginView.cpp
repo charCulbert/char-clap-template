@@ -106,7 +106,7 @@ public:
             .backgroundColor = gpu::clayColor (ui.theme.background) })
         {
             if (pan)
-                ui.knob (params, pan, panText, false, 52);
+                ui.knob (params, pan, { panText, nullptr, gpu::Ui::Fill::fromDefault }, false, 52); // filled from C
             CLAY ({ .layout = { .sizing = { CLAY_SIZING_FIT (0), CLAY_SIZING_GROW (0) }, .childGap = 6 } })
             {
                 if (gain)

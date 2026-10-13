@@ -9,10 +9,13 @@ import {sendMessage, onMessage} from './lib/messages.js';
 
 // Each parameter's control, by its CLAP id (P_* in plugin.cpp), in order: a
 // knob or an upright slider, its value as text, and optionally a shorter name
-// to show, whether it's logarithmic, and the element it goes in (#controls
-// unless it says; before the meter, if that's in there too).
+// to show, whether it's logarithmic, whether it fills from its default (as
+// chardraw's Ui::Fill::fromDefault: a pan's from C) rather than its minimum,
+// and the element it goes in (#controls unless it says; before the meter, if
+// that's in there too).
 const layout = [
-  {id: 1, control: 'knob', text: v => Math.abs(v) < 0.005 ? 'C' : `${Math.round(Math.abs(v) * 100)} ${v < 0 ? 'L' : 'R'}`},
+  {id: 1, control: 'knob', fromDefault: true,
+   text: v => Math.abs(v) < 0.005 ? 'C' : `${Math.round(Math.abs(v) * 100)} ${v < 0 ? 'L' : 'R'}`},
   {id: 0, control: 'vslider', into: '#fader', text: v => `${v.toFixed(1)} dB`},
 ];
 
@@ -20,7 +23,7 @@ const controls = [];
 
 // Builds a knob or an upright slider for parameter p. Drag it (Shift for fine),
 // double-click it for the default; focused, the arrow keys step it.
-function control(p, {control: kind, text, label, log}) {
+function control(p, {control: kind, text, label, log, fromDefault}) {
   const toUnit = v => log ? Math.log(v / p.min) / Math.log(p.max / p.min) : (v - p.min) / (p.max - p.min);
   const fromUnit = u => log ? p.min * (p.max / p.min) ** u : p.min + u * (p.max - p.min);
   const element = document.createElement('div');
@@ -35,14 +38,15 @@ function control(p, {control: kind, text, label, log}) {
   element.querySelector('.name').textContent = label ?? p.name;
   const output = element.querySelector('output');
   let value = p.default, unit = toUnit(value), dragging = false;
+  const start = fromDefault ? toUnit(p.default) : 0; // where the fill starts, 0..1
 
-  // The knob's ring: 270 degrees, from 7:30 to 4:30.
-  const arc = u => {
-    const a0 = 3.927, a1 = a0 + 4.712 * u, r = 21;
+  // The knob's ring: 270 degrees, from 7:30 to 4:30; a part of it, u0 to u1.
+  const arc = (u0, u1) => {
+    const a0 = 3.927 + 4.712 * u0, a1 = 3.927 + 4.712 * u1, r = 21;
     const point = a => `${(Math.sin(a) * r).toFixed(2)} ${(-Math.cos(a) * r).toFixed(2)}`;
-    return u <= 0 ? '' : `M ${point(a0)} A ${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${point(a1)}`;
+    return u1 <= u0 ? '' : `M ${point(a0)} A ${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${point(a1)}`;
   };
-  if (kind === 'knob') element.querySelector('.track').setAttribute('d', arc(1));
+  if (kind === 'knob') element.querySelector('.track').setAttribute('d', arc(0, 1));
 
   function show(v) {
     value = v; unit = Math.min(1, Math.max(0, toUnit(v)));
@@ -50,12 +54,14 @@ function control(p, {control: kind, text, label, log}) {
     element.setAttribute('aria-valuenow', v);
     element.setAttribute('aria-valuetext', text(v));
     if (kind === 'knob') {
-      element.querySelector('.value').setAttribute('d', arc(unit));
+      element.querySelector('.value').setAttribute('d', arc(Math.min(start, unit), Math.max(start, unit)));
       const a = 3.927 + 4.712 * unit, pointer = element.querySelector('.pointer');
       pointer.setAttribute('x1', Math.sin(a) * 5.4); pointer.setAttribute('y1', -Math.cos(a) * 5.4);
       pointer.setAttribute('x2', Math.sin(a) * 16.3); pointer.setAttribute('y2', -Math.cos(a) * 16.3);
     } else {
-      element.querySelector('.fill').style.height = `${unit * 100}%`;
+      const fill = element.querySelector('.fill');
+      fill.style.bottom = `${Math.min(start, unit) * 100}%`;
+      fill.style.height = `${Math.abs(unit - start) * 100}%`;
       element.querySelector('.thumb').style.bottom = `${unit * 100}%`;
     }
   }

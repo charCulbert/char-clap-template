@@ -555,12 +555,14 @@ private:
     void controlsPage()
     {
         static const char* const names[] = { "Gain", "Mix", "Cutoff", "Drive" };
-        // Cutoff's value from a function (Hz, then kHz) and shown as "Freq";
-        // screen readers still hear "Cutoff".
-        static const gpu::Ui::Format formats[] = { "%.1f dB", "%.0f %%", { hertz, "Freq" }, "%.1f" };
+        // Gain filled from its default, 0 dB, either way; Cutoff's value from
+        // a function (Hz, then kHz) and shown as "Freq"; screen readers still
+        // hear "Cutoff".
+        static const gpu::Ui::Format formats[] = { { "%.1f dB", nullptr, gpu::Ui::Fill::fromDefault }, "%.0f %%",
+            { hertz, "Freq" }, "%.1f" };
         row ([&] {
-            cell ("Knobs: drag, Shift fine, wheel, double-click resets, Tab + arrows, right-click or Menu key; Cutoff "
-                  "labelled Freq, its value in Hz or kHz",
+            cell ("Knobs: drag, Shift fine, wheel, double-click resets, Tab + arrows, right-click or Menu key; Gain "
+                  "filled from 0 dB; Cutoff labelled Freq, its value in Hz or kHz",
                 [&] {
                     for (int i = 0; i < 4; ++i)
                     {

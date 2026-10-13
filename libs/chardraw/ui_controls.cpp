@@ -187,6 +187,11 @@ std::string Ui::Format::operator() (double value) const
     return shown;
 }
 
+float Ui::fillStart (const Param& p, const Format& format, bool log)
+{
+    return format.fill == Fill::fromDefault ? float (toUnit (p, p.defaultValue, log)) : 0;
+}
+
 void Ui::knob (Params& params, Param* p, Rect box, const Format& format, bool log)
 {
     if (!p)
@@ -202,8 +207,9 @@ void Ui::knob (Params& params, Param* p, Rect box, const Format& format, bool lo
     if (focusShown (me))
         draw.circle (cx, cy, r + 2 * s, { 0, 0, 0, 0 }, 1 * s, theme.accent);
     draw.arc (cx, cy, r - width, width, from, from + sweep, theme.track);
-    if (u > 0)
-        draw.arc (cx, cy, r - width, width, from, from + sweep * u, theme.accent);
+    const float start = fillStart (*p, format, log), lo = std::min (start, u), hi = std::max (start, u);
+    if (hi > lo)
+        draw.arc (cx, cy, r - width, width, from + sweep * lo, from + sweep * hi, theme.accent);
     const float angle = from + sweep * u, inner = r - 1.6f * width;
     draw.circle (cx, cy, inner, theme.background, 1 * s, theme.edge);
     draw.line (cx + std::sin (angle) * inner * 0.3f, cy - std::cos (angle) * inner * 0.3f,
@@ -243,7 +249,8 @@ void Ui::slider (Params& params, Param* p, Rect box, const Format& format, bool 
     if (!typing)
         draw.text (px + w, py + size, size, value, theme.dim, Draw2D::Align::right, theme.valueFont);
     draw.rect (px, track - 1.5f * s, w, 3 * s, 0, theme.track);
-    draw.rect (px, track - 1.5f * s, w * u, 3 * s, 0, theme.accent);
+    const float start = fillStart (*p, format, log);
+    draw.rect (px + w * std::min (start, u), track - 1.5f * s, w * std::abs (u - start), 3 * s, 0, theme.accent);
     const float x = px + w * u, thumbWidth = (hot ? 3.0f : 2.0f) * s;
     draw.rect (x - thumbWidth / 2, track - thumb / 2, thumbWidth, thumb, 0, theme.text);
 }
@@ -1188,7 +1195,8 @@ void Ui::vslider (Params& params, Param* p, Rect box, const Format& format, bool
     draw.text (
         cx, box.y + box.h - 0.3f * size, size, format.name (*p), theme.dim, Draw2D::Align::center, theme.labelFont);
     draw.rect (cx - 1.5f * s, top, 3 * s, bottom - top, 0, theme.track);
-    draw.rect (cx - 1.5f * s, y, 3 * s, bottom - y, 0, theme.accent);
+    const float start = bottom - (bottom - top) * fillStart (*p, format, log);
+    draw.rect (cx - 1.5f * s, std::min (y, start), 3 * s, std::abs (start - y), 0, theme.accent);
     const float thumbHeight = (hot ? 3.0f : 2.0f) * s;
     draw.rect (cx - thumb / 2, y - thumbHeight / 2, thumb, thumbHeight, 0, theme.text);
 }
