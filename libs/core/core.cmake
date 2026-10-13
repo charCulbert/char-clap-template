@@ -8,6 +8,7 @@
 #   core_ship_resources(<plugin name> "")         no files: signs and packages only
 include_guard(DIRECTORY)
 include(FetchContent)
+include(${CMAKE_CURRENT_LIST_DIR}/download.cmake) # core_declare: downloads a project can share
 
 set(CORE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 # The template's own licence ships too: from its download, or from a local
@@ -15,16 +16,35 @@ set(CORE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 get_filename_component(CORE_TEMPLATE_LICENSE "${CORE_DIR}/../../LICENSE" ABSOLUTE)
 set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_LICENSES "clap_template=${CORE_TEMPLATE_LICENSE}")
 
-FetchContent_Declare(clap
-    GIT_REPOSITORY https://github.com/free-audio/clap.git
-    GIT_TAG 1.2.10
-    GIT_SHALLOW TRUE)
+core_declare(clap
+    URL https://github.com/free-audio/clap/archive/refs/tags/1.2.10.tar.gz
+    URL_HASH SHA256=58fdb977c6678859c15d57942378b651399178f49a3a8ecad1813b9f231dc096)
 # clap-wrapper downloads the VST3 and AudioUnit SDKs it needs.
 set(CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES TRUE)
-FetchContent_Declare(clap-wrapper
-    GIT_REPOSITORY https://github.com/free-audio/clap-wrapper.git
-    GIT_TAG 2bc329c774b4584918c2150dda918afd5e6b2b87)
+core_declare(clap-wrapper
+    URL https://github.com/free-audio/clap-wrapper/archive/2bc329c774b4584918c2150dda918afd5e6b2b87.tar.gz
+    URL_HASH SHA256=c5cf8e2fbcbbca44663377cf47c0b6190d74f2c6b633706ed983889210ad3308)
 FetchContent_MakeAvailable(clap clap-wrapper)
+# With a download cache (see download.cmake), the SDKs clap-wrapper downloads
+# come from it too. clap-wrapper's CPM would put them in this build folder (its
+# cmake/base_sdks.cmake gives each a SOURCE_DIR there); asked for here first,
+# with the same tags, CPM keeps them in the cache, and clap-wrapper takes them
+# from the *_SDK_ROOT variables. Update the tags with clap-wrapper's.
+core_download_cache(core_cache)
+if(core_cache AND NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")
+    guarantee_cpm()
+    CPMAddPackage(NAME vst3sdk GITHUB_REPOSITORY steinbergmedia/vst3sdk GIT_TAG v3.8.0_build_66
+        DOWNLOAD_ONLY TRUE GIT_SUBMODULES base public.sdk pluginterfaces cmake)
+    set(VST3_SDK_ROOT "${vst3sdk_SOURCE_DIR}")
+    CPMAddPackage(NAME rtaudio GITHUB_REPOSITORY thestk/rtaudio GIT_TAG 6.0.1 DOWNLOAD_ONLY TRUE)
+    set(RTAUDIO_SDK_ROOT "${rtaudio_SOURCE_DIR}")
+    CPMAddPackage(NAME rtmidi GITHUB_REPOSITORY thestk/rtmidi GIT_TAG 6.0.0 DOWNLOAD_ONLY TRUE)
+    set(RTMIDI_SDK_ROOT "${rtmidi_SOURCE_DIR}")
+    if(APPLE)
+        CPMAddPackage(NAME AudioUnitSDK GITHUB_REPOSITORY apple/AudioUnitSDK GIT_TAG AudioUnitSDK-1.1.0 DOWNLOAD_ONLY TRUE)
+        set(AUDIOUNIT_SDK_ROOT "${AudioUnitSDK_SOURCE_DIR}")
+    endif()
+endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "WASI" AND TARGET clap-wrapper-shared-detail)
     # Only the native wrappers use this library, and under WASI the pinned
     # clap-wrapper gives it an empty define (-D=1) that fails to compile.
@@ -228,6 +248,16 @@ function(core_gather_third_party_licenses folder)
             list(APPEND libraries "${path}")
         endif()
     endforeach()
+    # With CPM_SOURCE_CACHE set, CPM's downloads are in that cache, in folders
+    # named for their hash: each by its package name.
+    foreach(package ${CPM_PACKAGES})
+        FetchContent_GetProperties(${package} SOURCE_DIR source)
+        if(source AND IS_DIRECTORY "${source}" AND NOT source MATCHES "^${CMAKE_BINARY_DIR}/")
+            list(APPEND libraries "${source}")
+            string(SHA1 key "${source}")
+            set(packageName_${key} "${package}")
+        endif()
+    endforeach()
     set(repositories "${CMAKE_CURRENT_SOURCE_DIR}")
     while(repositories)
         list(POP_FRONT repositories repository)
@@ -263,6 +293,10 @@ function(core_gather_third_party_licenses folder)
     foreach(library ${libraries})
         get_filename_component(name "${library}" NAME)
         string(REGEX REPLACE "-src$" "" name "${name}")
+        string(SHA1 key "${library}")
+        if(DEFINED packageName_${key})
+            set(name "${packageName_${key}}")
+        endif()
         if(name IN_LIST covered OR EXISTS "${folder}/${name}.txt")
             continue()
         endif()

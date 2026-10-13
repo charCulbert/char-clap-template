@@ -14,6 +14,7 @@
 # into it (ASSETS), since loadAsset can't wait for a download.
 include_guard(DIRECTORY)
 include(FetchContent)
+include(${CMAKE_CURRENT_LIST_DIR}/../core/download.cmake) # core_declare: downloads a project can share
 
 set(GPU_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set(GPU_DAWN_RELEASE "https://github.com/google/dawn/releases/download/v20260922.191850")
@@ -24,24 +25,24 @@ get_filename_component(GPU_DAWN_VERSION "${GPU_DAWN_RELEASE}" NAME)
 
 if(EMSCRIPTEN)
     # Dawn's WebGPU C++ API for Emscripten, over the browser's WebGPU.
-    FetchContent_Declare(emdawnwebgpu
+    core_declare(emdawnwebgpu
         URL "${GPU_DAWN_RELEASE}/emdawnwebgpu_pkg-v20260922.191850.zip"
         URL_HASH SHA256=381a56505a68db3a8f34ec43eefa87214a45b3b94a438624297fd6186c8db257)
     FetchContent_MakeAvailable(emdawnwebgpu)
 elseif(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")
     # Dawn's prebuilt release: one static library.
     if(APPLE)
-        FetchContent_Declare(dawn URL "${GPU_DAWN_RELEASE}/${GPU_DAWN_BUILD}-macos-latest-Release.tar.gz"
+        core_declare(dawn URL "${GPU_DAWN_RELEASE}/${GPU_DAWN_BUILD}-macos-latest-Release.tar.gz"
             URL_HASH SHA256=8466aa51e771cdc29c40ef0d1648c7011edb41a8c03892175f4b0ae0ff6b70e2)
-        FetchContent_Declare(dawn_intel URL "${GPU_DAWN_RELEASE}/${GPU_DAWN_BUILD}-macos-15-intel-Release.tar.gz"
+        core_declare(dawn_intel URL "${GPU_DAWN_RELEASE}/${GPU_DAWN_BUILD}-macos-15-intel-Release.tar.gz"
             URL_HASH SHA256=56c4c40ed37054278d073959d13994c7f43b0ca436186d62210e84322cae6682)
         FetchContent_MakeAvailable(dawn dawn_intel)
     elseif(WIN32)
-        FetchContent_Declare(dawn URL "${GPU_DAWN_RELEASE}/${GPU_DAWN_BUILD}-windows-latest-Release.tar.gz"
+        core_declare(dawn URL "${GPU_DAWN_RELEASE}/${GPU_DAWN_BUILD}-windows-latest-Release.tar.gz"
             URL_HASH SHA256=38d4b019e0748821f00df38f16d47094087c1ee3a642737af4c929d45a1a72d9)
         FetchContent_MakeAvailable(dawn)
     else()
-        FetchContent_Declare(dawn URL "${GPU_DAWN_RELEASE}/${GPU_DAWN_BUILD}-ubuntu-latest-Release.tar.gz"
+        core_declare(dawn URL "${GPU_DAWN_RELEASE}/${GPU_DAWN_BUILD}-ubuntu-latest-Release.tar.gz"
             URL_HASH SHA256=f40bfaa23c149d2728fe094ac9dad7c4f6b7340c29d752301ae6be51d6080125)
         FetchContent_MakeAvailable(dawn)
     endif()
@@ -68,7 +69,7 @@ endif()
 # AccessKit: the view's accessibility tree to the system's screen-reader API
 # (NSAccessibility, UI Automation, AT-SPI). Its prebuilt static libraries.
 if(CMAKE_SYSTEM_NAME MATCHES "^(Darwin|Linux)$" OR WIN32) # macOS (not iOS), Linux and Windows
-    FetchContent_Declare(accesskit
+    core_declare(accesskit
         URL https://github.com/AccessKit/accesskit-c/releases/download/0.23.1/accesskit-c-0.23.1.zip
         URL_HASH SHA256=35b7ca8a6f1e038b5da35e1e9e5a0adaed9bfcf21e1496d29598fbbadcc7043f
         SOURCE_SUBDIR none) # prebuilt: its CMakeLists builds from Rust source

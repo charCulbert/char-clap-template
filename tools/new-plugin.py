@@ -16,6 +16,7 @@ Uses only Python's standard library (3.8+).
 import argparse
 import datetime
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -311,6 +312,12 @@ def main():
         "and by CMakeLists.txt here; keep their notices with "
         f"anything you distribute. Every build ships their full licence texts in THIRD_PARTY_LICENSES/.\n\n{notices}\n", encoding="utf-8")
 
+    # Each project downloads its dependencies again (about a minute) unless
+    # they share a cache: libs/core/download.cmake.
+    cache_hint = "" if os.environ.get("CPM_SOURCE_CACHE") else (
+        "\nThe first configure downloads its dependencies (about a minute). To share them\n"
+        "between projects, set a download cache once, in your shell's profile:\n"
+        "  export CPM_SOURCE_CACHE=$HOME/.cache/CPM\n")
     print(f"""Made {name} in {dest}
   from the {old['name']} example, fetching the template's libs/ at v{version}
   ID {plugin_id}; AU codes {subtype} (subtype), {vendor_code} (manufacturer)
@@ -319,7 +326,7 @@ Next:
   cd "{dest}"
   cmake -B build && cmake --build build --config Release
   git init && git add -A && git commit -m "Start {name}"    # when you're ready
-""")
+{cache_hint}""")
 
 
 if __name__ == "__main__":

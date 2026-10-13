@@ -9,13 +9,14 @@
 #   webview_resources(<out var> <name> <folder>)   <folder> plus page/lib/messages.js, to ship
 include_guard(DIRECTORY)
 include(FetchContent)
+include(${CMAKE_CURRENT_LIST_DIR}/../core/download.cmake) # core_declare: downloads a project can share
 
 set(WEBVIEW_DIR "${CMAKE_CURRENT_LIST_DIR}")
 if(NOT CMAKE_SYSTEM_NAME MATCHES "WASI|iOS")
     set(WEBVIEW_NATIVE ON)
-    FetchContent_Declare(choc
-        GIT_REPOSITORY https://github.com/Tracktion/choc.git
-        GIT_TAG 9606a6615b592605993d92733cdfd6ca6ecbd825)
+    core_declare(choc
+        URL https://github.com/Tracktion/choc/archive/9606a6615b592605993d92733cdfd6ca6ecbd825.tar.gz
+        URL_HASH SHA256=47ceb93564caeec10215dc8225d6e72f6cd3981658d9b0de8b50e194ef5b7f10)
     FetchContent_MakeAvailable(choc)
 endif()
 
