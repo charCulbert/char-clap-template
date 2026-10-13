@@ -52,7 +52,10 @@
 static_assert (std::atomic<float>::is_always_lock_free);
 static_assert (std::atomic<bool>::is_always_lock_free);
 
-// One playing note: a saw with a short attack and a release.
+// One playing note: a saw with a short attack and a release. Removing one
+// copies the last over it (PluginEndFinishedVoices), which is fine for a few
+// numbers; a voice with a buffer (a delay line, a sample) keeps a pointer to
+// one allocated in init, so removing it moves the pointer, not the buffer.
 struct Voice
 {
     int32_t noteID;

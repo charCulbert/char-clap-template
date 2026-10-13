@@ -51,7 +51,10 @@
 static_assert (std::atomic<float>::is_always_lock_free);
 static_assert (std::atomic<bool>::is_always_lock_free);
 
-// One playing note: a saw with a short attack and a release.
+// One playing note: a saw with a short attack and a release. Removing one
+// copies the last over it (PluginEndFinishedVoices), which is fine for a few
+// numbers; a voice with a buffer (a delay line, a sample) keeps a pointer to
+// one allocated in init, so removing it moves the pointer, not the buffer.
 struct Voice
 {
     int32_t noteID;
@@ -719,7 +722,7 @@ static const clap_plugin_webview_t extensionWebview = {
 static void PluginClampSize (const MyPlugin* plugin, uint32_t& width, uint32_t& height)
 {
     const float scale = plugin->gui.pixelsPerPoint();
-    const auto clamp = [scale] (uint32_t value, float low, float high) {
+    const auto clamp = [scale] (uint32_t value, double low, double high) {
         return std::clamp (value, uint32_t (std::ceil (low * scale)), uint32_t (high * scale));
     };
     // The least is GUI_MIN_*, or the view's content ("minimum size") if more.

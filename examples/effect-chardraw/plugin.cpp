@@ -642,7 +642,7 @@ static const clap_plugin_webview_t extensionWebview = {
 static void PluginClampSize (const MyPlugin* plugin, uint32_t& width, uint32_t& height)
 {
     const float scale = plugin->gui.pixelsPerPoint();
-    const auto clamp = [scale] (uint32_t value, float low, float high) {
+    const auto clamp = [scale] (uint32_t value, double low, double high) {
         return std::clamp (value, uint32_t (std::ceil (low * scale)), uint32_t (high * scale));
     };
     // The least is GUI_MIN_*, or the view's content ("minimum size") if more.
