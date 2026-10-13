@@ -85,6 +85,21 @@ void* Layout::custom (int kind, void* data)
 void Layout::end (const std::function<void (int, void*, Rect)>& onCustom)
 {
     const Clay_RenderCommandArray commands = Clay_EndLayout();
+    // Clay sums each box's least size from its children as it closes it, but
+    // the root (element 0, the view's size, children left to right) clamps its
+    // own to the view: so its children's, unclamped.
+    {
+        Clay_Context* clay = Clay_GetCurrentContext();
+        const Clay_LayoutElement* root = Clay_LayoutElementArray_Get (&clay->layoutElements, 0);
+        minimumWidth = minimumHeight = 0;
+        for (uint16_t i = 0; root && i < root->childrenOrTextContent.children.length; ++i)
+        {
+            const Clay_LayoutElement* child =
+                Clay_LayoutElementArray_Get (&clay->layoutElements, root->childrenOrTextContent.children.elements[i]);
+            minimumWidth += child->minDimensions.width;
+            minimumHeight = std::max (minimumHeight, child->minDimensions.height);
+        }
+    }
     drawn.clear();
     const float s = scale;
     auto color = [] (Clay_Color c) { return Color { c.r / 255, c.g / 255, c.b / 255, c.a / 255 }; };

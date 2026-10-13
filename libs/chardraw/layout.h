@@ -73,6 +73,11 @@ public:
         std::string words;
     };
     std::vector<Drawn> drawn;
+    // The smallest size, in points, the last end()'s content fits: what its
+    // boxes add up to at their least (fixed sizes, padding, gaps, the longest
+    // word of each text), all of it but what scrolls or clips. Bigger than
+    // the view when the content is cut off at its edge.
+    float minimumWidth = 0, minimumHeight = 0;
 
 private:
     struct Custom

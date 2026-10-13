@@ -403,6 +403,7 @@ public:
     // Controls of their own size, in the layout.
     void knob (Params& params, Param* p, const Format& format, bool log = false, float diameter = 44);
     void slider (Params& params, Param* p, const Format& format, bool log = false);
+    // heightPoints 0: as tall as its box lets it grow, never under 80 points.
     void vslider (Params& params, Param* p, const Format& format, bool log = false, float heightPoints = 140);
     void xyPad (Params& params, Param* x, Param* y);                  // fills the space it's given
     void meter (float level, float peak = -1, float widthPoints = 6); // 0..1, filled from the bottom

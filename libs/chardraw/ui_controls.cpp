@@ -1296,7 +1296,7 @@ void Ui::vslider (Params& params, Param* p, const Format& format, bool log, floa
     const Clay_ElementId vid = id ("VSlider", p->id);
     CLAY ({ .id = vid,
         .layout = { .sizing = { CLAY_SIZING_FIXED (std::max (40.0f, 4 * theme.textSize)),
-                        CLAY_SIZING_FIXED (heightPoints) } },
+                        heightPoints > 0 ? CLAY_SIZING_FIXED (heightPoints) : CLAY_SIZING_GROW (80) } },
         .custom = {
             .customData = layout.custom (vsliderBox, &placed.emplace_back (Placed { &params, p, format, log })) } })
     {}
