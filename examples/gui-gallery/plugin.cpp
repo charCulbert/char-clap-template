@@ -254,7 +254,7 @@ static const clap_plugin_webview_t extensionWebview = {
 
 // clap.gui: size policy is ours; creating and embedding the view is gpu::Gui's.
 // The limits are in points.
-#define GUI_MIN_WIDTH (480)
+#define GUI_MIN_WIDTH (720) // the tab row and the widest page's cards: narrower clips them
 #define GUI_MIN_HEIGHT (320)
 #define GUI_MAX_WIDTH (2000)
 #define GUI_MAX_HEIGHT (1200)
