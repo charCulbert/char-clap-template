@@ -1,4 +1,4 @@
-# Headless Gain: gain and pan with no interface of its own.
+# Effect Headless: stereo gain and pan with no interface of its own.
 #
 #   cmake -B build && cmake --build build     CLAP, VST3, AU (macOS), standalone
 #   WCLAP: see README.md for the one extra flag (the WASI SDK toolchain).
@@ -9,7 +9,7 @@ if(CMAKE_HOST_APPLE AND NOT CMAKE_SYSTEM_NAME AND NOT DEFINED CMAKE_OSX_ARCHITEC
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
 endif()
 
-project(HeadlessGain VERSION 1.0.0 LANGUAGES C CXX)
+project(EffectHeadless VERSION 1.0.0 LANGUAGES C CXX)
 if(APPLE)
     enable_language(OBJC OBJCXX)
 endif()
@@ -29,8 +29,8 @@ endif()
 set(LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../../libs")
 include(${LIBS}/core/core.cmake)
 
-add_library(HeadlessGain_impl STATIC plugin.cpp)
-core_add_to(HeadlessGain_impl)
+add_library(EffectHeadless_impl STATIC plugin.cpp)
+core_add_to(EffectHeadless_impl)
 
 set(formats CLAP VST3)
 if(APPLE)
@@ -41,18 +41,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
 endif()
 
 make_clapfirst_plugins(
-    TARGET_NAME HeadlessGain
-    IMPL_TARGET HeadlessGain_impl
+    TARGET_NAME EffectHeadless
+    IMPL_TARGET EffectHeadless_impl
     ENTRY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/entry.cpp"
-    OUTPUT_NAME "Headless Gain"
-    BUNDLE_IDENTIFIER "com.charlieculbert.headlessgain"
+    OUTPUT_NAME "Effect Headless"
+    BUNDLE_IDENTIFIER "com.charlieculbert.effectheadless"
     BUNDLE_VERSION "${PROJECT_VERSION}"
     AUV2_MANUFACTURER_NAME "Charlie Culbert"
     AUV2_MANUFACTURER_CODE "ChCu"
-    AUV2_SUBTYPE_CODE "HdGn"
+    AUV2_SUBTYPE_CODE "EfHd"
     AUV2_INSTRUMENT_TYPE "aufx"
     PLUGIN_FORMATS ${formats}
-    STANDALONE_CONFIGURATIONS standalone "Headless Gain" "com.charlieculbert.headlessgain"
+    STANDALONE_CONFIGURATIONS standalone "Effect Headless" "com.charlieculbert.effectheadless"
     COPY_AFTER_BUILD FALSE)
 
-core_ship_resources(HeadlessGain "") # no files to ship: this signs and packages the plugins
+core_ship_resources(EffectHeadless "") # no files to ship: this signs and packages the plugins

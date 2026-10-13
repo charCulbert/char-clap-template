@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Effect WebView</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body class="strip">
+  <main id="controls"></main>
+  <div id="fader">
+    <div id="meter" role="meter" aria-label="Output level" aria-valuemin="-60" aria-valuemax="0" aria-valuenow="-60">
+      <div class="bar"><div class="fill"></div><div class="peak" hidden></div></div>
+      <div class="bar"><div class="fill"></div><div class="peak" hidden></div></div>
+    </div>
+  </div>
+  <div id="resize" title="Resize"></div>
+</body>
+</html>

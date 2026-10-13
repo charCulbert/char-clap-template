@@ -1,8 +1,9 @@
-# WebView Synth: a sine synth whose interface is a web page.
+# Instrument WebView: a polyphonic saw synth with a lowpass filter and a peak
+# meter, its interface a web page.
 #
 #   cmake -B build && cmake --build build     CLAP, VST3, AU (macOS), standalone
-#   More formats, each with one extra flag (see README.md): WCLAP, the iOS app
-#   (with its AUv3), AAX (with your AAX SDK).
+#   More formats, each with one extra flag (see README.md): WCLAP, and the iOS
+#   app with its AUv3.
 cmake_minimum_required(VERSION 3.28)
 
 # macOS plugins here are universal (Apple silicon and Intel).
@@ -13,7 +14,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0")
 endif()
 
-project(WebViewSynth VERSION 1.0.0 LANGUAGES C CXX)
+project(InstrumentWebView VERSION 1.0.0 LANGUAGES C CXX)
 if(APPLE)
     enable_language(OBJC OBJCXX)
 endif()
@@ -34,31 +35,31 @@ set(LIBS "${CMAKE_CURRENT_SOURCE_DIR}/../../libs")
 include(${LIBS}/core/core.cmake)
 include(${LIBS}/webview/webview.cmake)
 
-add_library(WebViewSynth_impl STATIC plugin.cpp)
-core_add_to(WebViewSynth_impl)
-webview_add_to(WebViewSynth_impl)
+add_library(InstrumentWebView_impl STATIC plugin.cpp)
+core_add_to(InstrumentWebView_impl)
+webview_add_to(InstrumentWebView_impl)
 
 # resources/ (the page in page/) ships as ordinary files inside each plugin.
-webview_resources(resources WebViewSynth resources)
+webview_resources(resources InstrumentWebView resources)
 
 set(identity
-    OUTPUT_NAME "WebView Synth"
-    BUNDLE_IDENTIFIER "com.charlieculbert.webviewsynth"
+    OUTPUT_NAME "Instrument WebView"
+    BUNDLE_IDENTIFIER "com.charlieculbert.instrumentwebview"
     BUNDLE_VERSION "${PROJECT_VERSION}")
 
 # iOS: an AUv3 extension inside an app (configure with -G Xcode -DCMAKE_SYSTEM_NAME=iOS).
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-    add_executable(WebViewSynth_auv3 entry.cpp)
-    target_link_libraries(WebViewSynth_auv3 PRIVATE WebViewSynth_impl)
-    target_add_auv3_wrapper(TARGET WebViewSynth_auv3 ${identity}
+    add_executable(InstrumentWebView_auv3 entry.cpp)
+    target_link_libraries(InstrumentWebView_auv3 PRIVATE InstrumentWebView_impl)
+    target_add_auv3_wrapper(TARGET InstrumentWebView_auv3 ${identity}
         MANUFACTURER_NAME "Charlie Culbert" MANUFACTURER_CODE "ChCu"
-        SUBTYPE_CODE "WvSy" INSTRUMENT_TYPE "aumu")
-    add_executable(WebViewSynth_ios entry.cpp)
-    target_link_libraries(WebViewSynth_ios PRIVATE WebViewSynth_impl)
-    target_add_auv3_standalone_ios_wrapper(TARGET WebViewSynth_ios
-        OUTPUT_NAME "WebView Synth" BUNDLE_IDENTIFIER "com.charlieculbert.webviewsynth.ios"
-        BUNDLE_VERSION "${PROJECT_VERSION}" AUV3_TARGET WebViewSynth_auv3
-        AU_TYPE "aumu" AU_SUBTYPE "WvSy" AU_MANUFACTURER "ChCu")
+        SUBTYPE_CODE "InWv" INSTRUMENT_TYPE "aumu")
+    add_executable(InstrumentWebView_ios entry.cpp)
+    target_link_libraries(InstrumentWebView_ios PRIVATE InstrumentWebView_impl)
+    target_add_auv3_standalone_ios_wrapper(TARGET InstrumentWebView_ios
+        OUTPUT_NAME "Instrument WebView" BUNDLE_IDENTIFIER "com.charlieculbert.instrumentwebview.ios"
+        BUNDLE_VERSION "${PROJECT_VERSION}" AUV3_TARGET InstrumentWebView_auv3
+        AU_TYPE "aumu" AU_SUBTYPE "InWv" AU_MANUFACTURER "ChCu")
     return()
 endif()
 
@@ -66,33 +67,22 @@ set(formats CLAP VST3)
 if(APPLE)
     list(APPEND formats AUV2)
 endif()
-if(AAX_SDK_ROOT) # -DAAX_SDK_ROOT=<your AAX SDK>: not redistributable, so never fetched
-    if(NOT EXISTS "${AAX_SDK_ROOT}/Interfaces/AAX.h")
-        message(FATAL_ERROR "AAX_SDK_ROOT (${AAX_SDK_ROOT}) is not an AAX SDK")
-    endif()
-    list(APPEND formats AAX)
-endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
     set(formats WCLAP)
 endif()
 
 make_clapfirst_plugins(
-    TARGET_NAME WebViewSynth
-    IMPL_TARGET WebViewSynth_impl
+    TARGET_NAME InstrumentWebView
+    IMPL_TARGET InstrumentWebView_impl
     ENTRY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/entry.cpp"
     ${identity}
     AUV2_MANUFACTURER_NAME "Charlie Culbert"
     AUV2_MANUFACTURER_CODE "ChCu"
-    AUV2_SUBTYPE_CODE "WvSy"
+    AUV2_SUBTYPE_CODE "InWv"
     AUV2_INSTRUMENT_TYPE "aumu"
     PLUGIN_FORMATS ${formats}
     WINDOWS_FOLDER_VST3 TRUE # a folder, so its resources can travel inside it
-    STANDALONE_CONFIGURATIONS standalone "WebView Synth" "com.charlieculbert.webviewsynth"
+    STANDALONE_CONFIGURATIONS standalone "Instrument WebView" "com.charlieculbert.instrumentwebview"
     COPY_AFTER_BUILD FALSE)
 
-if(TARGET WebViewSynth_aax AND APPLE)
-    # The pinned clap-wrapper misparses its empty AAX asset-output argument.
-    set_target_properties(WebViewSynth_aax PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
-endif()
-
-core_ship_resources(WebViewSynth "${resources}" DEPENDS WebViewSynth_resources)
+core_ship_resources(InstrumentWebView "${resources}" DEPENDS InstrumentWebView_resources)

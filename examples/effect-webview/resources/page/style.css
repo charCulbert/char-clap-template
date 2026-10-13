@@ -1,0 +1,46 @@
+/* chardraw's palette (libs/chardraw/ui.h, Theme): dark, or light as the system is. */
+:root {
+  color-scheme: dark light;
+  --background: #2f2f2f; --text: #dedede; --dim: #a5a5a5; --track: #555555; --accent: #ddc07e;
+  font: 13px system-ui, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root { --background: #cdcdcd; --text: #1c1c1c; --dim: #4f4f4f; --track: #9e9e9e; --accent: #75540a; }
+}
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--background); color: var(--text); }
+body { display: flex; align-items: center; gap: 24px; padding: 20px; box-sizing: border-box; user-select: none; }
+main { flex: 1; align-self: stretch; display: flex; align-items: center; gap: 24px; min-width: 0; }
+output { font-variant-numeric: tabular-nums; line-height: 1.3; }
+/* A channel strip (body.strip): the controls on top, then the fader beside the meter. */
+body.strip { flex-direction: column; gap: 12px; padding: 16px; }
+body.strip main { flex: none; align-self: auto; }
+#fader { flex: 1; min-height: 0; display: flex; gap: 6px; }
+#fader #meter { padding: calc(1.3em + 6px) 0; }
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+/* A knob, as chardraw's: a ring over 270 degrees, its value, then its name. */
+.knob { display: grid; justify-items: center; gap: 3px; width: 56px; flex: none; cursor: ns-resize; }
+.knob svg { width: 52px; height: 52px; overflow: visible; }
+.knob .track { stroke: var(--track); } .knob .value { stroke: var(--accent); }
+.knob .cap { fill: var(--background); stroke: var(--track); } .knob .pointer { stroke: var(--text); }
+.knob .name { color: var(--dim); line-height: 1.3; }
+
+/* An upright slider, as chardraw's: its value, a 3-pixel track filled from the bottom, its name. */
+.vslider { align-self: stretch; width: 52px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: ns-resize; }
+.vslider output, .vslider .name { color: var(--dim); line-height: 1.3; }
+.vslider .rail { flex: 1; position: relative; width: 15px; }
+.vslider .rail::before { content: ""; position: absolute; top: 0; bottom: 0; left: 6px; width: 3px; background: var(--track); }
+.vslider .fill { position: absolute; bottom: 0; left: 6px; width: 3px; background: var(--accent); }
+.vslider .thumb { position: absolute; left: 0; width: 15px; height: 2px; margin-bottom: -1px; background: var(--text); }
+
+/* The peak meter: a bar per channel, filled from the bottom, a line at the peak. */
+#meter { display: flex; gap: 3px; align-self: stretch; flex: none; }
+#meter .bar { position: relative; width: 8px; background: var(--track); }
+#meter .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--accent); }
+#meter .peak { position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--text); }
+
+/* A resize grip in the corner, for hosts that don't resize plugin windows
+   themselves (AU hosts); dragging it sends "resize" (see app.js). */
+#resize { position: fixed; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize;
+          background: linear-gradient(135deg, transparent 50%, var(--track) 50%, var(--track) 58%, transparent 58%,
+                                      transparent 70%, var(--track) 70%, var(--track) 78%, transparent 78%); }
