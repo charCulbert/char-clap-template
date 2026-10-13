@@ -1,20 +1,34 @@
 # CLAP plugin starters
 
-Example CLAP plugins to start new ones from. Each builds, with
-[clap-wrapper](https://github.com/free-audio/clap-wrapper), from one source to:
+CLAP plugins to start new ones from: an effect and an instrument, each with
+a web page or a chardraw interface, and an effect with none. Each builds, with
+[clap-wrapper](https://github.com/free-audio/clap-wrapper), from one source to
+the same targets, all built in CI:
 
 - **CLAP, VST3 and a standalone app**, on macOS, Windows and Linux
 - **AUv2**, on macOS
 - **WCLAP**, for browser hosts
-- **The iOS app (AUv3) and AAX**, set up in the WebView Synth only and not built in CI
 
-| Example | Type | Interface |
+The web page starters also set up **the iOS app with its AUv3** (not built in
+CI). The chardraw ones get it next: it needs an iOS backend in `libs/gpu`.
+
+| Starter | Type | Interface |
 |---|---|---|
-| [`examples/headless-gain`](examples/headless-gain) | Gain and pan | None: the host shows its own controls |
-| [`examples/webview-synth`](examples/webview-synth) | Polyphonic sine synth | Webview/HTML |
-| [`examples/gpu-analyzer`](examples/gpu-analyzer) | Spectrum analyzer | chardraw/WebGPU |
-| [`examples/gpu-spectrogram`](examples/gpu-spectrogram) | Scrolling spectrogram | chardraw/WebGPU |
-| [`examples/imgui-filter`](examples/imgui-filter) | Lowpass, bandpass and highpass filter | Dear ImGui/WebGPU |
+| [`examples/effect-headless`](examples/effect-headless) | Gain and pan | None: the host shows its own controls |
+| [`examples/effect-webview`](examples/effect-webview) | Gain and pan, peak meter | Web page |
+| [`examples/effect-chardraw`](examples/effect-chardraw) | Gain and pan, peak meter | chardraw on WebGPU |
+| [`examples/instrument-webview`](examples/instrument-webview) | Polyphonic saw synth with a lowpass filter, peak meter | Web page |
+| [`examples/instrument-chardraw`](examples/instrument-chardraw) | Polyphonic saw synth with a lowpass filter, peak meter | chardraw on WebGPU |
+
+Every starter's `plugin.cpp` is raw CLAP, written out, with the same sections
+in the same order and the same names: descriptor and features, audio ports,
+note ports, parameters, recalled settings, latency and tail, process (events,
+then DSP), state, and the UI connection. Compare two and only the real
+differences show: an effect and an instrument differ in their ports, DSP and
+parameters; a web page and a chardraw starter only in the UI connection.
+Every starter has every extension, the unused ones returning 0 or false with
+a comment saying what goes there, so one kind of plugin becomes another by
+filling in bodies.
 
 
 ## Getting started
@@ -22,11 +36,11 @@ Example CLAP plugins to start new ones from. Each builds, with
 ### Make a plugin
 
 ```sh
-python3 tools/new-plugin.py --from imgui-filter --name "My Plugin" --vendor "Your Name" \
+python3 tools/new-plugin.py --from instrument-chardraw --name "My Plugin" --vendor "Your Name" \
     --dest ../my-plugin
 ```
 
-`--from` is the example's folder in `examples/`. Leave an option out and it asks. It also
+`--from` is the starter's folder in `examples/`. Leave an option out and it asks. It also
 takes `--id`, `--au-subtype`, `--au-manufacturer`, `--url`, `--license`
 (MIT unless `none`) and `--template-version` (the newest release tag
 unless given; from a GitHub archive download, which has no tags, the version
@@ -72,26 +86,28 @@ dependencies and takes a few minutes. On Windows and Linux, copy the
 
 All in `plugin.cpp`, unless it says otherwise:
 
-- **DSP:** `PluginRenderAudio`, and `PluginProcessEvent` for notes.
-- **Parameters:** the `P_*` defines and `extensionParams` (in the gain, synth
-  and filter).
-- **Window size:** `guiWidth`, `guiHeight`, the `GUI_MIN_*` and `GUI_MAX_*`
-  defines, and `extensionGui.get_resize_hints`.
-- **Interface:** `ui/` for a GPU interface, `resources/page/` for a web page.
-- **Instrument or effect:** the synth is the only instrument. To switch one to
-  the other, change all of:
+- **DSP:** `PluginRenderAudio`, and `PluginNoteOn` and `PluginNoteOff` for
+  notes.
+- **Parameters:** the `P_*` defines and `extensionParams`.
+- **Window size:** `guiWidth`, `guiHeight`, and the `GUI_MIN_*` and `GUI_MAX_*`
+  defines under Recalled settings.
+- **Interface:** `ui/` for a chardraw interface, `resources/page/` for a web
+  page.
+- **Instrument or effect:** start from the right one. To switch, change all of:
   - `pluginFeatures`: `CLAP_PLUGIN_FEATURE_INSTRUMENT` or `AUDIO_EFFECT`.
-  - The ports: an instrument typically has `extensionNotePorts` and only an audio
-    output; an effect has an audio input too. Copy them from the synth or the
-    gain.
+  - The port counts: an instrument has a note input and no audio input; the
+    comments in `extensionAudioPorts` and `extensionNotePorts` say what to
+    return.
+  - `PluginNoteOn`, `PluginNoteOff` and `PluginEndFinishedVoices`: empty in an
+    effect.
   - The AU type, `aumu` or `aufx`: `AUV2_INSTRUMENT_TYPE` in
     `CMakeLists.txt`, and `AU:` in your project's `.github/workflows/build.yml`
-    (here, the example's own workflow, `.github/workflows/<example>.yml`).
+    (here, the starter's own workflow, `.github/workflows/<starter>.yml`).
 
 ## Updating the template
 
 Your plugin's `CMakeLists.txt` fetches this repository's `libs/` at a release
-tag (`GIT_TAG v0.1.0`). To update, read the
+tag (`GIT_TAG v0.2.0`). To update, read the
 [release notes](https://github.com/charCulbert/char-clap-template/releases)
 from your version up, then change the tag. Before 1.0, a minor bump (0.1 to
 0.2) may need changes in your plugin; a patch bump won't.
@@ -109,7 +125,7 @@ cmake -B build -DFETCHCONTENT_SOURCE_DIR_CLAP_TEMPLATE=/abs/path/to/char-clap-te
 examples/<name>/
   plugin.cpp        the plugin: descriptor, ports, parameters, state, GUI, audio
   entry.cpp         the CLAP entry point
-  ui/               the interface's C++ (GPU examples)
+  ui/               the interface's C++ (chardraw starters)
   resources/        files shipped with the plugin: page/, fonts/, ...
   CMakeLists.txt
 libs/
@@ -158,7 +174,7 @@ frame itself.
 Linux GPU builds are x86_64 only: Dawn's and AccessKit's prebuilt libraries
 have no other Linux architecture.
 
-The GUI Gallery ([`examples/gui-gallery`](examples/gui-gallery)) shows every feature, a page per area. It's
+The chardraw Gallery ([`examples/chardraw-gallery`](examples/chardraw-gallery)) shows every feature, a page per area. It's
 a showcase, not a starting point: `new-plugin.py` doesn't offer it.
 
 ## How the interface talks to the plugin
@@ -166,7 +182,8 @@ a showcase, not a starting point: `new-plugin.py` doesn't offer it.
 The interface sends the plugin small CBOR messages (`libs/core/messages.h`,
 or `libs/webview/js/messages.js` in a page): `ready`, then `begin`, `change`
 and `end` around each drag; the plugin answers with its `params` and
-`values`. Each `plugin.cpp` lists its messages above `PluginReceiveMessage`.
+`values`, and the starters' peak meter gets a `meter` message about 30 times
+a second. Each `plugin.cpp` lists its messages above `PluginReceiveMessage`.
 
 How they get there depends on the host:
 
@@ -194,8 +211,7 @@ Each needs its own build folder:
 | Format | Needs | Configure |
 |---|---|---|
 | WCLAP | [WASI SDK 33](https://github.com/WebAssembly/wasi-sdk/releases); for GPU interfaces also [Emscripten 4.0.11](https://emscripten.org) | `cmake -B build-wclap -DCMAKE_TOOLCHAIN_FILE=<wasi-sdk>/share/cmake/wasi-sdk-p1.cmake` |
-| iOS app (AUv3) | Xcode | `cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS` |
-| AAX | Avid's AAX SDK | `cmake -B build-aax -DAAX_SDK_ROOT=<path to the SDK>` |
+| iOS app (AUv3), web page starters | Xcode | `cmake -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS` |
 
 A WCLAP comes out as `build-wclap/<Name>.wclap.tar.gz`. Load it in a browser
 host: [browser-test-host](https://webclap.github.io/browser-test-host/),
@@ -209,23 +225,24 @@ ctest --test-dir build                                       # after building at
 clap-validator validate build/My\ Plugin.clap                 # CLAP
 pluginval --validate build/My\ Plugin.vst3 --strictness-level 5   # VST3, opens the GUI too
 auval -v aufx MyPl YoNa                                      # AU: type, subtype, manufacturer
-python3 tools/check-templates.py                             # a project from each example, built and validated
+python3 tools/check-templates.py                             # a project from each starter, built and validated
 ```
 
 The tests cover the resource reader, the message codec (C++ and JavaScript),
-the analyzer's DSP, chardraw's layout and controls, and its drawing
-(checked pixel by pixel; needs a WebGPU adapter, a software one will do).
-The GUI Gallery (`examples/gui-gallery`) is for looking: each cell draws one feature
-and says what it should look like.
+chardraw's layout and controls, and its drawing (checked pixel by pixel;
+needs a WebGPU adapter, a software one will do). The chardraw Gallery
+(`examples/chardraw-gallery`) is for looking: each cell draws one feature and
+says what it should look like.
 
 ## CI
 
-Each example has a workflow in `.github/workflows/` that runs when the example,
-a library it uses, or the workflow changes; `tests.yml` runs the unit tests,
-`gallery.yml` builds the GUI Gallery, and `new-plugin.yml` builds projects made
-with `new-plugin.py` against the checkout. Each run builds on macOS, Windows
-and Linux, checks the plugins with clap-validator, pluginval and auval, builds
-the WCLAP, and uploads the plugins under the run's Artifacts. A project made
+Each example has a workflow in `.github/workflows/`, named for its folder, that
+runs when the example, a library it uses, or the workflow changes; `tests.yml`
+runs the unit tests, and `new-plugin.yml` builds a project made with
+`new-plugin.py` from each starter against the checkout. Each run builds the
+plugins and the standalone app on macOS, Windows and Linux, checks the
+plugins with clap-validator, pluginval and auval, builds the WCLAP, and
+uploads the plugins under the run's Artifacts. A project made
 with `new-plugin.py` has one workflow, `build.yml`, that runs on pushes to `main` and on
 pull requests.
 
@@ -241,10 +258,8 @@ Every version is pinned in one place:
 | Dawn | `libs/gpu/gpu.cmake` | v20260922.191850 |
 | AccessKit | `libs/gpu/gpu.cmake` | 0.23.1 |
 | stb, Clay, nanosvg | `libs/chardraw/chardraw.cmake` | commits |
-| Emscripten | each GPU example's workflow; a licence in `libs/gpu/licenses/` | 4.0.11 |
+| Emscripten | each chardraw example's workflow; a licence in `libs/gpu/licenses/` | 4.0.11 |
 | WASI SDK | each workflow; its runtime's licences in `libs/core/licenses/wasi-sdk/` | 33 |
-| Dear ImGui | `examples/imgui-filter/CMakeLists.txt` | v1.92.9b |
-| Signalsmith DSP | `examples/gpu-analyzer/signalsmith-dsp.cmake` | a commit |
 
 Downloads are checked against a SHA256 where CMake allows it. When you change
 a pin, change its hash, then run `tools/check-templates.py`.
@@ -254,10 +269,9 @@ a pin, change its hash, then run `tools/check-templates.py`.
 This repository is MIT. Its dependencies are permissive: CLAP SDK and
 clap-wrapper (MIT), CHOC (ISC), Dawn (BSD 3-Clause), AccessKit (MIT or
 Apache-2.0, with a BSD 3-Clause notice from Chromium), stb (MIT or public
-domain), Clay and nanosvg (zlib), Dear ImGui (MIT), Signalsmith DSP and
-Basics (MIT), CiCueTea (MIT), the Cmajor standard library (ISC), Emscripten's
-runtime and emdawnwebgpu (MIT or NCSA; BSD 3-Clause; musl and libc++), and the
-Inter, IBM Plex Mono and Barlow Semi Condensed fonts (SIL Open Font License,
+domain), Clay and nanosvg (zlib), Emscripten's runtime and emdawnwebgpu (MIT
+or NCSA; BSD 3-Clause; musl and libc++), and the Inter, IBM Plex Mono and
+Barlow Semi Condensed fonts (SIL Open Font License,
 each beside its font). A WCLAP links the WASI SDK's runtime: wasi-libc,
 libc++, libc++abi, the LLVM runtime and dlmalloc (licences in
 `libs/core/licenses/wasi-sdk/`). clap-wrapper also downloads the VST3 SDK

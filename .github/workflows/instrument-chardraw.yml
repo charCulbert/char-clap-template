@@ -1,21 +1,24 @@
-name: WebView Synth
+name: Instrument chardraw
 
-# Builds and validates WebView Synth on macOS, Windows and Linux, and as a WCLAP;
-# uploads the plugins only once they pass. Runs when the plugin or a library
+# Builds Instrument chardraw (CLAP, VST3, AU on macOS, the standalone app) on macOS,
+# Windows and Linux, validates the plugins, and builds the WCLAP.
+# Uploads the plugins only once they pass. Runs when the plugin or a library
 # it uses changes.
 on:
   push:
     paths:
-      - examples/webview-synth/**
+      - examples/instrument-chardraw/**
       - libs/core/**
-      - libs/webview/**
-      - .github/workflows/webview-synth.yml
+      - libs/gpu/**
+      - libs/chardraw/**
+      - .github/workflows/instrument-chardraw.yml
   pull_request:
     paths:
-      - examples/webview-synth/**
+      - examples/instrument-chardraw/**
       - libs/core/**
-      - libs/webview/**
-      - .github/workflows/webview-synth.yml
+      - libs/gpu/**
+      - libs/chardraw/**
+      - .github/workflows/instrument-chardraw.yml
   workflow_dispatch:
 
 # A newer push cancels the run still going for an older one.
@@ -27,10 +30,10 @@ permissions:
   contents: read
 
 env:
-  PROJECT: examples/webview-synth        # the folder with the plugin's CMakeLists.txt
-  TARGET: WebViewSynth          # TARGET_NAME there
-  NAME: "WebView Synth"            # OUTPUT_NAME there: the plugin files' names
-  AU: "aumu WvSy ChCu"                # AUv2 type, subtype, manufacturer (for auval)
+  PROJECT: examples/instrument-chardraw        # the folder with the plugin's CMakeLists.txt
+  TARGET: InstrumentChardraw          # TARGET_NAME there
+  NAME: "Instrument chardraw"            # OUTPUT_NAME there: the plugin files' names
+  AU: "aumu InCd ChCu"                # AUv2 type, subtype, manufacturer (for auval)
 
 jobs:
   native:
@@ -48,12 +51,12 @@ jobs:
 
       - name: Install Linux packages
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libx11-dev libwebkit2gtk-4.1-0 xvfb xauth
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev mesa-vulkan-drivers xvfb xauth
 
       - name: Build
         run: |
           cmake -S "$PROJECT" -B build -DWARNINGS_AS_ERRORS=ON
-          targets="${TARGET}_clap ${TARGET}_vst3"
+          targets="${TARGET}_clap ${TARGET}_vst3 ${TARGET}_standalone"
           if [ "$RUNNER_OS" = macOS ]; then targets="$targets ${TARGET}_auv2"; fi
           cmake --build build --config Release --parallel 4 --target $targets
 
@@ -116,6 +119,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # The interface's page is compiled with Emscripten.
+      - name: Install Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.11
 
       - name: Install the WASI SDK
         run: |

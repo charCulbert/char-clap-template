@@ -10,8 +10,10 @@ on:
       - CMakeLists.txt
       - libs/core/**
       - libs/webview/**
-      - examples/headless-gain/**
-      - examples/webview-synth/**
+      - libs/gpu/**
+      - libs/chardraw/**
+      - examples/effect-*/**
+      - examples/instrument-*/**
       - .github/workflows/new-plugin.yml
   pull_request:
     paths:
@@ -19,8 +21,10 @@ on:
       - CMakeLists.txt
       - libs/core/**
       - libs/webview/**
-      - examples/headless-gain/**
-      - examples/webview-synth/**
+      - libs/gpu/**
+      - libs/chardraw/**
+      - examples/effect-*/**
+      - examples/instrument-*/**
       - .github/workflows/new-plugin.yml
   workflow_dispatch:
 
@@ -39,15 +43,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        example: [headless-gain, webview-synth]
+        example: [effect-headless, effect-webview, effect-chardraw, instrument-webview, instrument-chardraw]
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Linux packages
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev
 
       - name: Make the project
-        run: python3 tools/new-plugin.py --from ${{ matrix.example }} --name "New Plugin" --vendor "Some Vendor" --template-version 0.1.0 --dest build-new-plugin
+        run: python3 tools/new-plugin.py --from ${{ matrix.example }} --name "New Plugin" --vendor "Some Vendor" --template-version 0.2.0 --dest build-new-plugin
 
       - name: Check the generated workflow runs for the new project
         run: "! grep -q examples/ build-new-plugin/.github/workflows/build.yml"

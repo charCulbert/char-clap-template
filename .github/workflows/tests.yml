@@ -1,7 +1,7 @@
 name: Tests
 
-# Unit tests for the shared code (libs/core, libs/webview/js, libs/chardraw) and
-# the analyzer's and spectrogram's DSP. The plugins' own workflows build and validate them.
+# Unit tests for the shared code (libs/core, libs/webview/js, libs/gpu,
+# libs/chardraw). The plugins' own workflows build and validate them.
 on:
   push:
     paths:
@@ -11,10 +11,7 @@ on:
       - libs/webview/js/**
       - libs/gpu/**
       - libs/chardraw/**
-      - examples/gpu-analyzer/*.h
-      - examples/gpu-analyzer/signalsmith-dsp.cmake
-      - examples/gpu-spectrogram/*.h
-      - examples/gui-gallery/resources/fonts/** # draw2d_test's font
+      - examples/chardraw-gallery/resources/fonts/** # draw2d_test's font
       - .github/workflows/tests.yml
   pull_request:
     paths:
@@ -24,10 +21,7 @@ on:
       - libs/webview/js/**
       - libs/gpu/**
       - libs/chardraw/**
-      - examples/gpu-analyzer/*.h
-      - examples/gpu-analyzer/signalsmith-dsp.cmake
-      - examples/gpu-spectrogram/*.h
-      - examples/gui-gallery/resources/fonts/** # draw2d_test's font
+      - examples/chardraw-gallery/resources/fonts/** # draw2d_test's font
       - .github/workflows/tests.yml
   workflow_dispatch:
 

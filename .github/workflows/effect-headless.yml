@@ -1,19 +1,20 @@
-name: Headless Gain
+name: Effect Headless
 
-# Builds and validates Headless Gain on macOS, Windows and Linux, and as a WCLAP;
-# uploads the plugins only once they pass. Runs when the plugin or a library
+# Builds Effect Headless (CLAP, VST3, AU on macOS, the standalone app) on macOS,
+# Windows and Linux, validates the plugins, and builds the WCLAP.
+# Uploads the plugins only once they pass. Runs when the plugin or a library
 # it uses changes.
 on:
   push:
     paths:
-      - examples/headless-gain/**
+      - examples/effect-headless/**
       - libs/core/**
-      - .github/workflows/headless-gain.yml
+      - .github/workflows/effect-headless.yml
   pull_request:
     paths:
-      - examples/headless-gain/**
+      - examples/effect-headless/**
       - libs/core/**
-      - .github/workflows/headless-gain.yml
+      - .github/workflows/effect-headless.yml
   workflow_dispatch:
 
 # A newer push cancels the run still going for an older one.
@@ -25,10 +26,10 @@ permissions:
   contents: read
 
 env:
-  PROJECT: examples/headless-gain        # the folder with the plugin's CMakeLists.txt
-  TARGET: HeadlessGain          # TARGET_NAME there
-  NAME: "Headless Gain"            # OUTPUT_NAME there: the plugin files' names
-  AU: "aufx HdGn ChCu"                # AUv2 type, subtype, manufacturer (for auval)
+  PROJECT: examples/effect-headless        # the folder with the plugin's CMakeLists.txt
+  TARGET: EffectHeadless          # TARGET_NAME there
+  NAME: "Effect Headless"            # OUTPUT_NAME there: the plugin files' names
+  AU: "aufx EfHd ChCu"                # AUv2 type, subtype, manufacturer (for auval)
 
 jobs:
   native:
@@ -46,12 +47,12 @@ jobs:
 
       - name: Install Linux packages
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev xvfb xauth
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libx11-dev xvfb xauth
 
       - name: Build
         run: |
           cmake -S "$PROJECT" -B build -DWARNINGS_AS_ERRORS=ON
-          targets="${TARGET}_clap ${TARGET}_vst3"
+          targets="${TARGET}_clap ${TARGET}_vst3 ${TARGET}_standalone"
           if [ "$RUNNER_OS" = macOS ]; then targets="$targets ${TARGET}_auv2"; fi
           cmake --build build --config Release --parallel 4 --target $targets
 

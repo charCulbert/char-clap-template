@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Starts a new CLAP plugin project from one of the examples.
 
-    python3 tools/new-plugin.py --from imgui-filter --name "My Plugin" \\
+    python3 tools/new-plugin.py --from instrument-chardraw --name "My Plugin" \\
         --vendor "Your Name" --dest ../my-plugin
 
 Anything left out is asked for. The new folder gets the example's files with
@@ -26,21 +26,21 @@ REPO = Path(__file__).resolve().parent.parent
 
 # Each example, by its folder in examples/: what it's called now, and so what gets replaced.
 EXAMPLES = {
-    "webview-synth": dict(name="WebView Synth", target="WebViewSynth",
-                  id="com.charlieculbert.webviewsynth", subtype="WvSy",
-                  notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "choc", "wasi-sdk"]),
-    "gpu-analyzer": dict(name="GPU Analyzer", target="GpuAnalyzer",
-                     id="com.charlieculbert.gpuanalyzer", subtype="GpAn",
-                     notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "signalsmith-basics", "inter", "cividis", "turbo", "emscripten", "wasi-sdk"]),
-    "gpu-spectrogram": dict(name="GPU Spectrogram", target="GpuSpectrogram",
-                        id="com.charlieculbert.gpuspectrogram", subtype="GpSg",
-                        notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "stb", "clay", "nanosvg", "signalsmith", "cicuetea", "plex", "cividis", "turbo", "emscripten", "wasi-sdk"]),
-    "imgui-filter": dict(name="ImGui Filter", target="ImGuiFilter",
-                   id="com.charlieculbert.imguifilter", subtype="ImFl",
-                   notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "imgui", "cmajor", "inter", "emscripten", "wasi-sdk"]),
-    "headless-gain": dict(name="Headless Gain", target="HeadlessGain",
-                 id="com.charlieculbert.headlessgain", subtype="HdGn",
-                 notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "wasi-sdk"]),
+    "effect-headless": dict(name="Effect Headless", target="EffectHeadless",
+                            id="com.charlieculbert.effectheadless", subtype="EfHd",
+                            notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "wasi-sdk"]),
+    "effect-webview": dict(name="Effect WebView", target="EffectWebView",
+                           id="com.charlieculbert.effectwebview", subtype="EfWv",
+                           notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "choc", "wasi-sdk"]),
+    "effect-chardraw": dict(name="Effect chardraw", target="EffectChardraw",
+                            id="com.charlieculbert.effectchardraw", subtype="EfCd",
+                            notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "stb", "clay", "nanosvg", "inter", "cividis", "turbo", "emscripten", "wasi-sdk"]),
+    "instrument-webview": dict(name="Instrument WebView", target="InstrumentWebView",
+                               id="com.charlieculbert.instrumentwebview", subtype="InWv",
+                               notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "choc", "wasi-sdk"]),
+    "instrument-chardraw": dict(name="Instrument chardraw", target="InstrumentChardraw",
+                                id="com.charlieculbert.instrumentchardraw", subtype="InCd",
+                                notices=["clap_template", "clap", "clap-wrapper", "audiounitsdk", "rtaudio", "rtmidi", "ghc-filesystem", "dawn", "accesskit", "stb", "clay", "nanosvg", "inter", "cividis", "turbo", "emscripten", "wasi-sdk"]),
 }
 OLD_VENDOR, OLD_VENDOR_CODE, OLD_URL = "Charlie Culbert", "ChCu", "https://github.com/charCulbert"
 
@@ -68,20 +68,11 @@ NOTICES = {
     "emscripten": ("Emscripten's runtime and emdawnwebgpu, in the WCLAP's web page only",
                    "https://emscripten.org", "MIT or NCSA (Emscripten), BSD 3-Clause (emdawnwebgpu), plus musl and libc++"),
     "clay": ("Clay", "https://github.com/nicbarker/clay", "zlib"),
-    "imgui": ("Dear ImGui", "https://github.com/ocornut/imgui", "MIT"),
-    "signalsmith": ("Signalsmith Audio DSP (its FFT)", "https://github.com/Signalsmith-Audio/dsp", "MIT"),
-    "signalsmith-basics": ("Signalsmith Basics (AnalyzerSpectrum.h follows its analyser; licence in licenses/SignalsmithBasics.txt)",
-                           "https://github.com/Signalsmith-Audio/basics", "MIT"),
-    "cicuetea": ("CiCueTea (chardsp_ConstantQ.h follows its constant-Q transform; licence in licenses/CiCueTea.txt)",
-                 "https://github.com/jdsierral/CiCueTea", "MIT"),
-    "cmajor": ("Cmajor standard library (chardsp_StateVariableFilter.h follows its state-variable filter; licence in licenses/Cmajor.txt)",
-               "https://github.com/cmajor-lang/cmajor", "ISC"),
     "cividis": ("Cividis (a colour scheme in chardraw's views.h; licence in the template's libs/chardraw/licenses/cividis.txt)",
                 "https://github.com/pnnl/cmaputil", "BSD-style (Battelle Memorial Institute)"),
     "turbo": ("Turbo (a colour scheme in chardraw's views.h; licence in the template's libs/chardraw/licenses/turbo.txt)",
               "https://gist.github.com/mikhailov-work/6a308c20e494d9e0ccc29036b28faa7a", "Apache-2.0"),
     "inter": ("Inter (font, in resources/fonts with its licence)", "https://rsms.me/inter", "SIL Open Font License 1.1"),
-    "plex": ("IBM Plex Mono (font, in resources/fonts with its licence)", "https://github.com/IBM/plex", "SIL Open Font License 1.1"),
 }
 
 MIT = """MIT License
@@ -191,9 +182,9 @@ def ask(label, default=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--from", dest="example",
-                        help="an example's folder in examples/: headless-gain (no UI), webview-synth (a web page), "
-                             "gpu-analyzer (chardraw's Spectrum view and readouts), gpu-spectrogram (chardraw's "
-                             "views and controls), imgui-filter (Dear ImGui)")
+                        help="a starter's folder in examples/: effect-headless (no UI), effect-webview or "
+                             "instrument-webview (a web page), effect-chardraw or instrument-chardraw (chardraw "
+                             "on WebGPU)")
     parser.add_argument("--name", help='the plugin\'s name, e.g. "My Plugin"')
     parser.add_argument("--vendor", help="you or your company")
     parser.add_argument("--dest", help="the new project's folder (must not exist yet, or be empty)")
@@ -207,7 +198,7 @@ def main():
                              "tag in this checkout, else the version in the folder's name; default %(default)s)")
     args = parser.parse_args()
 
-    example = Path(args.example or ask(f"Example ({', '.join(EXAMPLES)})", "imgui-filter")).name
+    example = Path(args.example or ask(f"Example ({', '.join(EXAMPLES)})", "instrument-chardraw")).name
     if example not in EXAMPLES:
         sys.exit(f"unknown example: {example} (one of {', '.join(EXAMPLES)})")
     old = EXAMPLES[example]
@@ -300,7 +291,7 @@ def main():
     if shutil.which("clap-host"):
         (dest / ".vscode").mkdir()
         (dest / ".vscode" / "clap-host.txt").write_text(
-            "panel\n" + ("" if example == "headless-gain" else "gui.open\n"), encoding="utf-8")
+            "panel\n" + ("" if example == "effect-headless" else "gui.open\n"), encoding="utf-8")
         (dest / ".vscode" / "tasks.json").write_text(json.dumps({"version": "2.0.0", "tasks": [
             {"label": "Build", "type": "shell", "command": "cmake -B build && cmake --build build --config Release --parallel",
              "group": {"kind": "build", "isDefault": True}, "problemMatcher": ["$gcc"]},
@@ -317,7 +308,7 @@ def main():
     (dest / "THIRD_PARTY_NOTICES.md").write_text(
         "# Third-party software\n\nThis plugin is built with, and its binaries include, the following. "
         f"CMake downloads them, at versions pinned by the template version (v{version}, GIT_TAG in CMakeLists.txt) "
-        "and by CMakeLists.txt or signalsmith-dsp.cmake here; keep their notices with "
+        "and by CMakeLists.txt here; keep their notices with "
         f"anything you distribute. Every build ships their full licence texts in THIRD_PARTY_LICENSES/.\n\n{notices}\n", encoding="utf-8")
 
     print(f"""Made {name} in {dest}

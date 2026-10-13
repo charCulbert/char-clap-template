@@ -24,12 +24,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # build/compile_commands.json, where clangd finds the downloaded headers
 
-add_subdirectory(examples/headless-gain)
-add_subdirectory(examples/webview-synth)
-add_subdirectory(examples/gpu-analyzer)
-add_subdirectory(examples/gpu-spectrogram)
-add_subdirectory(examples/imgui-filter)
-add_subdirectory(examples/gui-gallery) # a page per chardraw feature, not a starting point
+add_subdirectory(examples/effect-headless)
+add_subdirectory(examples/effect-webview)
+add_subdirectory(examples/effect-chardraw)
+add_subdirectory(examples/instrument-webview)
+add_subdirectory(examples/instrument-chardraw)
+add_subdirectory(examples/chardraw-gallery) # a page per chardraw feature, not a starting point
 
 if(NOT CMAKE_SYSTEM_NAME MATCHES "WASI|iOS")
     enable_testing()
