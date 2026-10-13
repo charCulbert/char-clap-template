@@ -16,6 +16,7 @@
 #define GPU_JOIN(a, b) GPU_JOIN2 (a, b)
 #define GpuView GPU_JOIN (GPU_OBJC_PREFIX, View)
 #define GpuKeys GPU_JOIN (GPU_OBJC_PREFIX, Keys)
+#define GpuTick GPU_JOIN (GPU_OBJC_PREFIX, Tick)
 
 namespace gpu::platform
 { // the view's accessibility, below
