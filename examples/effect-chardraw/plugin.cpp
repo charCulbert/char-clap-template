@@ -69,7 +69,7 @@ struct MyPlugin
     std::atomic<bool> gestureBegin[P_COUNT], gestureEnd[P_COUNT];
 
     // Recalled settings (main thread): the window's size, in points.
-    double guiWidth = 150, guiHeight = 380;
+    double guiWidth = 160, guiHeight = 380;
 
     // The peak meter: the highest level per output channel since the main
     // thread last took it, and the audio counted since it was last asked to.
