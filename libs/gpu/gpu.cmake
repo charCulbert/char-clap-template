@@ -127,11 +127,12 @@ function(gpu_add_to target)
         set_source_files_properties("${GPU_DIR}/accesskit_tree.cpp" PROPERTIES COMPILE_OPTIONS /we4062)
     endif()
     if(APPLE)
-        target_sources(${target} PRIVATE "${GPU_DIR}/native_mac.mm" "${GPU_DIR}/accesskit_tree.cpp")
+        target_sources(${target} PRIVATE "${GPU_DIR}/native_mac.mm" "${GPU_DIR}/accesskit_tree.cpp" "${GPU_DIR}/accesskit_mac.cpp")
         target_link_libraries(${target} PUBLIC gpu_accesskit)
         set_source_files_properties("${GPU_DIR}/native_mac.mm" PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
         # Objective-C classes share one namespace across every plugin a host
-        # loads, so each plugin names its own (see native_mac.mm).
+        # loads, so each plugin names its own (see native_mac.mm, and
+        # accesskit_mac.cpp for AccessKit's).
         string(MAKE_C_IDENTIFIER "${PROJECT_NAME}_${target}_" prefix)
         target_compile_definitions(${target} PRIVATE GPU_OBJC_PREFIX=${prefix})
         target_link_libraries(${target} PUBLIC "-framework AppKit" "-framework QuartzCore")
