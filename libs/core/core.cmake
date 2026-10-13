@@ -96,10 +96,29 @@ function(core_ship_resources name folder)
         endif()
     endforeach()
     core_third_party_licenses(licenses ${ARG_LICENSES})
+    # The standalone app's libraries warn in every build, about code that isn't
+    # ours: RtAudio's and RtMidi's variable-length arrays (a Clang extension),
+    # and clap-wrapper's macOS app delegate using an API deprecated in macOS 12.
+    foreach(library rtaudio rtmidi)
+        if(TARGET ${library} AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+            target_compile_options(${library} PRIVATE -Wno-vla-cxx-extension)
+        endif()
+    endforeach()
+    if(APPLE AND TARGET ${name}_standalone)
+        set_property(SOURCE "${clap-wrapper_SOURCE_DIR}/src/detail/standalone/macos/AppDelegate.mm"
+            TARGET_DIRECTORY ${name}_standalone APPEND PROPERTY COMPILE_OPTIONS -Wno-deprecated-declarations)
+    endif()
     foreach(format clap vst3 auv2 auv3 standalone)
         set(target ${name}_${format})
         if(NOT TARGET ${target})
             continue()
+        endif()
+        # On Windows the linker writes an import library (.lib and .exp) for
+        # the .clap and for the standalone .exe, both named for the plugin and
+        # in one folder: under Ninja the two links race for it (LNK1104).
+        # Named for the target, each has its own.
+        if(WIN32)
+            set_target_properties(${target} PROPERTIES ARCHIVE_OUTPUT_NAME ${target})
         endif()
         if(APPLE OR format STREQUAL "vst3")
             set(destination "$<TARGET_FILE_DIR:${target}>/../Resources")
