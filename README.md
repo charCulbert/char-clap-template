@@ -101,8 +101,10 @@ All in `plugin.cpp`, unless it says otherwise:
 
 - **DSP:** `PluginRenderAudio`, and `PluginNoteOn` and `PluginNoteOff` for
   notes.
-- **Parameters:** an id in `params.h`, and a row in `paramTable` (name,
-  range, default, flags, unit) under Parameters. The CLAP params functions
+- **Parameters:** an id in `params.h`, and a row in `paramTable` (key, name,
+  range, default, flags, unit) under Parameters. The key is what the value is
+  saved under in the state: never change one once released. The name is what
+  the host shows, and can change freely. The CLAP params functions
   read the table; a new unit needs a case in `value_to_text` and
   `text_to_value`. Then the DSP reads `plugin->parameters[P_YOURS]`, and a
   chardraw interface finds it with `params.find (P_YOURS)` (a web page, by

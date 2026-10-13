@@ -185,20 +185,22 @@ enum ParamUnit
 };
 
 // Each parameter, in the order of its id (params.h): what get_info tells the
-// host, and what the rest of this file reads. The name is also the key its
-// value is saved under in the state, so renaming one loses saved values
-// (unless State load reads the old name too).
+// host, and what the rest of this file reads. The key is what the value is
+// saved under in the state: never change one once a version is released, or
+// the values people saved are lost. The name is only what the host shows, and
+// can change freely.
 struct Param
 {
     clap_id id;
+    const char* key;
     const char* name;
     double min, max, defaultValue;
     clap_param_info_flags flags;
     ParamUnit unit;
 };
 static constexpr Param paramTable[] = {
-    { P_CUTOFF, "Filter cutoff", 20.0, 20000.0, 2000.0, CLAP_PARAM_IS_AUTOMATABLE, UNIT_HERTZ },
-    { P_RELEASE, "Release", 0.01, 2.0, 0.3, CLAP_PARAM_IS_AUTOMATABLE, UNIT_SECONDS },
+    { P_CUTOFF, "cutoff", "Filter cutoff", 20.0, 20000.0, 2000.0, CLAP_PARAM_IS_AUTOMATABLE, UNIT_HERTZ },
+    { P_RELEASE, "release", "Release", 0.01, 2.0, 0.3, CLAP_PARAM_IS_AUTOMATABLE, UNIT_SECONDS },
 };
 static_assert (std::size (paramTable) == P_COUNT, "a row for each id in params.h");
 static_assert (
@@ -604,7 +606,7 @@ static clap_process_status PluginProcess (MyPlugin* plugin, const clap_process_t
 
 // ---- State: parameters and settings ---------------------------------------
 
-// A CBOR map (core/messages.h) of each parameter's value by name, the
+// A CBOR map (core/messages.h) of each parameter's value by key, the
 // settings, and a version, so later versions can add to it and still read
 // this one.
 static const clap_plugin_state_t extensionState = {
@@ -619,7 +621,7 @@ static const clap_plugin_state_t extensionState = {
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
             const Param& param = paramTable[i];
-            state[param.name] = (double) plugin->mainParameters[i].load (std::memory_order_relaxed);
+            state[param.key] = (double) plugin->mainParameters[i].load (std::memory_order_relaxed);
         }
         state["window width"] = plugin->guiWidth;
         state["window height"] = plugin->guiHeight;
@@ -657,7 +659,7 @@ static const clap_plugin_state_t extensionState = {
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
             const Param& param = paramTable[i];
-            const double value = (*state)[param.name].number (param.defaultValue);
+            const double value = (*state)[param.key].number (param.defaultValue);
             plugin->mainParameters[i].store (
                 (float) fmin (fmax (value, param.min), param.max), std::memory_order_relaxed);
             plugin->mainChanged[i].store (true, std::memory_order_release);
