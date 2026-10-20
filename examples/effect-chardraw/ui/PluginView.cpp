@@ -90,7 +90,7 @@ public:
     {
         gpu::Param* gain = params.find (P_GAIN);
         gpu::Param* pan = params.find (P_PAN);
-        ui.theme = ui.theme.withColors (darkMode);
+        ui.theme = ui.theme.withColors (isDarkMode);
         ui.begin (width, height, scale);
         // A mixer channel strip: Pan on top, and under it the Gain fader with
         // the meter beside it, as tall as the window allows.

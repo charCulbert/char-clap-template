@@ -817,7 +817,7 @@ float refreshRate (Window*)
 } // the vertical blank paces frames
 
 // Settings > Personalization > Colors > "Choose your app mode".
-bool darkMode (Window*)
+bool isDarkMode (Window*)
 {
     DWORD light = 1, size = sizeof (light);
     RegGetValueW (HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",

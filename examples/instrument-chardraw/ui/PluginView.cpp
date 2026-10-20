@@ -103,7 +103,7 @@ public:
         gpu::Param* cutoff = params.find (P_CUTOFF);
         gpu::Param* release = params.find (P_RELEASE);
         gpu::Param* waveform = params.find (P_WAVE);
-        ui.theme = ui.theme.withColors (darkMode);
+        ui.theme = ui.theme.withColors (isDarkMode);
         ui.begin (width, height, scale);
         CLAY ({ .layout = { .sizing = { CLAY_SIZING_GROW (0), CLAY_SIZING_GROW (0) },
                     .padding = CLAY_PADDING_ALL (20),

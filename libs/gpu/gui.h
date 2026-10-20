@@ -74,7 +74,7 @@ private:
     float hostScale = 0;        // from set_scale, where taken
     float shownScale = 0;       // the scale the last frame was drawn at
     unsigned accessVersion = 0; // the accessibility tree screen readers have
-    std::chrono::steady_clock::time_point appearanceChecked; // see platform::darkMode
+    std::chrono::steady_clock::time_point appearanceChecked; // see platform::isDarkMode
     std::chrono::steady_clock::time_point recoveryTried;     // see recover
     std::chrono::steady_clock::time_point paced;             // see paceTimer
 #endif

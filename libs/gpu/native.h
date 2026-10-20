@@ -47,7 +47,7 @@ void pumpEvents (Window* window);   // only where needsTimer
 float refreshRate (Window* window); // its monitor's, in Hz (0 if unknown): where needsTimer, the timer's pace
 void lockPointer (Window* window, bool locked);       // see View::lockPointer
 void setCursor (Window* window, View::Cursor cursor); // see View::setCursor
-bool darkMode (Window* window); // the system's (or host window's) appearance; polled about once a second
+bool isDarkMode (Window* window); // the system's (or host window's) appearance; polled about once a second
 void copyText (Window* window, const std::string& utf8); // to the clipboard: View::copyText
 bool onScreen (Window* window);                          // false while hidden, minimised or covered: frames wait
 void textInput (Window* window, bool editing, View::Caret caret); // a text field has the keys: see View::editingText

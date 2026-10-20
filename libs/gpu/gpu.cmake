@@ -140,7 +140,7 @@ function(gpu_add_to target)
     elseif(WIN32)
         target_sources(${target} PRIVATE "${GPU_DIR}/native_win.cpp" "${GPU_DIR}/accesskit_tree.cpp")
         target_link_libraries(${target} PUBLIC gpu_accesskit)
-        target_link_libraries(${target} PUBLIC advapi32 ole32 shell32 dxgi) # RegGetValueW (darkMode); drag and drop; vblank
+        target_link_libraries(${target} PUBLIC advapi32 ole32 shell32 dxgi) # RegGetValueW (isDarkMode); drag and drop; vblank
     else()
         find_package(X11 REQUIRED)
         target_sources(${target} PRIVATE "${GPU_DIR}/native_linux.cpp" "${GPU_DIR}/accesskit_tree.cpp")

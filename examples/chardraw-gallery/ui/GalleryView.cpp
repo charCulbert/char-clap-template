@@ -192,7 +192,7 @@ public:
     }
     bool record (float width, float height, float scale) override
     {
-        gpu::Theme theme = ui.theme.withColors (themeMode == 0 ? darkMode : themeMode == 1);
+        gpu::Theme theme = ui.theme.withColors (themeMode == 0 ? isDarkMode : themeMode == 1);
         theme.valueFont = mono > 0 ? mono : 0;
         theme.whiteKey = keys == 0 ? gpu::Theme {}.whiteKey : theme.text; // a piano's, or the palette's inverted
         theme.blackKey = keys == 0 ? gpu::Theme {}.blackKey : theme.background;

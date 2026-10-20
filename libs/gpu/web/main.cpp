@@ -296,8 +296,8 @@ bool frame (double, void*)
         context.configure (width, height);
         dirty = true;
     }
-    if (const bool dark = prefersDark(); dark != view->darkMode)
-        view->darkMode = dark, dirty = true;
+    if (const bool dark = prefersDark(); dark != view->isDarkMode)
+        view->isDarkMode = dark, dirty = true;
     if (dirty || damaged || view->animating())
     {
         const bool redraw = damaged;

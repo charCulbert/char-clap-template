@@ -763,7 +763,7 @@ void copyText (Window*, const std::string& utf8)
 }
 
 // The view's own appearance: the system's, unless the host sets its window's.
-bool darkMode (Window* window)
+bool isDarkMode (Window* window)
 {
     NSAppearanceName name = [window->view.effectiveAppearance
         bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];

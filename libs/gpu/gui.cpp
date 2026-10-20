@@ -396,9 +396,9 @@ void Gui::frame()
     if (now - appearanceChecked > std::chrono::seconds (1))
     {
         appearanceChecked = now;
-        const bool dark = platform::darkMode (window);
-        if (dark != view->darkMode)
-            view->darkMode = dark, dirty = true;
+        const bool dark = platform::isDarkMode (window);
+        if (dark != view->isDarkMode)
+            view->isDarkMode = dark, dirty = true;
     }
     platform::textInput (window, view->editingText(), view->textCaret());
     if (!(dirty || damaged || view->animating()))

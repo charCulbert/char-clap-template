@@ -415,7 +415,7 @@ void pixelSize (Window* window, uint32_t& width, uint32_t& height)
 
 // Desktops have no common, cheap way to ask; GTK_THEME=Name:light or
 // Name:dark is the one convention. Dark otherwise, as most audio software is.
-bool darkMode (Window*)
+bool isDarkMode (Window*)
 {
     const char* theme = std::getenv ("GTK_THEME");
     return !(theme && std::strstr (theme, ":light"));

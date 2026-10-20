@@ -141,7 +141,7 @@ public:
 
     // Set by the presenter: the system's light or dark appearance. It draws
     // again when this changes.
-    bool darkMode = true;
+    bool isDarkMode = true;
 
     // Set by the presenter: delivers a message to the plugin.
     std::function<void (const core::Value&)> send;

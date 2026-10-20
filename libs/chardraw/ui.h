@@ -75,9 +75,9 @@ struct Theme
         return t;
     }
     // The palette for the system's appearance, keeping fonts, sizes and key colours.
-    Theme withColors (bool darkMode) const
+    Theme withColors (bool isDark) const
     {
-        Theme t = darkMode ? dark() : light();
+        Theme t = isDark ? dark() : light();
         t.labelFont = labelFont, t.valueFont = valueFont, t.textSize = textSize, t.radius = radius;
         t.whiteKey = whiteKey, t.blackKey = blackKey;
         return t;
