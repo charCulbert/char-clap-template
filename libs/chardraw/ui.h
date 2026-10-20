@@ -273,9 +273,9 @@ public:
     };
     Drag sliderDrag = Drag::absolute;
     // Knobs of a stepped parameter (CLAP_PARAM_IS_STEPPED, up to 32 steps)
-    // notch their ring at each step. With or without, stepped knobs and
-    // sliders give each step an even share of the travel, snap to it, and
-    // only send whole values.
+    // notch their ring at each step between its ends. With or without,
+    // stepped knobs and sliders give each step an even share of the travel,
+    // snap to it, and only send whole values.
     bool detents = true;
 
     // ---- In the layout: Clay sizes and places these, so declare them inside

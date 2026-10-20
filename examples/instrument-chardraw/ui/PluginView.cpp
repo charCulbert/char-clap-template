@@ -1,4 +1,5 @@
-// Instrument chardraw's interface: knobs for Filter cutoff and Release, and
+// Instrument chardraw's interface: knobs for Filter cutoff, Release and
+// Waveform (stepped: it snaps to each of its three, notched), and
 // a peak meter per channel, laid out with Clay in chardraw's palette (dark or light,
 // as the system is). Parameters arrive and go back as the messages plugin.cpp
 // lists; the meter's levels arrive as "meter" messages.
@@ -17,6 +18,12 @@ std::string hertz (double value) // "440 Hz", "1.20 kHz"
     char text[16];
     std::snprintf (text, sizeof (text), value < 1000 ? "%.0f Hz" : "%.2f kHz", value < 1000 ? value : value / 1000);
     return text;
+}
+
+std::string wave (double value) // "Saw", "Square", "Triangle"
+{
+    static const char* const names[] = { "Saw", "Square", "Triangle" };
+    return names[std::clamp (int (value), 0, 2)];
 }
 
 std::string seconds (double value) // "300 ms", "1.20 s"
@@ -95,6 +102,7 @@ public:
     {
         gpu::Param* cutoff = params.find (P_CUTOFF);
         gpu::Param* release = params.find (P_RELEASE);
+        gpu::Param* waveform = params.find (P_WAVE);
         ui.theme = ui.theme.withColors (darkMode);
         ui.begin (width, height, scale);
         CLAY ({ .layout = { .sizing = { CLAY_SIZING_GROW (0), CLAY_SIZING_GROW (0) },
@@ -103,10 +111,11 @@ public:
                     .childAlignment = { .y = CLAY_ALIGN_Y_CENTER } },
             .backgroundColor = gpu::clayColor (ui.theme.background) })
         {
-            if (cutoff && release) // once the plugin has sent its parameters
+            if (cutoff && release && waveform) // once the plugin has sent its parameters
             {
                 ui.knob (params, cutoff, { hertz, "Cutoff" }, true, 52); // log: even steps per octave
                 ui.knob (params, release, seconds, true, 52);
+                ui.knob (params, waveform, { wave, "Wave" }, false, 52);
             }
             CLAY ({ .layout = { .sizing = { CLAY_SIZING_GROW (0) } } }) {} // the meter to the right
             CLAY ({ .layout = { .sizing = { CLAY_SIZING_FIT (0), CLAY_SIZING_GROW (0) }, .childGap = 3 } })

@@ -1,6 +1,6 @@
-// Instrument WebView's page: knobs for Filter cutoff and Release, and a peak meter.
+// Instrument WebView's page: knobs for Filter cutoff, Release and Waveform, and a peak meter.
 // It only knows the messages plugin.cpp documents:
-//   from the plugin  {type: "params", params: [{id, name, min, max, default}]},
+//   from the plugin  {type: "params", params: [{id, name, min, max, default, stepped}]},
 //                    {type: "values", values: [...]}, {type: "meter", peaks: [left, right]}
 //   to the plugin    {type: "ready"}, {type: "begin" | "end", id}, {type: "change", id, value},
 //                    {type: "resize", width, height, scale}: the page's new size in CSS pixels
@@ -13,15 +13,23 @@ import {sendMessage, onMessage} from './lib/messages.js';
 const layout = [
   {name: 'Filter cutoff', control: 'knob', label: 'Cutoff', log: true, text: v => v < 1000 ? `${v.toFixed(0)} Hz` : `${(v / 1000).toFixed(2)} kHz`},
   {name: 'Release', control: 'knob', log: true, text: v => v < 1 ? `${(v * 1000).toFixed(0)} ms` : `${v.toFixed(2)} s`},
+  {name: 'Waveform', control: 'knob', label: 'Wave', text: v => ['Saw', 'Square', 'Triangle'][Math.trunc(v)] ?? ''},
 ];
 
 const controls = [];
 
 // Builds a knob or an upright slider for parameter p. Drag it (Shift for fine),
-// double-click it for the default; focused, the arrow keys step it.
+// double-click it for the default; focused, the arrow keys step it. A stepped
+// one (CLAP truncates its values) gives each whole value an even share of the
+// travel and sends only whole values; its arrow keys step one.
 function control(p, {control: kind, text, label, log}) {
+  log &&= !p.stepped;
+  const steps = p.max - p.min + 1;
   const toUnit = v => log ? Math.log(v / p.min) / Math.log(p.max / p.min) : (v - p.min) / (p.max - p.min);
-  const fromUnit = u => log ? p.min * (p.max / p.min) ** u : p.min + u * (p.max - p.min);
+  const fromUnit = u => p.stepped ? p.min + Math.min(Math.floor(u * steps), steps - 1)
+                      : log ? p.min * (p.max / p.min) ** u : p.min + u * (p.max - p.min);
+  // Where a drag starts: a stepped one's in the middle of its value's share.
+  const grabUnit = () => p.stepped ? (value - p.min + 0.5) / steps : unit;
   const element = document.createElement('div');
   element.className = kind;
   element.tabIndex = 0;
@@ -79,9 +87,11 @@ function control(p, {control: kind, text, label, log}) {
     let last = event.clientY;
     const rail = element.querySelector('.rail')?.getBoundingClientRect();
     if (rail && event.clientY >= rail.top && event.clientY <= rail.bottom) change((rail.bottom - event.clientY) / rail.height);
+    let grab = grabUnit();
     const move = e => {
       const span = (rail ? rail.height : 200) * (e.shiftKey ? 10 : 1);
-      change(unit + (last - e.clientY) / span);
+      grab = Math.min(1, Math.max(0, grab + (last - e.clientY) / span));
+      change(grab);
       last = e.clientY;
     };
     const up = () => {
@@ -94,8 +104,8 @@ function control(p, {control: kind, text, label, log}) {
   });
   element.addEventListener('dblclick', () => set(toUnit(p.default)));
   element.addEventListener('keydown', event => {
-    const step = event.shiftKey ? 0.01 : 0.05;
-    const u = {ArrowUp: unit + step, ArrowRight: unit + step, ArrowDown: unit - step, ArrowLeft: unit - step,
+    const step = p.stepped ? 1 / steps : event.shiftKey ? 0.01 : 0.05, from = grabUnit();
+    const u = {ArrowUp: from + step, ArrowRight: from + step, ArrowDown: from - step, ArrowLeft: from - step,
                Home: 0, End: 1, Delete: toUnit(p.default), Backspace: toUnit(p.default)}[event.key];
     if (u === undefined) return;
     event.preventDefault();

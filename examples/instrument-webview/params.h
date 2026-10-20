@@ -7,5 +7,6 @@ enum ParamId
 {
     P_CUTOFF,  // Hz
     P_RELEASE, // seconds
+    P_WAVE,    // 0 saw, 1 square, 2 triangle: stepped
     P_COUNT    // how many
 };

@@ -240,9 +240,9 @@ void Ui::knob (Params& params, Param* p, Rect box, const Format& format, bool lo
     const float start = fillStart (*p, format, log), lo = std::min (start, u), hi = std::max (start, u);
     if (hi > lo)
         draw.arc (cx, cy, r - width, width, from + sweep * lo, from + sweep * hi, theme.accent);
-    // A stepped parameter's detents: a notch cut across the ring at each step.
+    // A stepped parameter's detents: a notch cut across the ring at each step between the ends.
     if (const double steps = p->max - p->min; p->stepped && detents && steps >= 1 && steps <= 32)
-        for (int k = 0; k <= int (steps); ++k)
+        for (int k = 1; k < int (steps); ++k)
         {
             const float a = from + sweep * float (k / steps);
             draw.line (cx + std::sin (a) * (r - 2.2f * width), cy - std::cos (a) * (r - 2.2f * width),

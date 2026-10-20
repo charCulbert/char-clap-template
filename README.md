@@ -17,8 +17,8 @@ CI). The chardraw ones get it next: it needs an iOS backend in `libs/gpu`.
 | [`examples/effect-headless`](examples/effect-headless) | Gain and pan | None: the host shows its own controls |
 | [`examples/effect-webview`](examples/effect-webview) | Gain and pan, peak meter | Web page |
 | [`examples/effect-chardraw`](examples/effect-chardraw) | Gain and pan, peak meter | chardraw on WebGPU |
-| [`examples/instrument-webview`](examples/instrument-webview) | Polyphonic saw synth with a lowpass filter, peak meter | Web page |
-| [`examples/instrument-chardraw`](examples/instrument-chardraw) | Polyphonic saw synth with a lowpass filter, peak meter | chardraw on WebGPU |
+| [`examples/instrument-webview`](examples/instrument-webview) | Polyphonic synth (saw, square, triangle) with a lowpass filter, peak meter | Web page |
+| [`examples/instrument-chardraw`](examples/instrument-chardraw) | Polyphonic synth (saw, square, triangle) with a lowpass filter, peak meter | chardraw on WebGPU |
 
 Every starter's `plugin.cpp` is raw CLAP, written out, with the same sections
 in the same order and the same names: descriptor and features, audio ports,

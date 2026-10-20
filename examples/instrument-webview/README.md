@@ -1,6 +1,6 @@
 # Instrument WebView
 
-An instrument: a polyphonic saw synth through a lowpass filter (Filter cutoff, Release), with a peak meter. Its interface is a web page.
+An instrument: a polyphonic synth (saw, square or triangle) through a lowpass filter (Filter cutoff, Release, Waveform: a stepped parameter), with a peak meter. Its interface is a web page.
 
 - `entry.cpp`: the CLAP entry point, which makes the plugin.
 - `plugin.cpp`: the whole CLAP plugin, in the same sections as every

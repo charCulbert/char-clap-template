@@ -1,9 +1,9 @@
 // Laid out as nakst's CLAP tutorial: https://nakst.gitlab.io/tutorial/clap-part-1.html
 //
-// Instrument WebView: a polyphonic saw synth through a lowpass filter, with a
-// peak meter. Its interface is a web page (resources/page/), shown by the
-// host itself where it supports clap.webview, otherwise in a WebView inside
-// the host's window.
+// Instrument WebView: a polyphonic synth (saw, square or triangle) through a
+// lowpass filter, with a peak meter. Its interface is a web page
+// (resources/page/), shown by the host itself where it supports clap.webview,
+// otherwise in a WebView inside the host's window.
 //
 // This file is the whole CLAP plugin, in the same sections, in the same order,
 // as every example's plugin.cpp, so comparing two shows only what differs:
@@ -52,7 +52,7 @@
 static_assert (std::atomic<float>::is_always_lock_free);
 static_assert (std::atomic<bool>::is_always_lock_free);
 
-// One playing note: a saw with a short attack and a release. Removing one
+// One playing note: a waveform with a short attack and a release. Removing one
 // copies the last over it (PluginEndFinishedVoices), which is fine for a few
 // numbers; a voice with a buffer (a delay line, a sample) keeps a pointer to
 // one allocated in init, so removing it moves the pointer, not the buffer.
@@ -86,7 +86,7 @@ struct MyPlugin
 
     // Recalled settings (main thread; see Recalled settings below): the
     // window's size, in points.
-    double guiWidth = 300, guiHeight = 150;
+    double guiWidth = 380, guiHeight = 150;
 
     // The DSP's state (audio thread): the voices playing, and the filter's
     // last output.
@@ -133,7 +133,7 @@ static const clap_plugin_descriptor_t pluginDescriptor = {
     .manual_url = "https://github.com/charCulbert",
     .support_url = "https://github.com/charCulbert",
     .version = "1.0.0",
-    .description = "A polyphonic saw synth with a lowpass filter.",
+    .description = "A polyphonic synth with a lowpass filter.",
     .features = pluginFeatures,
 };
 
@@ -182,7 +182,9 @@ enum ParamUnit
 {
     UNIT_HERTZ,   // "440 Hz", "1.20 kHz"
     UNIT_SECONDS, // "300 ms", "1.20 s"
+    UNIT_WAVE,    // "Saw", "Square", "Triangle"
 };
+static const char* const waveNames[] = { "Saw", "Square", "Triangle" };
 
 // Each parameter, in the order of its id (params.h): what get_info tells the
 // host, and what the rest of this file reads. The key is what the value is
@@ -201,6 +203,7 @@ struct Param
 static constexpr Param paramTable[] = {
     { P_CUTOFF, "cutoff", "Filter cutoff", 20.0, 20000.0, 2000.0, CLAP_PARAM_IS_AUTOMATABLE, UNIT_HERTZ },
     { P_RELEASE, "release", "Release", 0.01, 2.0, 0.3, CLAP_PARAM_IS_AUTOMATABLE, UNIT_SECONDS },
+    { P_WAVE, "wave", "Waveform", 0.0, 2.0, 0.0, CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_STEPPED, UNIT_WAVE },
 };
 static_assert (std::size (paramTable) == P_COUNT, "a row for each id in params.h");
 static_assert (
@@ -250,6 +253,9 @@ static const clap_plugin_params_t extensionParams = {
             case UNIT_SECONDS:
                 snprintf (display, size, value < 1 ? "%.0f ms" : "%.2f s", value < 1 ? value * 1000 : value);
                 return true;
+            case UNIT_WAVE: // stepped: CLAP truncates
+                snprintf (display, size, "%s", waveNames[int (fmin (fmax (value, 0.0), 2.0))]);
+                return true;
         }
         return false;
     },
@@ -269,6 +275,12 @@ static const clap_plugin_params_t extensionParams = {
                 return read;
             case UNIT_SECONDS: // "300 ms", "1.2 s"
                 *value = end[0] == 'm' && end[1] == 's' ? number / 1000 : number;
+                return read;
+            case UNIT_WAVE: // "Square", or its number
+                for (int i = 0; i < 3; i++)
+                    if (strcmp (display, waveNames[i]) == 0)
+                        return *value = i, true;
+                *value = number;
                 return read;
         }
         return false;
@@ -486,6 +498,7 @@ static void PluginRenderAudio (
     const float attackStep = 1.0f / (0.005f * plugin->sampleRate); // 5 ms
     const float releaseStep =
         1.0f / (plugin->parameters[P_RELEASE].load (std::memory_order_relaxed) * plugin->sampleRate);
+    const int wave = int (plugin->parameters[P_WAVE].load (std::memory_order_relaxed)); // stepped: truncated
 
     for (uint32_t index = start; index < end; index++)
     {
@@ -495,7 +508,12 @@ static void PluginRenderAudio (
             Voice& voice = plugin->voices[i];
             voice.envelope =
                 voice.released ? fmaxf (voice.envelope - releaseStep, 0.0f) : fminf (voice.envelope + attackStep, 1.0f);
-            sum += (2.0f * voice.phase - 1.0f) * voice.envelope; // a naive saw: it aliases on high notes
+            // Naive waveforms: they alias on high notes.
+            const float p = voice.phase;
+            const float sample = wave == 1   ? (p < 0.5f ? 1.0f : -1.0f)      // square
+                                 : wave == 2 ? 4.0f * fabsf (p - 0.5f) - 1.0f // triangle
+                                             : 2.0f * p - 1.0f;               // saw
+            sum += sample * voice.envelope;
             voice.phase += voice.increment;
             voice.phase -= floorf (voice.phase);
         }
@@ -832,7 +850,7 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //                 {type: "begin" | "end", id}     a drag starts or ends
 //                 {type: "change", id, value}
 //                 {type: "resize", width, height, scale}  the page's grip (CSS pixels)
-//   plugin -> UI  {type: "params", params: [{id, name, min, max, default}]}
+//   plugin -> UI  {type: "params", params: [{id, name, min, max, default, stepped}]}
 //                 {type: "values", values: [value per parameter id]}
 //                 {type: "meter", peaks: [left, right]}  the highest level since the last, 1 = 0 dBFS
 static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
@@ -845,7 +863,8 @@ static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
         {
             const Param& param = paramTable[i];
             params.push_back (core::Value::Map { { "id", (double) param.id }, { "name", param.name },
-                { "min", param.min }, { "max", param.max }, { "default", param.defaultValue } });
+                { "min", param.min }, { "max", param.max }, { "default", param.defaultValue },
+                { "stepped", (param.flags & CLAP_PARAM_IS_STEPPED) != 0 } });
         }
         plugin->gui.send (core::Value::Map { { "type", "params" }, { "params", params } });
         PluginSendValues (plugin);
