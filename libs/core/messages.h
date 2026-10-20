@@ -43,6 +43,7 @@ struct Value
     // Lenient readers: a missing or differently typed value gives the fallback.
     const Value& operator[] (std::string_view key) const;
     double number (double fallback = 0) const;
+    bool boolean (bool fallback = false) const;
     std::string_view text() const;
 };
 

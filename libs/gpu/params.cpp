@@ -33,8 +33,9 @@ bool Params::receive (const core::Value& message)
                 p->name = entry["name"].text();
                 p->min = entry["min"].number(), p->max = entry["max"].number (1),
                 p->defaultValue = entry["default"].number();
+                p->stepped = entry["stepped"].boolean();
                 if (!p->dragging)
-                    p->value = p->defaultValue;
+                    p->value = p->stepped ? std::trunc (p->defaultValue) : p->defaultValue;
             }
         for (size_t i = 0; i < params.size(); ++i)
             if (!listed[i])
@@ -50,7 +51,11 @@ bool Params::receive (const core::Value& message)
         if (auto list = std::get_if<core::Value::Array> (&message["values"].data))
             for (auto& p : params)
                 if (!p.dragging && size_t (p.id) < list->size())
+                {
                     p.value = (*list)[size_t (p.id)].number (p.value);
+                    if (p.stepped)
+                        p.value = std::trunc (p.value);
+                }
         return true;
     }
     return false;
@@ -83,7 +88,7 @@ void Params::change (Param& p, double value)
 {
     if (std::isnan (value))
         return; // typed "nan": clamp would let it through
-    p.value = std::clamp (value, p.min, p.max);
+    p.value = std::clamp (p.stepped ? std::trunc (value) : value, p.min, p.max);
     send (core::Value::Map { { "type", "change" }, { "id", p.id }, { "value", p.value } });
 }
 

@@ -1695,6 +1695,90 @@ static void splitAtScale()
            && std::abs (box ("SplitDivider", Clay_GetElementIdWithIndex (CLAY_STRING ("Room"), 0).id).x - 200) < 1);
 }
 
+// A stepped parameter (CLAP_PARAM_IS_STEPPED): its knob and slider give each
+// step an even share of the travel and send only whole values; keys and the
+// wheel move a step; a typed or received value is truncated, as CLAP does;
+// its toggle is on only at the top; a relative drag starts mid-step.
+static void steppedControls()
+{
+    Ui ui;
+    gpu::Params params;
+    std::vector<double> changes;
+    params.send = [&] (const core::Value& m) {
+        if (m["type"].text() == "change")
+            changes.push_back (m["value"].number());
+    };
+    core::Value::Array list;
+    list.push_back (core::Value::Map {
+        { "id", 0.0 }, { "name", "Wave" }, { "min", 0.0 }, { "max", 4.0 }, { "default", 0.0 }, { "stepped", true } });
+    list.push_back (core::Value::Map {
+        { "id", 1.0 }, { "name", "Flag" }, { "min", 0.0 }, { "max", 2.0 }, { "default", 0.0 }, { "stepped", true } });
+    params.receive (core::Value::Map { { "type", "params" }, { "params", list } });
+    gpu::Param *wave = params.find ("Wave"), *flag = params.find ("Flag");
+    CHECK (wave->stepped && flag->stepped);
+    auto draw = [&] {
+        ui.begin (400, 300, 1);
+        ui.knob (params, wave, gpu::Rect { 0, 0, 100, 140 }, "%.0f");
+        ui.slider (params, wave, gpu::Rect { 0, 200, 300, 40 }, "%.0f");
+        ui.end (wgpu::RenderPassEncoder {});
+    };
+    draw();
+    // The slider, absolute: each of the five steps a fifth of its 300 points.
+    for (auto [x, expected] : { std::pair { 10.0f, 0.0 }, { 65.0f, 1.0 }, { 235.0f, 3.0 }, { 245.0f, 4.0 } })
+    {
+        pointer (ui, View::Pointer::down, x, 230), draw();
+        pointer (ui, View::Pointer::up, x, 230), draw();
+        CHECK (wave->value == expected);
+        pointer (ui, View::Pointer::move, 380, 280), draw(); // (no double-click)
+    }
+    params.change (*wave, 0);
+    // The knob, 200 points of travel: a fifth (40 points) a step, the drag
+    // starting mid-step; up 10 is still the first, up 30 the second, up 165
+    // the last.
+    pointer (ui, View::Pointer::down, 50, 50), draw();
+    pointer (ui, View::Pointer::move, 50, 40), draw();
+    CHECK (wave->value == 0);
+    pointer (ui, View::Pointer::move, 50, 20), draw();
+    CHECK (wave->value == 1);
+    pointer (ui, View::Pointer::move, 50, -115), draw();
+    CHECK (wave->value == 4);
+    pointer (ui, View::Pointer::up, 50, -115), draw();
+    // From 3, 10 points either way stays at 3.
+    params.change (*wave, 3);
+    for (float dy : { -10.0f, 10.0f })
+    {
+        pointer (ui, View::Pointer::move, 60, 60), draw();
+        pointer (ui, View::Pointer::down, 60, 60), draw();
+        pointer (ui, View::Pointer::move, 60, 60 + dy), draw();
+        CHECK (wave->value == 3);
+        pointer (ui, View::Pointer::up, 60, 60 + dy), draw();
+        pointer (ui, View::Pointer::move, 380, 280), draw(); // (no double-click)
+    }
+    for (double v : changes)
+        CHECK (v == std::trunc (v));
+    // Focused, Down steps one; the wheel a notch, a trackpad's small turns
+    // adding up to one.
+    ui.key (View::Key::down, 0), draw();
+    CHECK (wave->value == 2);
+    ui.pointer ({ View::Pointer::wheel, 50, 50, 0, -0.5f }), draw();
+    CHECK (wave->value == 2);
+    ui.pointer ({ View::Pointer::wheel, 50, 50, 0, -0.5f }), draw();
+    CHECK (wave->value == 1);
+    // Typed or received, truncated.
+    params.change (*wave, 3.9);
+    CHECK (wave->value == 3);
+    params.receive (core::Value::Map { { "type", "values" }, { "values", core::Value::Array { 1.7, 0.7 } } });
+    CHECK (wave->value == 1 && flag->value == 0);
+    // A stepped 0..2 toggle: at 1, past halfway, still off; on only at 2.
+    params.change (*flag, 1);
+    bool on = true;
+    frame (ui, [&] { ui.toggle (params, flag, "Flag"); });
+    for (const gpu::Accessible& n : ui.accessibility()->nodes)
+        if (n.checked >= 0)
+            on = n.checked == 1;
+    CHECK (!on);
+}
+
 static void knobDragAndKeys()
 {
     Ui ui;
@@ -3294,6 +3378,7 @@ int main()
     submenus();
     keyboardFocus();
     knobDragAndKeys();
+    steppedControls();
     parameterFormats();
     screenReader();
     screenReaderReading();

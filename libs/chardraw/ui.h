@@ -272,6 +272,11 @@ public:
         relative
     };
     Drag sliderDrag = Drag::absolute;
+    // Knobs of a stepped parameter (CLAP_PARAM_IS_STEPPED, up to 32 steps)
+    // notch their ring at each step. With or without, stepped knobs and
+    // sliders give each step an even share of the travel, snap to it, and
+    // only send whole values.
+    bool detents = true;
 
     // ---- In the layout: Clay sizes and places these, so declare them inside
     // CLAY({...}) blocks. Each returns true when the user changed something.
@@ -594,6 +599,11 @@ private:
     // 0..1 position of a value, and back.
     static double toUnit (const Param& p, double v, bool log);
     static double fromUnit (const Param& p, double u, bool log);
+    // p's value moved by `by`, a signed fraction of the travel; a stepped
+    // one's by whole steps, at least one.
+    static double moved (const Param& p, double by, bool log);
+    // Where a relative drag of p starts, 0..1.
+    static double grabFrom (const Param& p, bool log);
     // Where a knob's or slider's fill starts, 0..1 of its travel.
     static float fillStart (const Param& p, const Format& format, bool log);
     // Handles all input for the control with rectangle x,y,w,h. Returns true
@@ -806,7 +816,7 @@ private:
     uint32_t numberDrag = 0;  // the number box being dragged
     bool numberMoved = false; // past its dead zone
     double numberStart = 0;   // its value when the drag began, for Escape
-    float itemWheel = 0;      // a readout's wheel turned less than an item's step, kept for the next turn
+    float itemWheel = 0;      // a readout's or stepped control's wheel turned less than a step, kept for the next turn
     int lastStep = -1;        // the step painted last in a drag
     std::vector<const void*> changedNow,
         changedLast; // envelopes and steps (by their data) changed in this end() and the last

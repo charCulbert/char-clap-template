@@ -472,8 +472,7 @@ void Ui::accessAction (uint64_t id, Accessible::Action action, double value)
             if (d->parent && d->param) // a part of one control (an XY pad's axis): step it directly
             {
                 const double by = action == Accessible::increment ? 0.01 : -0.01;
-                set (*d->params, *d->param,
-                    fromUnit (*d->param, toUnit (*d->param, d->param->value, false) + by, false));
+                set (*d->params, *d->param, moved (*d->param, by, false));
                 break;
             }
             if (d->parent && d->node.role == Accessible::Role::slider) // a bar or a point: its control steps it

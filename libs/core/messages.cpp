@@ -22,6 +22,12 @@ double Value::number (double fallback) const
     return v ? *v : fallback;
 }
 
+bool Value::boolean (bool fallback) const
+{
+    auto v = std::get_if<bool> (&data);
+    return v ? *v : fallback;
+}
+
 std::string_view Value::text() const
 {
     auto v = std::get_if<std::string> (&data);

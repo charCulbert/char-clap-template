@@ -525,7 +525,7 @@ void Ui::numberBox (Params& params, Param* p, const Format& format, bool log, fl
     if (a.pressed && !edit)
     {
         grabSecond = mouse.doubleClicked;
-        grabX = mouse.x, grabY = mouse.y, grabUnit = toUnit (*p, p->value, log), grabFine = fine || grabSecond;
+        grabX = mouse.x, grabY = mouse.y, grabUnit = grabFrom (*p, log), grabFine = fine || grabSecond;
         numberDrag = nid.id, numberMoved = false, numberStart = p->value;
         params.begin (*p);
         if (lockPointer)
@@ -536,7 +536,7 @@ void Ui::numberBox (Params& params, Param* p, const Format& format, bool log, fl
     {
         const bool slow = fine || grabSecond;
         if (slow != grabFine)
-            grabX = mouse.x, grabY = mouse.y, grabUnit = toUnit (*p, p->value, log), grabFine = slow;
+            grabX = mouse.x, grabY = mouse.y, grabUnit = grabFrom (*p, log), grabFine = slow;
         const float moved = (mouse.x - grabX) + (grabY - mouse.y);
         numberMoved |= std::abs (moved) > 4 * s;
         if (numberMoved)
@@ -567,24 +567,22 @@ void Ui::numberBox (Params& params, Param* p, const Format& format, bool log, fl
         for (auto [key, modifiers] : keys)
         {
             // Shift for fine, Alt for a page's step, as a knob's.
-            const double u = toUnit (*p, p->value, log), small = modifiers & View::shift ? 0.001
-                                                                 : modifiers & View::alt ? 0.1
-                                                                                         : 0.01;
+            const double small = modifiers & View::shift ? 0.001 : modifiers & View::alt ? 0.1 : 0.01;
             switch (key)
             {
                 case View::Key::up:
                 case View::Key::right:
-                    set (params, *p, fromUnit (*p, u + small, log));
+                    set (params, *p, moved (*p, small, log));
                     break;
                 case View::Key::down:
                 case View::Key::left:
-                    set (params, *p, fromUnit (*p, u - small, log));
+                    set (params, *p, moved (*p, -small, log));
                     break;
                 case View::Key::pageUp:
-                    set (params, *p, fromUnit (*p, u + 0.1, log));
+                    set (params, *p, moved (*p, 0.1, log));
                     break;
                 case View::Key::pageDown:
-                    set (params, *p, fromUnit (*p, u - 0.1, log));
+                    set (params, *p, moved (*p, -0.1, log));
                     break;
                 case View::Key::home:
                     set (params, *p, p->min);
@@ -685,7 +683,7 @@ void Ui::readout (Params& params, Param& p, const char* label, const Format& for
     auto step = [&] (double by) {
         if (items)
             return p.min + std::clamp (item + int (by), 0, count - 1);
-        return fromUnit (p, std::clamp (toUnit (p, p.value, log) + by, 0.0, 1.0), log);
+        return moved (p, by, log);
     };
     const Area a = element (rid, eachPress); // a second press too: a double-click is told by mouse.doubleClicked
     if (a.pressed)
@@ -697,7 +695,7 @@ void Ui::readout (Params& params, Param& p, const char* label, const Format& for
     // whole range in 200 points, or an item every 16; Shift slows it.
     const bool fine = mouse.modifiers & View::shift;
     auto grabHere = [&] {
-        grabX = mouse.x, grabY = mouse.y, grabUnit = items ? double (item) : toUnit (p, p.value, log), grabFine = fine;
+        grabX = mouse.x, grabY = mouse.y, grabUnit = items ? double (item) : grabFrom (p, log), grabFine = fine;
     };
     if (a.pressed)
     {
@@ -735,11 +733,11 @@ void Ui::readout (Params& params, Param& p, const char* label, const Format& for
     }
     if (a.wheel != 0 && !a.held && (!wheelNeedsFocus || focus == me))
     {
-        if (items) // an item a notch; a trackpad's small turns add up to one
+        if (items || p.stepped) // an item a notch; a trackpad's small turns add up to one
         {
             itemWheel += a.wheel;
             if (std::abs (itemWheel) >= 1)
-                set (params, p, step (itemWheel > 0 ? 1 : -1)), itemWheel = 0;
+                set (params, p, step ((itemWheel > 0 ? 1 : -1) * (items ? 1 : 0.01))), itemWheel = 0;
         }
         else
             set (params, p, step (a.wheel * (fine ? 0.002 : 0.02)));

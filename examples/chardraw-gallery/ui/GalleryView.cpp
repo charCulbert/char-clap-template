@@ -135,8 +135,8 @@ public:
         // id is clear of the plugin's, as the controls' ids come from it.
         local.send = [] (const core::Value&) {};
         local.receive (core::Value::Map { { "type", "params" },
-            { "params", core::Value::Array { core::Value::Map {
-                            { "id", 100 }, { "name", "Window" }, { "min", 0 }, { "max", 2 }, { "default", 0 } } } } });
+            { "params", core::Value::Array { core::Value::Map { { "id", 100 }, { "name", "Window" }, { "min", 0 },
+                            { "max", 2 }, { "default", 0 }, { "stepped", true } } } } });
         send (core::Value::Map { { "type", "ready" } });
     }
 

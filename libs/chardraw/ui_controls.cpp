@@ -27,7 +27,7 @@ double Ui::toUnit (const Param& p, double v, bool log)
 {
     if (p.max <= p.min)
         return 0;
-    if (log && p.min > 0)
+    if (log && p.min > 0 && !p.stepped)
         return std::log (v / p.min) / std::log (p.max / p.min);
     return (v - p.min) / (p.max - p.min);
 }
@@ -35,9 +35,31 @@ double Ui::toUnit (const Param& p, double v, bool log)
 double Ui::fromUnit (const Param& p, double u, bool log)
 {
     u = std::clamp (u, 0.0, 1.0);
+    // Stepped: the travel shared evenly between the steps, each its own
+    // stretch (a 0..4 parameter's 4 from four fifths of the way on, not only
+    // at the end). toUnit's whole values fall inside their own stretches.
+    if (p.stepped)
+        return p.min + std::min (std::floor (u * (p.max - p.min + 1)), p.max - p.min);
     if (log && p.min > 0)
         return p.min * std::pow (p.max / p.min, u);
     return p.min + u * (p.max - p.min);
+}
+
+double Ui::grabFrom (const Param& p, bool log)
+{
+    // Stepped: the middle of the value's stretch, so a drag either way goes
+    // as far to change it (toUnit's whole values sit near one end).
+    if (p.stepped && p.max > p.min)
+        return (p.value - p.min + 0.5) / (p.max - p.min + 1);
+    return toUnit (p, p.value, log);
+}
+
+double Ui::moved (const Param& p, double by, bool log)
+{
+    if (!p.stepped)
+        return fromUnit (p, toUnit (p, p.value, log) + by, log);
+    const double steps = std::max (1.0, std::round (std::abs (by) * (p.max - p.min)));
+    return std::clamp (p.value + (by < 0 ? -steps : steps), p.min, p.max);
 }
 
 void Ui::set (Params& params, Param& p, double value)
@@ -79,7 +101,8 @@ bool Ui::control (Params& params, Param& p, const void* me, float x, float y, fl
         {
             active = me;
             grabSecond = mouse.doubleClicked, grabMoved = false, pressX = mouse.x, pressY = mouse.y;
-            grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = fine || grabSecond; // measured from the press
+            grabX = mouse.x, grabY = mouse.y, grabUnit = grabFrom (p, log),
+            grabFine = fine || grabSecond; // measured from the press
             grabRelative = !absolute || fine || grabSecond;
             params.begin (p);
             // Relative: the pointer stays put while the value moves; absolute:
@@ -89,32 +112,39 @@ bool Ui::control (Params& params, Param& p, const void* me, float x, float y, fl
             held = { &params, &p, nullptr, grabRelative };
         }
         else if (mouse.wheel != 0 && (!wheelNeedsFocus || focus == me))
-            set (params, p, fromUnit (p, unit + mouse.wheel * (fine ? 0.002 : 0.02), log)), wheelUsed = true;
+        {
+            if (p.stepped) // a step a notch; a trackpad's small turns add up to one
+            {
+                itemWheel += mouse.wheel;
+                if (std::abs (itemWheel) >= 1)
+                    set (params, p, moved (p, itemWheel > 0 ? 0.01 : -0.01, log)), itemWheel = 0;
+            }
+            else
+                set (params, p, fromUnit (p, unit + mouse.wheel * (fine ? 0.002 : 0.02), log));
+            wheelUsed = true;
+        }
     }
 
     if (focus == me)
         for (auto [key, modifiers] : keys)
         {
             // Shift for fine, Alt for a page's step (compost's large step).
-            const double step = modifiers & View::shift ? 0.001
-                                : modifiers & View::alt ? 0.1
-                                                        : 0.01,
-                         u = toUnit (p, p.value, log);
+            const double step = modifiers & View::shift ? 0.001 : modifiers & View::alt ? 0.1 : 0.01;
             switch (key)
             {
                 case View::Key::up:
                 case View::Key::right:
-                    set (params, p, fromUnit (p, u + step, log));
+                    set (params, p, moved (p, step, log));
                     break;
                 case View::Key::down:
                 case View::Key::left:
-                    set (params, p, fromUnit (p, u - step, log));
+                    set (params, p, moved (p, -step, log));
                     break;
                 case View::Key::pageUp:
-                    set (params, p, fromUnit (p, u + 0.1, log));
+                    set (params, p, moved (p, 0.1, log));
                     break;
                 case View::Key::pageDown:
-                    set (params, p, fromUnit (p, u - 0.1, log));
+                    set (params, p, moved (p, -0.1, log));
                     break;
                 case View::Key::home:
                     set (params, p, p.min);
@@ -139,7 +169,7 @@ bool Ui::control (Params& params, Param& p, const void* me, float x, float y, fl
     // A second press drags fine once it moves; until then it changes nothing.
     const bool slow = fine || grabSecond;
     if (slow && !grabRelative)
-        grabRelative = true, grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = slow;
+        grabRelative = true, grabX = mouse.x, grabY = mouse.y, grabUnit = grabFrom (p, log), grabFine = slow;
     if (!grabRelative) // absolute: the value under the pointer
     {
         const double u = std::clamp (
@@ -152,7 +182,7 @@ bool Ui::control (Params& params, Param& p, const void* me, float x, float y, fl
     {
         // Switching to or from fine mid-drag continues from where the value is.
         if (slow != grabFine)
-            grabX = mouse.x, grabY = mouse.y, grabUnit = unit, grabFine = slow;
+            grabX = mouse.x, grabY = mouse.y, grabUnit = grabFrom (p, log), grabFine = slow;
         const double moved = (vertical ? grabY - mouse.y : mouse.x - grabX) / (travel * (slow ? 10 : 1));
         // Past an end the value stops, and so does the count: turning back
         // moves it at once (as compost's), not after undoing the overshoot.
@@ -210,6 +240,14 @@ void Ui::knob (Params& params, Param* p, Rect box, const Format& format, bool lo
     const float start = fillStart (*p, format, log), lo = std::min (start, u), hi = std::max (start, u);
     if (hi > lo)
         draw.arc (cx, cy, r - width, width, from + sweep * lo, from + sweep * hi, theme.accent);
+    // A stepped parameter's detents: a notch cut across the ring at each step.
+    if (const double steps = p->max - p->min; p->stepped && detents && steps >= 1 && steps <= 32)
+        for (int k = 0; k <= int (steps); ++k)
+        {
+            const float a = from + sweep * float (k / steps);
+            draw.line (cx + std::sin (a) * (r - 2.2f * width), cy - std::cos (a) * (r - 2.2f * width),
+                cx + std::sin (a) * r, cy - std::cos (a) * r, 1.5f * s, theme.background);
+        }
     const float angle = from + sweep * u, inner = r - 1.6f * width;
     draw.circle (cx, cy, inner, theme.background, 1 * s, theme.edge);
     draw.line (cx + std::sin (angle) * inner * 0.3f, cy - std::cos (angle) * inner * 0.3f,
@@ -1115,7 +1153,8 @@ bool Ui::toggle (Params& params, Param* p, const char* label)
 {
     if (!p)
         return false;
-    bool on = p->value >= (p->min + p->max) / 2;
+    // Stepped, only the top step is on (a 0..2's 1 is off, not past halfway).
+    bool on = p->stepped ? p->value >= p->max : p->value >= (p->min + p->max) / 2;
     if (!toggle (label, on, p->id))
         return false;
     set (params, *p, on ? p->max : p->min);
@@ -1229,9 +1268,7 @@ void Ui::xyPad (Params& params, Param* px, Param* py, Rect r)
         for (auto [key, modifiers] : keys)
         {
             const double step = modifiers & View::shift ? 0.001 : modifiers & View::alt ? 0.1 : 0.01;
-            auto nudge = [&] (Param& q, double by) {
-                set (params, q, fromUnit (q, toUnit (q, q.value, false) + by, false));
-            };
+            auto nudge = [&] (Param& q, double by) { set (params, q, moved (q, by, false)); };
             switch (key)
             {
                 case View::Key::left:
