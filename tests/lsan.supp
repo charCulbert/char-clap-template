@@ -2,6 +2,9 @@
 #
 # Mesa's software Vulkan driver (lavapipe) leaks a little when Dawn asks it
 # for its devices, and from its own worker threads. The driver is unloaded by
-# the time the report prints, so its frames show as <unknown module>; the
-# Dawn frame that called into it is the one left to match.
+# the time the report prints, so its frames show as <unknown module>: what is
+# left to match is the Dawn frame that called into it, and for the threads
+# their start. Our code starts threads only on Windows, so on Linux every
+# other thread is Dawn's or the driver's.
 leak:dawn::native::vulkan::GatherPhysicalDevices
+leak:asan_thread_start
