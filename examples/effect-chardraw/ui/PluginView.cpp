@@ -3,22 +3,27 @@
 // Clay in chardraw's palette (dark or light, as the system is). Parameters arrive and go back as the messages plugin.cpp
 // lists; the meter's levels arrive as "meter" messages.
 #include "chardraw/ui.h"
-#include "../params.h" // the parameters' ids, as plugin.cpp's
+#include "../params.h" // the parameters' ids and text, as plugin.cpp's
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <string>
 
 namespace
 {
 
-std::string panText (double value)
+// A parameter's value as the host shows it, and typed as a bare number in
+// the unit shown: params.h's, which plugin.cpp's value_to_text and
+// text_to_value use too, so typing "-50" reads as it does in the host.
+gpu::Ui::Format asText (ParamUnit unit, const char* label = nullptr, gpu::Ui::Fill fill = gpu::Ui::Fill::fromMinimum)
 {
-    char text[16];
-    if (std::fabs (value) < 0.005)
-        return "C";
-    std::snprintf (text, sizeof (text), "%.0f %s", std::fabs (value) * 100, value < 0 ? "L" : "R");
-    return text;
+    gpu::Ui::Format format { [unit] (double value) {
+                                char text[32];
+                                return ParamValueToText (unit, value, text, sizeof (text)) ? std::string (text)
+                                                                                           : std::string();
+                            },
+        label, fill };
+    format.typedScale = ParamTypedScale (unit);
+    return format;
 }
 
 class PluginView : public gpu::View
@@ -102,12 +107,12 @@ public:
                     .layoutDirection = CLAY_TOP_TO_BOTTOM },
             .backgroundColor = gpu::clayColor (ui.theme.background) })
         {
-            if (pan)
-                ui.knob (params, pan, { panText, nullptr, gpu::Ui::Fill::fromDefault }, false, 52); // filled from C
+            if (pan) // filled from C
+                ui.knob (params, pan, asText (UNIT_PAN, nullptr, gpu::Ui::Fill::fromDefault), false, 52);
             CLAY ({ .layout = { .sizing = { CLAY_SIZING_FIT (0), CLAY_SIZING_GROW (0) }, .childGap = 6 } })
             {
                 if (gain)
-                    ui.vslider (params, gain, "%.1f dB", false, 0); // 0: grows
+                    ui.vslider (params, gain, asText (UNIT_DECIBELS), false, 0); // 0: grows
                 CLAY ({ .layout = { .sizing = { CLAY_SIZING_FIT (0), CLAY_SIZING_GROW (0) },
                             .padding = { 0, 0, textRoom, textRoom },
                             .childGap = 3 } })

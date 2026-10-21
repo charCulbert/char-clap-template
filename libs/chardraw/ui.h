@@ -215,6 +215,11 @@ public:
     // ui.label() after the control changes that). For example
     //   ui.knob (params, ratio, { "%.2f", "Ratio" });
     //   ui.knob (params, attack, { msOrSeconds, "A" }); // std::string msOrSeconds (double)
+    // typedScale: what a typed number counts in, as the value times this:
+    // a bare number, in the smaller unit shown. 1000 types seconds as ms,
+    // 100 a 0..1 range as a percent (never 0). For example
+    //   gpu::Ui::Format release = msOrSeconds;
+    //   release.typedScale = 1000; // "300" is 300 ms
     // fill: where a knob's or slider's accent starts. fromMinimum, as a
     // level's; fromDefault, from the default to the value either way, as a
     // pan's from C (empty at the default):
@@ -242,6 +247,7 @@ public:
         std::function<std::string (double)> text; // when set, used in place of format
         std::string label;                        // empty: the parameter's name
         Fill fill = Fill::fromMinimum;
+        double typedScale = 1;
         std::string operator() (double value) const;
         const std::string& name (const Param& p) const
         {
@@ -613,7 +619,7 @@ private:
     // overhangs them), for an absolute drag to put the value under the pointer.
     bool control (Params& params, Param& p, const void* me, float x, float y, float w, float h, bool vertical,
         float travel, bool log, bool typable = false, bool absolute = false, float ends = 0);
-    void typeInto (const void* me, const void* entry, const Param& p);
+    void typeInto (const void* me, const void* entry, const Param& p, const Format& format);
     // A whole edit: begin, change and end at once (wheel, keys, double-click).
     void set (Params& params, Param& p, double value);
     bool over (float x, float y, float w, float h) const;
@@ -697,7 +703,12 @@ private:
     // with the pointer; NaN where the text isn't left-aligned.
     bool editKeys (uint32_t field, std::string& value, bool overField, float textX = NAN);
     static std::string plainNumber (double value);
-    bool valueEntry (Params& params, Param& p, const void* control, const void* id, Rect r, Draw2D::Align align);
+    // A value as it opens for typing, and typed text read back: a bare
+    // number, in the format's typedScale.
+    static std::string typable (const Format& format, double value);
+    static bool readTyped (const Format& format, const std::string& typed, double& value);
+    bool valueEntry (Params& params, Param& p, const Format& format, const void* control, const void* id, Rect r,
+        Draw2D::Align align);
     void readout (Params& params, Param& p, const char* label, const Format& format, bool log, const char* const* items,
         int count, float widthPoints);
     void startEditing (uint32_t field, std::string text, bool selectAll = false);

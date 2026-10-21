@@ -19,10 +19,10 @@
 // Every example has every extension, so a plugin becomes another kind by
 // filling in bodies; an unused one returns 0 or false and says what goes there.
 //
-// params.h numbers the parameters, for this file and the interface. entry.cpp
-// is the entry point that makes the plugin. libs/ holds the reusable parts:
-// the message codec and file loader (core/), and the presenter that shows the
-// page (webview/).
+// params.h numbers the parameters and reads their values as text, for this file
+// (the page has its own). entry.cpp is the entry point that makes the plugin.
+// libs/ holds the reusable parts: the message codec and file loader (core/),
+// and the presenter that shows the page (webview/).
 #include "clap/clap.h"
 #include "clap/events.h"
 #include "clap/ext/audio-ports.h"
@@ -46,7 +46,7 @@
 #include "core/messages.h"
 #include "core/resources.h"
 #include "webview/gui.h"
-#include "params.h" // the parameters' ids
+#include "params.h" // the parameters' ids, and their values as text
 
 static_assert (std::atomic<float>::is_always_lock_free);
 static_assert (std::atomic<bool>::is_always_lock_free);
@@ -154,14 +154,6 @@ static const clap_plugin_note_ports_t extensionNotePorts = {
 
 // ---- Parameters -----------------------------------------------------------
 
-// How a parameter's value reads as text: value_to_text and text_to_value
-// have a case for each.
-enum ParamUnit
-{
-    UNIT_DECIBELS, // "-6.0 dB"
-    UNIT_PAN,      // "C", "50 L", "50 R"
-};
-
 // Each parameter, in the order of its id (params.h): what get_info tells the
 // host, and what the rest of this file reads. The key is what the value is
 // saved under in the state: never change one once a version is released, or
@@ -218,38 +210,11 @@ static const clap_plugin_params_t extensionParams = {
     },
 
     .value_to_text = [] (const clap_plugin_t* _plugin, clap_id id, double value, char* display, uint32_t size) -> bool {
-        if (id >= P_COUNT)
-            return false;
-        switch (paramTable[id].unit)
-        {
-            case UNIT_DECIBELS:
-                snprintf (display, size, "%.1f dB", value);
-                return true;
-            case UNIT_PAN:
-                snprintf (display, size, value == 0 ? "C" : value < 0 ? "%.0f L" : "%.0f R", fabs (value) * 100);
-                return true;
-        }
-        return false;
+        return id < P_COUNT && ParamValueToText (paramTable[id].unit, value, display, size);
     },
 
     .text_to_value = [] (const clap_plugin_t* _plugin, clap_id id, const char* display, double* value) -> bool {
-        if (id >= P_COUNT)
-            return false;
-        char* end = nullptr;
-        const double number = strtod (display, &end); // "440 Hz" reads as 440
-        const bool read = end != display;
-        while (*end == ' ')
-            end++;
-        switch (paramTable[id].unit)
-        {
-            case UNIT_DECIBELS:
-                *value = number;
-                return read;
-            case UNIT_PAN: // "C", "50 L", "50 R"
-                *value = read ? fmin (number, 100) / 100 * (strchr (end, 'L') ? -1 : 1) : 0;
-                return read || display[0] == 'C';
-        }
-        return false;
+        return id < P_COUNT && ParamTextToValue (paramTable[id].unit, display, value);
     },
 
     .flush =

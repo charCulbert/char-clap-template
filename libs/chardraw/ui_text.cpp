@@ -302,7 +302,10 @@ static bool parseNumber (std::string text, double& value)
             c = decimalPoint();
     char* end = nullptr;
     value = std::strtod (text.c_str(), &end);
-    return end != text.c_str();
+    const bool read = end != text.c_str();
+    while (*end == ' ')
+        end++;
+    return read && !*end; // a bare number: "2k" or "1.2 s" isn't one
 }
 
 std::string Ui::plainNumber (double value)
@@ -317,12 +320,28 @@ std::string Ui::plainNumber (double value)
     return text == "-0" ? "0" : text;
 }
 
+std::string Ui::typable (const Format& format, double value)
+{
+    // A value comes through a float: 7 digits, so 0.3 s types as 300 ms, not 300.000012.
+    char rounded[32];
+    std::snprintf (rounded, sizeof (rounded), "%.7g", value * format.typedScale);
+    return plainNumber (std::strtod (rounded, nullptr));
+}
+
+bool Ui::readTyped (const Format& format, const std::string& typed, double& value)
+{
+    if (!parseNumber (typed, value))
+        return false;
+    value /= format.typedScale;
+    return true;
+}
+
 // A knob's or slider's value, which a click opens for typing (as compost's
 // editable values): returns true while it's being edited, drawn here.
 // id tells apart controls of the same parameter (a knob and a slider of it).
 // A focused knob or slider: Enter opens its value for typing, and a digit
 // starts typing a new one, as a number box does.
-void Ui::typeInto (const void* me, const void* entry, const Param& p)
+void Ui::typeInto (const void* me, const void* entry, const Param& p, const Format& format)
 {
     if (focus != me)
         return;
@@ -333,20 +352,21 @@ void Ui::typeInto (const void* me, const void* entry, const Param& p)
         return startEditing (field, std::exchange (typedToFocus, {})), keysToEdit();
     const auto enter = std::find_if (keys.begin(), keys.end(), [] (auto k) { return k.first == View::Key::enter; });
     if (enter != keys.end())
-        keys.erase (enter), startEditing (field, plainNumber (p.value), true); // not also its commit
+        keys.erase (enter), startEditing (field, typable (format, p.value), true); // not also its commit
 }
 
-bool Ui::valueEntry (Params& params, Param& p, const void* control, const void* id, Rect r, Draw2D::Align align)
+bool Ui::valueEntry (
+    Params& params, Param& p, const Format& format, const void* control, const void* id, Rect r, Draw2D::Align align)
 {
     const uint32_t field = uint32_t (reinterpret_cast<uintptr_t> (id)) | 1u;
     const bool isOver = over (r.x, r.y, r.w, r.h);
+    std::string typed = typable (format, p.value);
     if (press (id, isOver, doubleClicks).pressed && editing != field)
-        startEditing (field, plainNumber (p.value), true);
-    std::string typed = plainNumber (p.value);
+        startEditing (field, typed, true);
     const bool wasEditing = editing == field;
     if (editKeys (field, typed, isOver))
     {
-        if (double value; parseNumber (typed, value))
+        if (double value; readTyped (format, typed, value))
             set (params, p, value);
     }
     // Typing ended with Enter or Escape: the keys are the control's again
@@ -499,7 +519,7 @@ void Ui::numberBox (Params& params, Param* p, const Format& format, bool log, fl
     const std::string shown = format (p->value);
     Described& self = describeParam (me, params, *p, shown.c_str(), {});
     self.node.role = Accessible::Role::spinButton, self.element = nid.id;
-    std::string typed = plainNumber (p->value);
+    std::string typed = typable (format, p->value);
     const std::string before = typed;
     if (pendingField == nid.id)
         typed = std::move (pendingDraft), pendingField = 0;
@@ -608,7 +628,7 @@ void Ui::numberBox (Params& params, Param* p, const Format& format, bool log, fl
     }
     if (editKeys (nid.id, typed, Clay_PointerOver (nid)) || typed != before)
     {
-        if (double value; parseNumber (typed, value))
+        if (double value; readTyped (format, typed, value))
             set (params, *p, value);
     }
     // An edit ended with Enter or Escape leaves the keys with the box (a

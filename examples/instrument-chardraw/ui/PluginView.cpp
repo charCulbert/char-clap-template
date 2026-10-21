@@ -4,33 +4,27 @@
 // as the system is). Parameters arrive and go back as the messages plugin.cpp
 // lists; the meter's levels arrive as "meter" messages.
 #include "chardraw/ui.h"
-#include "../params.h" // the parameters' ids, as plugin.cpp's
+#include "../params.h" // the parameters' ids and text, as plugin.cpp's
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <string>
 
 namespace
 {
 
-std::string hertz (double value) // "440 Hz", "1.20 kHz"
+// A parameter's value as the host shows it, and typed as a bare number in
+// the unit shown: params.h's, which plugin.cpp's value_to_text and
+// text_to_value use too, so typing "300" reads as it does in the host.
+gpu::Ui::Format asText (ParamUnit unit, const char* label = nullptr, gpu::Ui::Fill fill = gpu::Ui::Fill::fromMinimum)
 {
-    char text[16];
-    std::snprintf (text, sizeof (text), value < 1000 ? "%.0f Hz" : "%.2f kHz", value < 1000 ? value : value / 1000);
-    return text;
-}
-
-std::string wave (double value) // "Saw", "Square", "Triangle"
-{
-    static const char* const names[] = { "Saw", "Square", "Triangle" };
-    return names[std::clamp (int (value), 0, 2)];
-}
-
-std::string seconds (double value) // "300 ms", "1.20 s"
-{
-    char text[16];
-    std::snprintf (text, sizeof (text), value < 1 ? "%.0f ms" : "%.2f s", value < 1 ? value * 1000 : value);
-    return text;
+    gpu::Ui::Format format { [unit] (double value) {
+                                char text[32];
+                                return ParamValueToText (unit, value, text, sizeof (text)) ? std::string (text)
+                                                                                           : std::string();
+                            },
+        label, fill };
+    format.typedScale = ParamTypedScale (unit);
+    return format;
 }
 
 class PluginView : public gpu::View
@@ -113,9 +107,9 @@ public:
         {
             if (cutoff && release && waveform) // once the plugin has sent its parameters
             {
-                ui.knob (params, cutoff, { hertz, "Cutoff" }, true, 52); // log: even steps per octave
-                ui.knob (params, release, seconds, true, 52);
-                ui.knob (params, waveform, { wave, "Wave" }, false, 52);
+                ui.knob (params, cutoff, asText (UNIT_HERTZ, "Cutoff"), true, 52); // log: even steps per octave
+                ui.knob (params, release, asText (UNIT_SECONDS), true, 52);
+                ui.knob (params, waveform, asText (UNIT_WAVE, "Wave"), false, 52);
             }
             CLAY ({ .layout = { .sizing = { CLAY_SIZING_GROW (0) } } }) {} // the meter to the right
             CLAY ({ .layout = { .sizing = { CLAY_SIZING_FIT (0), CLAY_SIZING_GROW (0) }, .childGap = 3 } })

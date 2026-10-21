@@ -255,8 +255,8 @@ void Ui::knob (Params& params, Param* p, Rect box, const Format& format, bool lo
         dragging ? theme.accent : theme.text);
     const std::string value = format (p->value);
     describeParam (me, params, *p, value.c_str(), box).node.orientation = 2; // dragged up and down
-    typeInto (me, &p->defaultValue, *p);
-    if (!valueEntry (params, *p, me, &p->defaultValue, { box.x, cy + r + 0.3f * size, box.w, 1.3f * size },
+    typeInto (me, &p->defaultValue, *p, format);
+    if (!valueEntry (params, *p, format, me, &p->defaultValue, { box.x, cy + r + 0.3f * size, box.w, 1.3f * size },
             Draw2D::Align::center))
         draw.text (cx, cy + r + 1.3f * size, size, value, theme.text, Draw2D::Align::center, theme.valueFont);
     draw.text (cx, cy + r + 2.6f * size, size, format.name (*p), theme.dim, Draw2D::Align::center, theme.labelFont);
@@ -274,9 +274,9 @@ void Ui::slider (Params& params, Param* p, Rect box, const Format& format, bool 
     // The value first: a click on it types, rather than starting a drag.
     const float valueWidth = std::max (draw.measure (size, value, theme.valueFont), 3 * size) + 4 * s;
     const void* me = controlId (*p, px, py);
-    typeInto (me, &p->max, *p);
+    typeInto (me, &p->max, *p, format);
     const bool typing = valueEntry (
-        params, *p, me, &p->max, { px + w - valueWidth, py, valueWidth, 1.4f * size }, Draw2D::Align::right);
+        params, *p, format, me, &p->max, { px + w - valueWidth, py, valueWidth, 1.4f * size }, Draw2D::Align::right);
     describeParam (me, params, *p, value.c_str(), box).node.orientation = 1;
     const bool dragging = control (params, *p, me, px, py, w, h, false, w, log, true, sliderDrag == Drag::absolute);
     const bool hot = dragging || (!active && over (px, py, w, h));

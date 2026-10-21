@@ -105,8 +105,9 @@ All in `plugin.cpp`, unless it says otherwise:
   range, default, flags, unit) under Parameters. The key is what the value is
   saved under in the state: never change one once released. The name is what
   the host shows, and can change freely. The CLAP params functions
-  read the table; a new unit needs a case in `value_to_text` and
-  `text_to_value`. Then the DSP reads `plugin->parameters[P_YOURS]`, and a
+  read the table; a new unit needs a case in `params.h`'s
+  `ParamValueToText` and `ParamTextToValue`, which a chardraw interface
+  uses too. Then the DSP reads `plugin->parameters[P_YOURS]`, and a
   chardraw interface finds it with `params.find (P_YOURS)` (a web page, by
   its name).
 - **Recalled settings** (saved with the state, not automatable): the four
@@ -190,10 +191,13 @@ a printf format as before, or a function that writes the value, with an
 optional short label shown in place of the parameter's name. Screen readers
 still hear the full name. With `Ui::Fill::fromDefault`, a knob or slider
 fills from the parameter's default to its value, as a pan knob fills from C.
-`gpu::Params::find` takes a name or a CLAP id.
+A typed value is a bare number; `typedScale` sets its unit, the smaller one
+shown (1000 types seconds as ms). The chardraw starters take it from
+`params.h`, as their `text_to_value` does, so "300" reads as 300 ms in the
+interface and the host alike. `gpu::Params::find` takes a name or a CLAP id.
 
 ```cpp
-ui.knob (params, params.find (kAttack), { msOrSeconds, "A" }); // "5 ms", "1.20 s"
+ui.knob (params, params.find (kAttack), { msOrSeconds, "A" }); // "5 ms", "1.20 s"; typed in s
 ui.knob (params, ratio, { "%.2f", "Ratio" });
 ui.knob (params, pan, { panText, "Pan", Ui::Fill::fromDefault });
 ```

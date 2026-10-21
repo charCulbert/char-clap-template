@@ -1873,6 +1873,66 @@ static void knobDragAndKeys()
     }
 }
 
+// A typed value is a bare number in the format's typedScale: a percent here,
+// as shown, and opens for typing in it; "75 %" isn't a bare number.
+static void typedInScale()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams (params);
+    gpu::Param* a = params.find ("A");
+    Ui::Format percent = [] (double v) { return std::to_string (int (std::lround (v * 100))) + " %"; };
+    percent.typedScale = 100;
+    auto draw = [&] {
+        ui.begin (400, 300, 1);
+        ui.knob (params, a, gpu::Rect { 0, 0, 100, 140 }, percent);
+        ui.end (wgpu::RenderPassEncoder {});
+    };
+    draw();
+    auto type = [&] (const char* typed) {
+        pointer (ui, View::Pointer::down, 380, 280); // somewhere else first: the next click isn't a double-click
+        pointer (ui, View::Pointer::up, 380, 280);
+        draw();
+        pointer (ui, View::Pointer::down, 50, 110);
+        draw();
+        pointer (ui, View::Pointer::up, 50, 110);
+        draw();
+        CHECK (ui.editingText());
+        if (typed)
+            ui.text (typed); // over the whole of what it opened with
+        ui.key (View::Key::enter, 0);
+        draw();
+    };
+    sent.clear();
+    type (nullptr); // opened with "50" and left: no change
+    CHECK (sent.empty() && std::abs (a->value - 0.5) < 1e-9);
+    type ("75");
+    CHECK (std::abs (a->value - 0.75) < 1e-9);
+    type ("40 %");
+    CHECK (std::abs (a->value - 0.75) < 1e-9);
+    // A float's 0.3, as a plug-in sends it, opens as 30, not 30.000001:
+    // a Backspace at its end makes 3.
+    a->value = double (0.3f);
+    pointer (ui, View::Pointer::down, 380, 280);
+    pointer (ui, View::Pointer::up, 380, 280);
+    draw();
+    pointer (ui, View::Pointer::down, 50, 110);
+    draw();
+    pointer (ui, View::Pointer::up, 50, 110);
+    draw();
+    CHECK (ui.editingText());
+    ui.key (View::Key::right, 0); // to the end, out of the selection
+    ui.key (View::Key::backspace, 0);
+    ui.key (View::Key::enter, 0);
+    draw();
+    CHECK (std::abs (a->value - 0.03) < 1e-9);
+    // A digit typed into the focused knob, then Enter.
+    ui.text ("2");
+    ui.key (View::Key::enter, 0);
+    draw();
+    CHECK (std::abs (a->value - 0.02) < 1e-9);
+}
+
 static void textFieldEdits()
 {
     Ui ui;
@@ -3379,6 +3439,7 @@ int main()
     keyboardFocus();
     knobDragAndKeys();
     steppedControls();
+    typedInScale();
     parameterFormats();
     screenReader();
     screenReaderReading();
