@@ -1777,6 +1777,13 @@ static void steppedControls()
         if (n.checked >= 0)
             on = n.checked == 1;
     CHECK (!on);
+    // Many steps: an arrow is still one, as a wheel's notch is.
+    wave->max = 255, wave->value = 100;
+    pointer (ui, View::Pointer::down, 380, 280), pointer (ui, View::Pointer::up, 380, 280), draw();
+    pointer (ui, View::Pointer::down, 50, 50), pointer (ui, View::Pointer::up, 50, 50), draw();
+    ui.key (View::Key::up, 0);
+    draw();
+    CHECK (wave->value == 101);
 }
 
 static void knobDragAndKeys()

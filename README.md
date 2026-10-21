@@ -135,7 +135,7 @@ All in `plugin.cpp`, unless it says otherwise:
 ## Updating the template
 
 Your plugin's `CMakeLists.txt` fetches this repository's `libs/` at a release
-tag (`GIT_TAG v0.2.0`). To update, read the
+tag (`GIT_TAG v0.3.0`). To update, read the
 [release notes](https://github.com/charCulbert/char-clap-template/releases)
 from your version up, then change the tag. Before 1.0, a minor bump (0.1 to
 0.2) may need changes in your plugin; a patch bump won't.
@@ -197,7 +197,7 @@ shown (1000 types seconds as ms). The chardraw starters take it from
 interface and the host alike. `gpu::Params::find` takes a name or a CLAP id.
 
 ```cpp
-ui.knob (params, params.find (kAttack), { msOrSeconds, "A" }); // "5 ms", "1.20 s"; typed in s
+ui.knob (params, params.find (kAttack), { msOrSeconds, "A" }); // "5 ms", "1.20 s"
 ui.knob (params, ratio, { "%.2f", "Ratio" });
 ui.knob (params, pan, { panText, "Pan", Ui::Fill::fromDefault });
 ```

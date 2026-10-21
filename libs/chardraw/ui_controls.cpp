@@ -58,7 +58,8 @@ double Ui::moved (const Param& p, double by, bool log)
 {
     if (!p.stepped)
         return fromUnit (p, toUnit (p, p.value, log) + by, log);
-    const double steps = std::max (1.0, std::round (std::abs (by) * (p.max - p.min)));
+    // An arrow's or a notch's move (0.01 or less) is one step, however many there are.
+    const double steps = std::abs (by) <= 0.01 ? 1 : std::max (1.0, std::round (std::abs (by) * (p.max - p.min)));
     return std::clamp (p.value + (by < 0 ? -steps : steps), p.min, p.max);
 }
 
