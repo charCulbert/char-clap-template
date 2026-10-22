@@ -1223,15 +1223,19 @@ void Ui::vslider (Params& params, Param* p, Rect box, const Format& format, bool
     const float size = theme.textSize * s, cx = box.x + box.w / 2;
     const float top = box.y + 1.6f * size, bottom = box.y + box.h - 1.6f * size, thumb = 1.125f * size;
     const void* me = controlId (*p, box.x, box.y);
+    typeInto (me, &p->min, *p, format);
+    const bool typing = valueEntry (
+        params, *p, format, me, &p->min, { box.x, box.y, box.w, 1.3f * size }, Draw2D::Align::center);
     const bool dragging = control (params, *p, me, box.x, top - thumb / 2, box.w, bottom - top + thumb, true,
-        bottom - top, log, false, sliderDrag == Drag::absolute, thumb / 2);
+        bottom - top, log, true, sliderDrag == Drag::absolute, thumb / 2);
     const bool hot = dragging || (!active && over (box.x, top, box.w, bottom - top));
     const float u = float (toUnit (*p, p->value, log)), y = bottom - (bottom - top) * u;
     if (focusShown (me))
         draw.rect (box.x, box.y, box.w, box.h, theme.radius * s, { 0, 0, 0, 0 }, 1 * s, theme.accent);
     const std::string value = format (p->value);
     describeParam (me, params, *p, value.c_str(), box).node.orientation = 2;
-    draw.text (cx, box.y + size, size, value, theme.dim, Draw2D::Align::center, theme.valueFont);
+    if (!typing)
+        draw.text (cx, box.y + size, size, value, theme.dim, Draw2D::Align::center, theme.valueFont);
     draw.text (
         cx, box.y + box.h - 0.3f * size, size, format.name (*p), theme.dim, Draw2D::Align::center, theme.labelFont);
     draw.rect (cx - 1.5f * s, top, 3 * s, bottom - top, 0, theme.track);

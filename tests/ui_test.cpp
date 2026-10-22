@@ -1880,6 +1880,42 @@ static void knobDragAndKeys()
     }
 }
 
+// An upright slider types as a knob does: a digit while it has the focus,
+// or a click on its value, above the track.
+static void uprightSliderTypes()
+{
+    Ui ui;
+    gpu::Params params;
+    setUpParams (params);
+    gpu::Param* a = params.find ("A");
+    auto draw = [&] {
+        ui.begin (400, 300, 1);
+        ui.vslider (params, a, gpu::Rect { 0, 0, 60, 200 }, "%.2f");
+        ui.end (wgpu::RenderPassEncoder {});
+    };
+    draw();
+    pointer (ui, View::Pointer::down, 30, 100); // focus it
+    draw();
+    pointer (ui, View::Pointer::up, 30, 100);
+    draw();
+    CHECK (ui.text ("0.25"));
+    ui.key (View::Key::enter, 0);
+    draw();
+    CHECK (!ui.editingText() && std::abs (a->value - 0.25) < 1e-9);
+    pointer (ui, View::Pointer::down, 380, 280); // somewhere else first: the next click isn't a double-click
+    pointer (ui, View::Pointer::up, 380, 280);
+    draw();
+    pointer (ui, View::Pointer::down, 30, 8); // the value
+    draw();
+    pointer (ui, View::Pointer::up, 30, 8);
+    draw();
+    CHECK (ui.editingText() && std::abs (a->value - 0.25) < 1e-9); // opened, not dragged
+    ui.text ("0.6");
+    ui.key (View::Key::enter, 0);
+    draw();
+    CHECK (std::abs (a->value - 0.6) < 1e-9);
+}
+
 // A typed value is a bare number in the format's typedScale: a percent here,
 // as shown, and opens for typing in it; "75 %" isn't a bare number.
 static void typedInScale()
@@ -3447,6 +3483,7 @@ int main()
     knobDragAndKeys();
     steppedControls();
     typedInScale();
+    uprightSliderTypes();
     parameterFormats();
     screenReader();
     screenReaderReading();
