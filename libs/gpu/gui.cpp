@@ -291,10 +291,10 @@ void Gui::setSize (uint32_t newWidth, uint32_t newHeight)
     height = newHeight;
     if (!window)
         return;
+    // The surface follows in frame(), just before it draws. Configured here
+    // too, it lost the image on screen while the host set sizes faster than
+    // we drew (Live, several a frame), and Live showed magenta in its place.
     platform::setSize (window, width, height);
-    uint32_t w, h;
-    platform::pixelSize (window, w, h);
-    context->configure (w, h);
     dirty = true;
 }
 
