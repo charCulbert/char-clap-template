@@ -11,6 +11,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--backgr
 body { display: flex; align-items: center; gap: 24px; padding: 20px; box-sizing: border-box; user-select: none; }
 main { flex: 1; align-self: stretch; display: flex; align-items: center; gap: 24px; min-width: 0; }
 output { font-variant-numeric: tabular-nums; line-height: 1.3; }
+/* A value being typed, where it's shown. */
+.entry { width: 5em; box-sizing: border-box; padding: 0 2px; font: inherit; line-height: 1.3; text-align: center;
+         color: var(--text); background: var(--background); border: 1px solid var(--accent); border-radius: 2px;
+         outline: none; user-select: text; font-variant-numeric: tabular-nums; }
 /* A channel strip (body.strip): the controls on top, then the fader beside the meter. */
 body.strip { flex-direction: column; gap: 12px; padding: 16px; }
 body.strip main { flex: none; align-self: auto; }
