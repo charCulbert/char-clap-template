@@ -8,13 +8,14 @@
   :root { --background: #cdcdcd; --text: #1c1c1c; --dim: #4f4f4f; --track: #9e9e9e; --accent: #75540a; }
 }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--background); color: var(--text); }
-body { display: flex; align-items: center; gap: 24px; padding: 20px; box-sizing: border-box; user-select: none; }
+body { display: flex; align-items: center; gap: 24px; padding: 20px; box-sizing: border-box;
+       -webkit-user-select: none; user-select: none; } /* WebKit reads only the prefixed one */
 main { flex: 1; align-self: stretch; display: flex; align-items: center; gap: 24px; min-width: 0; }
 output { font-variant-numeric: tabular-nums; line-height: 1.3; }
-/* A value being typed, where it's shown. */
-.entry { width: 5em; box-sizing: border-box; padding: 0 2px; font: inherit; line-height: 1.3; text-align: center;
+/* A value being typed, where it's shown, in the same space: the control doesn't move. */
+.entry { width: 100%; height: 1.3em; box-sizing: border-box; margin: 0; padding: 0 2px; font: inherit; text-align: center;
          color: var(--text); background: var(--background); border: 1px solid var(--accent); border-radius: 2px;
-         outline: none; user-select: text; font-variant-numeric: tabular-nums; }
+         outline: none; -webkit-user-select: text; user-select: text; font-variant-numeric: tabular-nums; }
 /* A channel strip (body.strip): the controls on top, then the fader beside the meter. */
 body.strip { flex-direction: column; gap: 12px; padding: 16px; }
 body.strip main { flex: none; align-self: auto; }
