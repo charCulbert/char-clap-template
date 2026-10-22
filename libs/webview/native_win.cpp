@@ -39,6 +39,15 @@ void setVisible (void* view, bool visible)
     ShowWindow ((HWND) view, visible ? SW_SHOW : SW_HIDE);
 }
 
+// To the host's window, as a chardraw view posts a key it doesn't use.
+void tabOut (void* view, bool)
+{
+    const HWND host = GetParent ((HWND) view);
+    const LPARAM scan = LPARAM (MapVirtualKeyW (VK_TAB, MAPVK_VK_TO_VSC)) << 16;
+    PostMessageW (host, WM_KEYDOWN, VK_TAB, scan | 1);
+    PostMessageW (host, WM_KEYUP, VK_TAB, scan | 1 | (LPARAM (3) << 30));
+}
+
 float scale (void* view)
 {
     return float (GetDpiForWindow ((HWND) view)) / 96.0f;

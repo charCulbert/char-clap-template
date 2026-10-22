@@ -35,6 +35,24 @@ void setVisible (void* view, bool visible)
     [(__bridge NSView*) view setHidden:!visible];
 }
 
+// Up the responder chain, as a chardraw view passes on a key it doesn't use.
+void tabOut (void* view, bool back)
+{
+    NSView* page = (__bridge NSView*) view;
+    NSString* tab = back ? @"\x19" : @"\t"; // Shift+Tab types a back tab
+    NSEvent* event = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                      location:NSZeroPoint
+                                 modifierFlags:back ? NSEventModifierFlagShift : 0
+                                     timestamp:NSProcessInfo.processInfo.systemUptime
+                                  windowNumber:page.window.windowNumber
+                                       context:nil
+                                    characters:tab
+                   charactersIgnoringModifiers:tab
+                                     isARepeat:NO
+                                       keyCode:48];
+    [page.nextResponder keyDown:event];
+}
+
 // clap.gui on macOS is in points already.
 float scale (void*)
 {

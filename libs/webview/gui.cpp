@@ -41,6 +41,24 @@ window.addEventListener('message', event => {
 }, {capture: true});
 )JS";
 
+// Tab past the page's last control, or Shift+Tab before its first, goes on
+// to the host, as it does from a chardraw view: the page is no keyboard
+// trap. Only where the plugin can hand the key over (clapWebviewTabOut).
+static constexpr const char* tabScript = R"JS(
+window.addEventListener('keydown', event => {
+  if (event.key !== 'Tab' || event.defaultPrevented || !window.clapWebviewTabOut) return;
+  const stops = [...document.querySelectorAll('a[href], button, input, select, textarea, [tabindex]')]
+      .filter(e => e.tabIndex >= 0 && !e.disabled && e.getClientRects().length)
+      .map((e, i) => ({e, i})).sort((a, b) => (a.e.tabIndex || 1e9) - (b.e.tabIndex || 1e9) || a.i - b.i)
+      .map(s => s.e);
+  const at = stops.indexOf(document.activeElement);
+  if (stops.length && (at < 0 || at !== (event.shiftKey ? 0 : stops.length - 1))) return;
+  event.preventDefault();
+  document.activeElement?.blur();
+  window.clapWebviewTabOut(event.shiftKey);
+}, {capture: true});
+)JS";
+
 // Where the page's files are served: WebView2 serves custom pages over https.
 #if defined(_WIN32)
 static constexpr const char* home = "https://choc.localhost/";
@@ -78,6 +96,11 @@ public:
                 if (!args.isArray() || args.size() != 1 || !args[0].isString())
                     return choc::value::Value (false);
                 return choc::value::Value (client.receive (std::string (args[0].getString())));
+            });
+            webView.bind ("clapWebviewTabOut", [this] (const choc::value::ValueView& args) {
+                const bool back = args.isArray() && args.size() == 1 && args[0].isBool() && args[0].getBool();
+                platform::tabOut (view->getViewHandle(), back);
+                return choc::value::Value();
             });
             for (const auto& script : client.scripts)
                 webView.addInitScript (script);
@@ -242,7 +265,7 @@ std::unique_ptr<platform::Page> Gui::openPage()
         return nullptr;
     platform::PageClient client;
     client.uri = uri[0] == '/' ? home + std::string (uri + 1) : std::string (uri);
-    client.scripts = { bridgeScript };
+    client.scripts = { bridgeScript, tabScript };
     client.fetch = [this] (const std::string& path) { return fetchFromPlugin (plugin, pluginWebview, path); };
     client.receive = [this] (const std::string& base64) {
         std::string bytes;

@@ -60,6 +60,7 @@ void detach (void* view, void* attachment);
 void setSize (void* view, uint32_t width, uint32_t height);
 void setVisible (void* view, bool visible);
 float scale (void* view);
+void tabOut (void* view, bool back); // Tab (Shift+Tab if back) to the host, as if the page hadn't taken it
 #endif
 
 } // namespace webview::platform
