@@ -1224,8 +1224,8 @@ void Ui::vslider (Params& params, Param* p, Rect box, const Format& format, bool
     const float top = box.y + 1.6f * size, bottom = box.y + box.h - 1.6f * size, thumb = 1.125f * size;
     const void* me = controlId (*p, box.x, box.y);
     typeInto (me, &p->min, *p, format);
-    const bool typing = valueEntry (
-        params, *p, format, me, &p->min, { box.x, box.y, box.w, 1.3f * size }, Draw2D::Align::center);
+    const bool typing =
+        valueEntry (params, *p, format, me, &p->min, { box.x, box.y, box.w, 1.3f * size }, Draw2D::Align::center);
     const bool dragging = control (params, *p, me, box.x, top - thumb / 2, box.w, bottom - top + thumb, true,
         bottom - top, log, true, sliderDrag == Drag::absolute, thumb / 2);
     const bool hot = dragging || (!active && over (box.x, top, box.w, bottom - top));
