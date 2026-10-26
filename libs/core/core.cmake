@@ -18,12 +18,20 @@ set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_LICENSES "clap_template=${C
 
 # A WCLAP's memory is shared, so a host can run the main thread's calls and
 # process() at once, in two instances over the one memory (see README.md). Set
-# before anything is fetched: every object in the module needs atomics.
+# before any add_subdirectory that compiles code into the module: every object
+# in it needs atomics.
 option(WCLAP_SHARED_MEMORY "Give a WCLAP shared memory, for threads" ON)
 if(CMAKE_SYSTEM_NAME STREQUAL "WASI" AND WCLAP_SHARED_MEMORY)
     # The WASI SDK's p1 toolchain, retargeted to its threads sysroot.
     string(APPEND CMAKE_C_FLAGS " --target=wasm32-wasip1-threads -pthread")
     string(APPEND CMAKE_CXX_FLAGS " --target=wasm32-wasip1-threads -pthread")
+    # Memory is imported, as other shared WCLAPs do, and exported too, for WASI
+    # calls; clap-wrapper sets the maximum (2 GB). A host sets up each extra
+    # instance with these: a stack (__stack_pointer), thread-local storage
+    # (__wasm_init_tls) and libc's thread record (__wasi_init_tp).
+    string(APPEND CMAKE_EXE_LINKER_FLAGS " -Wl,--import-memory,--export-memory,--shared-memory"
+        " -Wl,--export=__stack_pointer,--export=__wasm_init_tls,--export=__tls_size,--export=__tls_align"
+        " -Wl,--export=__wasi_init_tp")
 endif()
 
 core_declare(clap
@@ -179,14 +187,6 @@ function(core_ship_resources name folder)
     if(TARGET ${name}_wclap)
         # Browsers download the module, so leave debug info out of Release builds.
         target_link_options(${name}_wclap PRIVATE $<$<CONFIG:Release,MinSizeRel>:-Wl,--strip-debug>)
-        if(WCLAP_SHARED_MEMORY)
-            # Imported, as other shared WCLAPs do, and exported too, for WASI
-            # calls; clap-wrapper sets the maximum (2 GB). A host gives each
-            # extra instance a stack (__stack_pointer) and thread-local storage
-            # (__wasm_init_tls).
-            target_link_options(${name}_wclap PRIVATE -Wl,--import-memory,--export-memory,--shared-memory
-                -Wl,--export=__stack_pointer,--export=__wasm_init_tls,--export=__tls_size,--export=__tls_align)
-        endif()
         # A WCLAP is a .tar.gz of module.wasm plus its files, all at the archive
         # root: hosts that read the page straight from the archive (openDAW)
         # look for get_uri's path there, rather than asking get_resource.

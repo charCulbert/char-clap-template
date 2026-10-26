@@ -255,13 +255,24 @@ host: [browser-test-host](https://webclap.github.io/browser-test-host/),
 [daw.charlieculbert.com](https://daw.charlieculbert.com) or
 [openDAW](https://opendaw.studio).
 
-A WCLAP's memory is shared: it's built for `wasm32-wasip1-threads` (the same
-toolchain file serves) and exports `__stack_pointer`, `__wasm_init_tls`,
-`__tls_size` and `__tls_align`, so a host can give the audio thread an instance
-with its own stack and thread-local storage, and run `process()` while the main
-thread's calls run, as CLAP intends. `-DWCLAP_SHARED_MEMORY=OFF` builds a
-private, single-threaded memory instead, which a host calls from one thread at
-a time.
+A WCLAP's memory is shared, so a host can run the main thread's calls and
+`process()` at the same time, as CLAP intends. It's built for
+`wasm32-wasip1-threads` (the same toolchain file serves). The module imports
+its memory as `env.memory`, shared, with a maximum of 32768 pages (2 GB), and
+exports it too.
+
+A host runs the audio thread in a second instance over that memory. It never
+calls `_initialize` there. It gives the instance a stack of its own
+(`__stack_pointer`), thread-local storage (`__wasm_init_tls`, sized by
+`__tls_size` and `__tls_align`) and libc's thread record (`__wasi_init_tp`).
+`__wasi_init_tp` gives every instance the same thread ID, so the host then
+sets one of its own, or recursive mutexes see two instances as one thread. In
+a browser, the main thread's instance runs in a Worker: a contended lock waits
+with `memory.atomic.wait`, which a page's own thread can't do.
+
+`-DWCLAP_SHARED_MEMORY=OFF` builds a private, single-threaded memory instead,
+which a host calls from one thread at a time. A host or runtime without shared
+memory (wasm3, or WAMR built without it) needs that build.
 
 ## Test
 
