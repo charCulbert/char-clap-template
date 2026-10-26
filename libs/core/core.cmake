@@ -16,6 +16,16 @@ set(CORE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 get_filename_component(CORE_TEMPLATE_LICENSE "${CORE_DIR}/../../LICENSE" ABSOLUTE)
 set_property(GLOBAL APPEND PROPERTY CORE_THIRD_PARTY_LICENSES "clap_template=${CORE_TEMPLATE_LICENSE}")
 
+# A WCLAP's memory is shared, so a host can run the main thread's calls and
+# process() at once, in two instances over the one memory (see README.md). Set
+# before anything is fetched: every object in the module needs atomics.
+option(WCLAP_SHARED_MEMORY "Give a WCLAP shared memory, for threads" ON)
+if(CMAKE_SYSTEM_NAME STREQUAL "WASI" AND WCLAP_SHARED_MEMORY)
+    # The WASI SDK's p1 toolchain, retargeted to its threads sysroot.
+    string(APPEND CMAKE_C_FLAGS " --target=wasm32-wasip1-threads -pthread")
+    string(APPEND CMAKE_CXX_FLAGS " --target=wasm32-wasip1-threads -pthread")
+endif()
+
 core_declare(clap
     URL https://github.com/free-audio/clap/archive/refs/tags/1.2.10.tar.gz
     URL_HASH SHA256=58fdb977c6678859c15d57942378b651399178f49a3a8ecad1813b9f231dc096)
@@ -169,6 +179,14 @@ function(core_ship_resources name folder)
     if(TARGET ${name}_wclap)
         # Browsers download the module, so leave debug info out of Release builds.
         target_link_options(${name}_wclap PRIVATE $<$<CONFIG:Release,MinSizeRel>:-Wl,--strip-debug>)
+        if(WCLAP_SHARED_MEMORY)
+            # Imported, as other shared WCLAPs do, and exported too, for WASI
+            # calls; clap-wrapper sets the maximum (2 GB). A host gives each
+            # extra instance a stack (__stack_pointer) and thread-local storage
+            # (__wasm_init_tls).
+            target_link_options(${name}_wclap PRIVATE -Wl,--import-memory,--export-memory,--shared-memory
+                -Wl,--export=__stack_pointer,--export=__wasm_init_tls,--export=__tls_size,--export=__tls_align)
+        endif()
         # A WCLAP is a .tar.gz of module.wasm plus its files, all at the archive
         # root: hosts that read the page straight from the archive (openDAW)
         # look for get_uri's path there, rather than asking get_resource.

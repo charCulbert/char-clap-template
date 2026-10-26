@@ -255,6 +255,14 @@ host: [browser-test-host](https://webclap.github.io/browser-test-host/),
 [daw.charlieculbert.com](https://daw.charlieculbert.com) or
 [openDAW](https://opendaw.studio).
 
+A WCLAP's memory is shared: it's built for `wasm32-wasip1-threads` (the same
+toolchain file serves) and exports `__stack_pointer`, `__wasm_init_tls`,
+`__tls_size` and `__tls_align`, so a host can give the audio thread an instance
+with its own stack and thread-local storage, and run `process()` while the main
+thread's calls run, as CLAP intends. `-DWCLAP_SHARED_MEMORY=OFF` builds a
+private, single-threaded memory instead, which a host calls from one thread at
+a time.
+
 ## Test
 
 ```sh
