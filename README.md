@@ -202,6 +202,20 @@ ui.knob (params, ratio, { "%.2f", "Ratio" });
 ui.knob (params, pan, { panText, "Pan", Ui::Fill::fromDefault });
 ```
 
+A range that wants more of the travel at one end (20 Hz to 20 kHz, 1 ms to
+10 s) gives its row in `paramTable` a `mid`: the value halfway along a knob's
+or slider's travel. The chardraw starters send it in the `params` message
+(another plugin adds `mid` to the parameter's entry there), and the controls
+follow an exponential curve through min, mid and max. It works from 0 and on
+negative ranges, and a mid at the geometric mean of min and max is the log
+law. Without a mid, or with one not inside the range, the travel is
+even. A control's `log` argument still overrides it. The host's own controls
+stay even: CLAP doesn't carry it.
+
+```cpp
+{ P_RATE, "rate", "LFO rate", 0.01, 40.0, 0.5, CLAP_PARAM_IS_AUTOMATABLE, UNIT_HERTZ, 2.0 }, // 2 Hz at the middle
+```
+
 `ui.piano` returns its notes from the call that declares it. A tap shorter
 than a frame owes its note-off to the next call, and the piano asks for that
 frame itself.
