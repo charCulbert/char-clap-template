@@ -194,8 +194,9 @@ struct Param
     double mid = NAN;
 };
 static constexpr Param paramTable[] = {
-    { P_CUTOFF, "cutoff", "Filter cutoff", 20.0, 20000.0, 2000.0, CLAP_PARAM_IS_AUTOMATABLE, UNIT_HERTZ },
-    { P_RELEASE, "release", "Release", 0.01, 2.0, 0.3, CLAP_PARAM_IS_AUTOMATABLE, UNIT_SECONDS },
+    // Their mids are the square root of min times max: even steps per octave.
+    { P_CUTOFF, "cutoff", "Filter cutoff", 20.0, 20000.0, 2000.0, CLAP_PARAM_IS_AUTOMATABLE, UNIT_HERTZ, 632.456 },
+    { P_RELEASE, "release", "Release", 0.01, 2.0, 0.3, CLAP_PARAM_IS_AUTOMATABLE, UNIT_SECONDS, 0.141421 },
     { P_WAVE, "wave", "Waveform", 0.0, 2.0, 0.0, CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_STEPPED, UNIT_WAVE },
 };
 static_assert (std::size (paramTable) == P_COUNT, "a row for each id in params.h");

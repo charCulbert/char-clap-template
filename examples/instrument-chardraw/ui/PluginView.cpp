@@ -107,8 +107,8 @@ public:
         {
             if (cutoff && release && waveform) // once the plugin has sent its parameters
             {
-                ui.knob (params, cutoff, asText (UNIT_HERTZ, "Cutoff"), true, 52); // log: even steps per octave
-                ui.knob (params, release, asText (UNIT_SECONDS), true, 52);
+                ui.knob (params, cutoff, asText (UNIT_HERTZ, "Cutoff"), false, 52); // its mid sets its travel
+                ui.knob (params, release, asText (UNIT_SECONDS), false, 52);
                 ui.knob (params, waveform, asText (UNIT_WAVE, "Wave"), false, 52);
             }
             CLAY ({ .layout = { .sizing = { CLAY_SIZING_GROW (0) } } }) {} // the meter to the right

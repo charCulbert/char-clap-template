@@ -38,12 +38,13 @@ struct Setting
     const char* name;
     double min, max, defaultValue;
     const char* format;
+    double mid; // the value at the middle of a control's travel, or 0 for even travel
 };
 static const Setting settings[] = {
-    { "Gain", -24, 24, 0, "%.1f dB" },
-    { "Mix", 0, 100, 100, "%.0f %%" },
-    { "Cutoff", 20, 20000, 1000, "%.0f Hz" },
-    { "Drive", 0, 10, 2, "%.2f" },
+    { "Gain", -24, 24, 0, "%.1f dB", 0 },
+    { "Mix", 0, 100, 100, "%.0f %%", 0 },
+    { "Cutoff", 20, 20000, 1000, "%.0f Hz", 1000 },
+    { "Drive", 0, 10, 2, "%.2f", 2 },
 };
 #define P_COUNT (4)
 
@@ -364,7 +365,7 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //                 {type: "begin" | "end", id}     a drag starts or ends
 //                 {type: "change", id, value}
 //                 {type: "edit", name, data}      a finished edit of the other state
-//   plugin -> UI  {type: "params", params: [{id, name, min, max, default}]}
+//   plugin -> UI  {type: "params", params: [{id, name, min, max, default, mid?}]}
 //                 {type: "values", values: [value per parameter id]}
 //                 {type: "data", data}            the other state, after a load or undo
 static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
@@ -374,8 +375,13 @@ static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
     {
         core::Value::Array list;
         for (uint32_t i = 0; i < P_COUNT; i++)
-            list.push_back (core::Value::Map { { "id", (double) i }, { "name", settings[i].name },
-                { "min", settings[i].min }, { "max", settings[i].max }, { "default", settings[i].defaultValue } });
+        {
+            core::Value::Map entry { { "id", (double) i }, { "name", settings[i].name }, { "min", settings[i].min },
+                { "max", settings[i].max }, { "default", settings[i].defaultValue } };
+            if (settings[i].mid != 0)
+                entry["mid"] = settings[i].mid;
+            list.push_back (entry);
+        }
         plugin->gui.send (core::Value::Map { { "type", "params" }, { "params", list } });
         PluginSendValues (plugin);
         if (!std::holds_alternative<std::monostate> (plugin->data.data))

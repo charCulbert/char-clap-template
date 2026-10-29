@@ -561,12 +561,14 @@ private:
         static const gpu::Ui::Format formats[] = { { "%.1f dB", nullptr, gpu::Ui::Fill::fromDefault }, "%.0f %%",
             { hertz, "Freq" }, "%.1f" };
         row ([&] {
-            cell ("Knobs: drag, Shift fine, wheel, double-click resets, Tab + arrows, right-click or Menu key; Gain "
-                  "filled from 0 dB; Cutoff labelled Freq, its value in Hz or kHz",
+            cell (
+                "Knobs: drag, Shift fine, wheel, double-click resets, Tab + arrows, right-click or Menu key; Gain "
+                "filled from 0 dB; Cutoff labelled Freq, its value in Hz or kHz; Cutoff and Drive have a mid, the value at "
+                "half their travel (1 kHz, 2)",
                 [&] {
                     for (int i = 0; i < 4; ++i)
                     {
-                        ui.knob (params, params.find (names[i]), formats[i], i == 2);
+                        ui.knob (params, params.find (names[i]), formats[i]);
                         ui.tooltip (names[i]);
                         parameterMenu (params.find (names[i]), formats[i]);
                     }
@@ -583,7 +585,7 @@ private:
                     {
                         for (int i = 0; i < 4; ++i)
                         {
-                            ui.slider (params, params.find (names[i]), formats[i], i == 2);
+                            ui.slider (params, params.find (names[i]), formats[i]);
                             parameterMenu (params.find (names[i]), formats[i]);
                         }
                     }
@@ -1204,7 +1206,7 @@ private:
         row ([&] {
             cell ("Vertical sliders", [&] {
                 for (int i = 0; i < 4; ++i)
-                    ui.vslider (params, params.find (names[i]), formats[i], i == 2);
+                    ui.vslider (params, params.find (names[i]), formats[i]);
             });
             cell ("XY pad: drag the point; double-click resets",
                 [&] { ui.xyPad (params, params.find ("Mix"), params.find ("Gain")); });
