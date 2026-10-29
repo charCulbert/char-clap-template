@@ -433,7 +433,8 @@ public:
     // ---- At a rectangle you choose (pixels): for drawing inside a paint()
     // box, or anywhere else Clay doesn't place things.
     // A rotary control with its value and name below; drag up/down to change.
-    // log: logarithmic mapping (min > 0).
+    // log: logarithmic mapping (min > 0). Without it, a parameter with a mid
+    // (gpu::Param) lands on it halfway along the travel.
     void knob (Params& params, Param* p, Rect r, const Format& format, bool log = false);
     // A horizontal slider, its name and value above it; drag left/right.
     void slider (Params& params, Param* p, Rect r, const Format& format, bool log = false);
@@ -602,7 +603,8 @@ private:
     std::deque<Placed> placed;                       // knobs and sliders the layout places, until end()
     std::deque<std::function<void (Rect)>> painters; // paint()'s, until end()
 
-    // 0..1 position of a value, and back.
+    // 0..1 position of a value, and back: log's, else through the
+    // parameter's mid if it has one (midCurve), else even.
     static double toUnit (const Param& p, double v, bool log);
     static double fromUnit (const Param& p, double u, bool log);
     // p's value moved by `by`, a signed fraction of the travel; a stepped
