@@ -29,6 +29,8 @@ double Ui::toUnit (const Param& p, double v, bool log)
         return 0;
     if (log && p.min > 0 && !p.stepped)
         return std::log (v / p.min) / std::log (p.max / p.min);
+    if (const double k = midCurve (p))
+        return curveTravel ((v - p.min) / (p.max - p.min), k);
     return (v - p.min) / (p.max - p.min);
 }
 
@@ -42,6 +44,8 @@ double Ui::fromUnit (const Param& p, double u, bool log)
         return p.min + std::min (std::floor (u * (p.max - p.min + 1)), p.max - p.min);
     if (log && p.min > 0)
         return p.min * std::pow (p.max / p.min, u);
+    if (const double k = midCurve (p))
+        return p.min + (p.max - p.min) * curveValue (u, k);
     return p.min + u * (p.max - p.min);
 }
 

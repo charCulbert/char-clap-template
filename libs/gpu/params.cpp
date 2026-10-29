@@ -34,6 +34,8 @@ bool Params::receive (const core::Value& message)
                 p->min = entry["min"].number(), p->max = entry["max"].number (1),
                 p->defaultValue = entry["default"].number();
                 p->stepped = entry["stepped"].boolean();
+                const double mid = entry["mid"].number (NAN);
+                p->mid = std::isnan (mid) ? std::nullopt : std::optional (mid);
                 if (!p->dragging)
                     p->value = p->stepped ? std::trunc (p->defaultValue) : p->defaultValue;
             }

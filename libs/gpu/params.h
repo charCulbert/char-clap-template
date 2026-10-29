@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -21,6 +22,10 @@ struct Param
     bool stepped = false;  // CLAP_PARAM_IS_STEPPED: whole values only, as CLAP truncates them (min and max whole too)
     bool dragging = false; // in a gesture
     int gestures = 0;      // nested begins: several controls (or keys mid-drag) can share one
+    // The value at the middle of a control's travel, for a range that wants
+    // more of it at one end (Hz, seconds). Only for the interface: CLAP
+    // doesn't carry it. None, or one not inside (min, max): even travel.
+    std::optional<double> mid;
 };
 
 class Params

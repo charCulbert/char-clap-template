@@ -8,6 +8,7 @@
 #include "../libs/chardraw/ui.h"
 #include "../libs/chardraw/views.h"
 #include "../libs/chardraw/dock.h"
+#include "../libs/chardraw/ui_internal.h" // midCurve, for the knob law through a mid
 #include <algorithm>
 #include <set>
 #include <thread>
@@ -1916,6 +1917,100 @@ static void uprightSliderTypes()
     CHECK (std::abs (a->value - 0.6) < 1e-9);
 }
 
+// A parameter's mid (gpu::Param): its knobs and sliders land on it halfway
+// along the travel, on an exponential curve through min, mid and max that
+// goes back and forth exactly; with mid the geometric mean it's the log law.
+// A mid missing, outside the range or at its middle gives even travel; one
+// near an end, a steep curve, still finite. log still overrides it.
+static void midTravel()
+{
+    auto with = [] (double min, double max, std::optional<double> mid) {
+        gpu::Param p;
+        p.min = min, p.max = max, p.mid = mid;
+        return p;
+    };
+    auto value = [] (const gpu::Param& p, double u) {
+        return p.min + (p.max - p.min) * gpu::curveValue (u, gpu::midCurve (p));
+    };
+    auto travel = [] (const gpu::Param& p, double v) {
+        return gpu::curveTravel ((v - p.min) / (p.max - p.min), gpu::midCurve (p));
+    };
+    // Each curve: its ends, and rising all along. Exact: strictly, and back
+    // again (a curve steep enough to round neighbours together isn't).
+    auto curve = [&] (const gpu::Param& p, bool exact) {
+        CHECK (std::isfinite (gpu::midCurve (p)) && gpu::midCurve (p) != 0);
+        CHECK (value (p, 0) == p.min && std::abs (value (p, 1) - p.max) <= 1e-12 * (p.max - p.min));
+        double last = -INFINITY;
+        for (int i = 0; i <= 1000; ++i)
+        {
+            const double u = i / 1000.0, v = value (p, u);
+            CHECK (std::isfinite (v) && (exact ? v > last : v >= last));
+            CHECK (std::isfinite (travel (p, v)) && (!exact || std::abs (travel (p, v) - u) < 1e-9));
+            last = v;
+        }
+    };
+    const gpu::Param ranges[] = {
+        with (0.01, 40, 2),     // LFO rate
+        with (20, 20000, 1000), // cutoff
+        with (0, 2, 0.25),      // from 0: a smoothing time
+        with (-60, -10, -50),   // negative
+        with (-1, 3, 0),        // across 0
+        with (0, 1, 0.9),       // past the middle: more travel at the top
+    };
+    for (const gpu::Param& p : ranges)
+    {
+        curve (p, true);
+        CHECK (std::abs (value (p, 0.5) - *p.mid) < 1e-9 * (p.max - p.min));
+    }
+    // At the geometric mean, the log law.
+    const gpu::Param cutoff = with (20, 20000, std::sqrt (20.0 * 20000));
+    for (int i = 0; i <= 100; ++i)
+    {
+        const double u = i / 100.0, logged = 20 * std::pow (1000.0, u);
+        CHECK (std::abs (value (cutoff, u) - logged) < 1e-9 * logged);
+        CHECK (std::abs (travel (cutoff, logged) - u) < 1e-9);
+    }
+    // Even travel: no mid, at or past an end, at the middle, stepped.
+    gpu::Param stepped = with (0, 4, 1);
+    stepped.stepped = true;
+    for (const gpu::Param& p : { with (0, 2, std::nullopt), with (0, 2, 0), with (0, 2, 2), with (0, 2, -1),
+             with (0, 2, 3), with (0, 2, 1), with (0, 2, NAN), with (2, 2, 2), stepped })
+        CHECK (gpu::midCurve (p) == 0);
+    // Near an end, steep but finite, either way.
+    for (const gpu::Param& p :
+        { with (20, 20000, 20 + 1e-6), with (20, 20000, 20000 - 1e-6), with (0, 1, 1e-300), with (0, 1, 1 - 1e-16) })
+        curve (p, false);
+
+    // Through the interface: "params" carries mid, and a knob dragged up 100
+    // points of its 200 from min lands on it; with log, on the geometric mean.
+    Ui ui;
+    gpu::Params params;
+    params.send = [] (const core::Value&) {};
+    core::Value::Array list;
+    list.push_back (core::Value::Map {
+        { "id", 0.0 }, { "name", "Rate" }, { "min", 0.01 }, { "max", 40.0 }, { "default", 0.5 }, { "mid", 2.0 } });
+    list.push_back (
+        core::Value::Map { { "id", 1.0 }, { "name", "Even" }, { "min", 0.0 }, { "max", 1.0 }, { "default", 0.0 } });
+    params.receive (core::Value::Map { { "type", "params" }, { "params", list } });
+    gpu::Param *rate = params.find ("Rate"), *even = params.find ("Even");
+    CHECK (rate->mid == 2.0 && !even->mid);
+    for (bool log : { false, true })
+    {
+        params.change (*rate, 0.01);
+        auto draw = [&] {
+            ui.begin (400, 300, 1);
+            ui.knob (params, rate, gpu::Rect { 0, 0, 100, 140 }, "%.2f", log);
+            ui.end (wgpu::RenderPassEncoder {});
+        };
+        draw();
+        pointer (ui, View::Pointer::down, 50, 50), draw();
+        pointer (ui, View::Pointer::move, 50, -50), draw();
+        pointer (ui, View::Pointer::up, 50, -50), draw();
+        CHECK (std::abs (rate->value - (log ? std::sqrt (0.01 * 40) : 2.0)) < 1e-9);
+        pointer (ui, View::Pointer::down, 380, 280), pointer (ui, View::Pointer::up, 380, 280); // (no double-click)
+    }
+}
+
 // A typed value is a bare number in the format's typedScale: a percent here,
 // as shown, and opens for typing in it; "75 %" isn't a bare number.
 static void typedInScale()
@@ -3482,6 +3577,7 @@ int main()
     keyboardFocus();
     knobDragAndKeys();
     steppedControls();
+    midTravel();
     typedInScale();
     uprightSliderTypes();
     parameterFormats();
