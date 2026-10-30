@@ -8,7 +8,7 @@
 #include "../libs/chardraw/ui.h"
 #include "../libs/chardraw/views.h"
 #include "../libs/chardraw/dock.h"
-#include "../libs/chardraw/ui_internal.h" // midCurve, for the knob law through a mid
+#include "../libs/chardraw/ui_internal.h" // curveValue and curveTravel, the knob law
 #include <algorithm>
 #include <set>
 #include <thread>
@@ -1917,98 +1917,143 @@ static void uprightSliderTypes()
     CHECK (std::abs (a->value - 0.6) < 1e-9);
 }
 
-// A parameter's mid (gpu::Param): its knobs and sliders land on it halfway
-// along the travel, on an exponential curve through min, mid and max that
-// goes back and forth exactly; with mid the geometric mean it's the log law.
-// A mid missing, outside the range or at its middle gives even travel; one
-// near an end, a steep curve, still finite. log still overrides it.
-static void midTravel()
+// A parameter's curve and mid (gpu::Param). The expected values are from
+// Compost's parameter-scale.js, normalisedPositionToValue in Node, at
+// u = 0, 0.25, 0.5, 0.75 and 1, for { min, max, mid, curve }.
+static void curveTravelLaw()
 {
-    auto with = [] (double min, double max, std::optional<double> mid) {
+    using Curve = gpu::Param::Curve;
+    auto with = [] (double min, double max, std::optional<double> mid, Curve curve) {
         gpu::Param p;
-        p.min = min, p.max = max, p.mid = mid;
+        p.min = min, p.max = max, p.mid = mid, p.curve = curve;
         return p;
     };
-    auto value = [] (const gpu::Param& p, double u) {
-        return p.min + (p.max - p.min) * gpu::curveValue (u, gpu::midCurve (p));
+    const struct
+    {
+        gpu::Param p;
+        double values[5];
+    } fromCompost[] = {
+        // log with a mid
+        { with (20, 20000, 1000, Curve::log), { 20, 183.31430398375645, 999.9999999999999, 4681.711872107851, 20000 } },
+        { with (0.01, 40, 2, Curve::log), { 0.01, 0.2950663792598064, 1.9999999999999996, 9.788120268437732, 40 } },
+        { with (0.001, 10, 0.3, Curve::log), { 0.001, 0.0342004978187731, 0.2999999999999998, 1.899228146446868, 10 } },
+        // At the square root of min times max, and with no usable mid: plain log.
+        { with (20, 20000, std::sqrt (20.0 * 20000), Curve::log),
+            { 20, 112.46826503806983, 632.4555320336758, 3556.5588200778457, 20000 } },
+        { with (20, 20000, std::nullopt, Curve::log),
+            { 20, 112.46826503806983, 632.4555320336758, 3556.5588200778457, 20000 } },
+        { with (20, 20000, 50000, Curve::log),
+            { 20, 112.46826503806983, 632.4555320336758, 3556.5588200778457, 20000 } },
+        { with (20, 20000, 10, Curve::log), { 20, 112.46826503806983, 632.4555320336758, 3556.5588200778457, 20000 } },
+        { with (20, 20000, 20, Curve::log), { 20, 112.46826503806983, 632.4555320336758, 3556.5588200778457, 20000 } },
+        { with (20, 20000, 20000, Curve::log),
+            { 20, 112.46826503806983, 632.4555320336758, 3556.5588200778457, 20000 } },
+        // log with min <= 0 is linear.
+        { with (0, 10, 2, Curve::log), { 0, 1, 2, 6, 10 } },
+        { with (0, 10, std::nullopt, Curve::log), { 0, 2.5, 5, 7.5, 10 } },
+        { with (-10, 10, 5, Curve::log), { -10, -2.5, 5, 7.5, 10 } },
+        // Two lines.
+        { with (0, 10, 2, Curve::linear), { 0, 1, 2, 6, 10 } },
+        { with (-60, -10, -50, Curve::linear), { -60, -55, -50, -30, -10 } },
+        { with (-1, 3, 0, Curve::linear), { -1, -0.5, 0, 1.5, 3 } },
+        { with (0, 1, 0.9, Curve::linear), { 0, 0.45, 0.9, 0.95, 1 } },
+        // Even: no mid, or one not strictly inside.
+        { with (0, 10, std::nullopt, Curve::linear), { 0, 2.5, 5, 7.5, 10 } },
+        { with (0, 10, 0, Curve::linear), { 0, 2.5, 5, 7.5, 10 } },
+        { with (0, 10, 10, Curve::linear), { 0, 2.5, 5, 7.5, 10 } },
+        { with (0, 10, 12, Curve::linear), { 0, 2.5, 5, 7.5, 10 } },
+        { with (0, 10, 5, Curve::linear), { 0, 2.5, 5, 7.5, 10 } },
+        // No range.
+        { with (5, 5, 5, Curve::log), { 5, 5, 5, 5, 5 } },
+        { with (5, 5, 5, Curve::linear), { 5, 5, 5, 5, 5 } },
     };
-    auto travel = [] (const gpu::Param& p, double v) {
-        return gpu::curveTravel ((v - p.min) / (p.max - p.min), gpu::midCurve (p));
-    };
-    // Each curve: its ends, and rising all along. Exact: strictly, and back
-    // again (a curve steep enough to round neighbours together isn't).
-    auto curve = [&] (const gpu::Param& p, bool exact) {
-        CHECK (std::isfinite (gpu::midCurve (p)) && gpu::midCurve (p) != 0);
-        CHECK (value (p, 0) == p.min && std::abs (value (p, 1) - p.max) <= 1e-12 * (p.max - p.min));
+    for (const auto& row : fromCompost)
+    {
+        const gpu::Param& p = row.p;
+        const double room = 1e-12 * std::max (std::abs (p.min), std::abs (p.max));
+        for (int i = 0; i < 5; ++i)
+            CHECK (std::abs (gpu::curveValue (p, i * 0.25) - row.values[i]) <= room);
+        if (!(p.max > p.min))
+            continue;
+        // Back and forth, rising all along, finite. A value past an end counts
+        // as that end, as in Compost's valueToNormalisedPosition.
         double last = -INFINITY;
         for (int i = 0; i <= 1000; ++i)
         {
-            const double u = i / 1000.0, v = value (p, u);
-            CHECK (std::isfinite (v) && (exact ? v > last : v >= last));
-            CHECK (std::isfinite (travel (p, v)) && (!exact || std::abs (travel (p, v) - u) < 1e-9));
+            const double u = i / 1000.0, v = gpu::curveValue (p, u), back = gpu::curveTravel (p, v);
+            CHECK (std::isfinite (v) && v > last);
+            CHECK (std::isfinite (back) && std::abs (back - u) < 1e-9);
             last = v;
         }
-    };
-    const gpu::Param ranges[] = {
-        with (0.01, 40, 2),     // LFO rate
-        with (20, 20000, 1000), // cutoff
-        with (0, 2, 0.25),      // from 0: a smoothing time
-        with (-60, -10, -50),   // negative
-        with (-1, 3, 0),        // across 0
-        with (0, 1, 0.9),       // past the middle: more travel at the top
-    };
-    for (const gpu::Param& p : ranges)
-    {
-        curve (p, true);
-        CHECK (std::abs (value (p, 0.5) - *p.mid) < 1e-9 * (p.max - p.min));
+        CHECK (gpu::curveTravel (p, p.min - 1) == 0 && gpu::curveTravel (p, p.max + 1) == 1);
+        CHECK (gpu::curveTravel (p, NAN) == 0 && gpu::curveTravel (p, INFINITY) == 0);
     }
-    // At the geometric mean, the log law.
-    const gpu::Param cutoff = with (20, 20000, std::sqrt (20.0 * 20000));
-    for (int i = 0; i <= 100; ++i)
-    {
-        const double u = i / 100.0, logged = 20 * std::pow (1000.0, u);
-        CHECK (std::abs (value (cutoff, u) - logged) < 1e-9 * logged);
-        CHECK (std::abs (travel (cutoff, logged) - u) < 1e-9);
-    }
-    // Even travel: no mid, at or past an end, at the middle, stepped.
-    gpu::Param stepped = with (0, 4, 1);
+    // A mid at the very edge of what's usable, or not a number: finite, in range.
+    for (Curve curve : { Curve::log, Curve::linear })
+        for (double mid : { 20 + 1e-13, 20 + 1e-11, 20000 - 1e-11, 20000 - 1e-13, double (NAN), double (INFINITY) })
+        {
+            const gpu::Param p = with (20, 20000, mid, curve);
+            for (int i = 0; i <= 1000; ++i)
+            {
+                const double u = i / 1000.0, v = gpu::curveValue (p, u), back = gpu::curveTravel (p, v);
+                CHECK (std::isfinite (v) && v >= 20 && v <= 20000 * (1 + 1e-12));
+                CHECK (std::isfinite (back) && back >= 0 && back <= 1);
+            }
+        }
+    // A stepped parameter's travel is even.
+    gpu::Param stepped = with (1, 5, 2, Curve::log);
     stepped.stepped = true;
-    for (const gpu::Param& p : { with (0, 2, std::nullopt), with (0, 2, 0), with (0, 2, 2), with (0, 2, -1),
-             with (0, 2, 3), with (0, 2, 1), with (0, 2, NAN), with (2, 2, 2), stepped })
-        CHECK (gpu::midCurve (p) == 0);
-    // Near an end, steep but finite, either way.
-    for (const gpu::Param& p :
-        { with (20, 20000, 20 + 1e-6), with (20, 20000, 20000 - 1e-6), with (0, 1, 1e-300), with (0, 1, 1 - 1e-16) })
-        curve (p, false);
+    CHECK (gpu::curveTravel (stepped, 3) == 0.5);
 
-    // Through the interface: "params" carries mid, and a knob dragged up 100
-    // points of its 200 from min lands on it; with log, on the geometric mean.
+    // Through the interface: "params" carries curve and mid, and a knob dragged
+    // up from min by some of its 200 points lands on the curve. A control's log
+    // overrides both.
     Ui ui;
     gpu::Params params;
     params.send = [] (const core::Value&) {};
     core::Value::Array list;
+    list.push_back (core::Value::Map { { "id", 0.0 }, { "name", "Cutoff" }, { "min", 20.0 }, { "max", 20000.0 },
+        { "default", 20.0 }, { "mid", 1000.0 }, { "curve", "log" } });
     list.push_back (core::Value::Map {
-        { "id", 0.0 }, { "name", "Rate" }, { "min", 0.01 }, { "max", 40.0 }, { "default", 0.5 }, { "mid", 2.0 } });
-    list.push_back (
-        core::Value::Map { { "id", 1.0 }, { "name", "Even" }, { "min", 0.0 }, { "max", 1.0 }, { "default", 0.0 } });
+        { "id", 1.0 }, { "name", "Drive" }, { "min", 0.0 }, { "max", 10.0 }, { "default", 0.0 }, { "mid", 2.0 } });
+    list.push_back (core::Value::Map { { "id", 2.0 }, { "name", "Plain" }, { "min", 20.0 }, { "max", 20000.0 },
+        { "default", 20.0 }, { "curve", "log" } });
+    list.push_back (core::Value::Map {
+        { "id", 3.0 }, { "name", "Even" }, { "min", 0.0 }, { "max", 1.0 }, { "default", 0.0 }, { "curve", "gain" } });
     params.receive (core::Value::Map { { "type", "params" }, { "params", list } });
-    gpu::Param *rate = params.find ("Rate"), *even = params.find ("Even");
-    CHECK (rate->mid == 2.0 && !even->mid);
-    for (bool log : { false, true })
-    {
-        params.change (*rate, 0.01);
+    gpu::Param *cutoff = params.find ("Cutoff"), *drive = params.find ("Drive"), *plain = params.find ("Plain"),
+               *even = params.find ("Even");
+    CHECK (cutoff->curve == Curve::log && cutoff->mid == 1000.0);
+    CHECK (drive->curve == Curve::linear && drive->mid == 2.0);
+    CHECK (plain->curve == Curve::log && !plain->mid);
+    CHECK (even->curve == Curve::linear && !even->mid);
+    auto drag = [&] (gpu::Param* p, float points, bool log) {
+        params.change (*p, p->min);
         auto draw = [&] {
             ui.begin (400, 300, 1);
-            ui.knob (params, rate, gpu::Rect { 0, 0, 100, 140 }, "%.2f", log);
+            ui.knob (params, p, gpu::Rect { 0, 0, 100, 140 }, "%.2f", log);
             ui.end (wgpu::RenderPassEncoder {});
         };
         draw();
         pointer (ui, View::Pointer::down, 50, 50), draw();
-        pointer (ui, View::Pointer::move, 50, -50), draw();
-        pointer (ui, View::Pointer::up, 50, -50), draw();
-        CHECK (std::abs (rate->value - (log ? std::sqrt (0.01 * 40) : 2.0)) < 1e-9);
+        pointer (ui, View::Pointer::move, 50, 50 - points), draw();
+        pointer (ui, View::Pointer::up, 50, 50 - points), draw();
         pointer (ui, View::Pointer::down, 380, 280), pointer (ui, View::Pointer::up, 380, 280); // (no double-click)
-    }
+    };
+    drag (cutoff, 100, false);
+    CHECK (std::abs (cutoff->value - 1000) < 1e-9);
+    drag (cutoff, 50, false);
+    CHECK (std::abs (cutoff->value - 183.31430398375645) < 1e-9);
+    drag (cutoff, 100, true);
+    CHECK (std::abs (cutoff->value - 632.4555320336758) < 1e-9);
+    drag (drive, 50, false);
+    CHECK (std::abs (drive->value - 1) < 1e-9);
+    drag (drive, 150, false);
+    CHECK (std::abs (drive->value - 6) < 1e-9);
+    drag (plain, 100, false);
+    CHECK (std::abs (plain->value - 632.4555320336758) < 1e-9);
+    drag (even, 50, false);
+    CHECK (std::abs (even->value - 0.25) < 1e-9);
 }
 
 // A typed value is a bare number in the format's typedScale: a percent here,
@@ -3577,7 +3622,7 @@ int main()
     keyboardFocus();
     knobDragAndKeys();
     steppedControls();
-    midTravel();
+    curveTravelLaw();
     typedInScale();
     uprightSliderTypes();
     parameterFormats();

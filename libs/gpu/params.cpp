@@ -36,6 +36,7 @@ bool Params::receive (const core::Value& message)
                 p->stepped = entry["stepped"].boolean();
                 const double mid = entry["mid"].number (NAN);
                 p->mid = std::isnan (mid) ? std::nullopt : std::optional (mid);
+                p->curve = entry["curve"].text() == "log" ? Param::Curve::log : Param::Curve::linear;
                 if (!p->dragging)
                     p->value = p->stepped ? std::trunc (p->defaultValue) : p->defaultValue;
             }
