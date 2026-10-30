@@ -107,7 +107,7 @@ public:
         {
             if (cutoff && release && waveform) // once the plugin has sent its parameters
             {
-                ui.knob (params, cutoff, asText (UNIT_HERTZ, "Cutoff"), false, 52); // its mid sets its travel
+                ui.knob (params, cutoff, asText (UNIT_HERTZ, "Cutoff"), false, 52); // its row sets its travel
                 ui.knob (params, release, asText (UNIT_SECONDS), false, 52);
                 ui.knob (params, waveform, asText (UNIT_WAVE, "Wave"), false, 52);
             }

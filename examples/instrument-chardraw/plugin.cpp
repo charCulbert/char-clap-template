@@ -189,14 +189,19 @@ struct Param
     clap_param_info_flags flags;
     ParamUnit unit;
     // The value at the middle of a knob's or slider's travel in the interface,
-    // for a range that wants more of the travel at one end (20 Hz to 20 kHz:
-    // 632, as a log knob). NAN, or left out: even travel.
+    // and the curve through it, for a range that wants more of the travel at
+    // one end (20 Hz to 20 kHz: "log" with 632 is the plain log law). The curve
+    // is "log" (the mid sets its bend; no mid, plain log) or, when left out,
+    // linear (two straight lines meeting at the mid; no mid, even travel).
     double mid = NAN;
+    const char* curve = nullptr;
 };
 static constexpr Param paramTable[] = {
-    // Their mids are the square root of min times max: even steps per octave.
-    { P_CUTOFF, "cutoff", "Filter cutoff", 20.0, 20000.0, 2000.0, CLAP_PARAM_IS_AUTOMATABLE, UNIT_HERTZ, 632.456 },
-    { P_RELEASE, "release", "Release", 0.01, 2.0, 0.3, CLAP_PARAM_IS_AUTOMATABLE, UNIT_SECONDS, 0.141421 },
+    // Their mids are the square root of min times max, which on a log curve is
+    // the plain log law: even steps per octave.
+    { P_CUTOFF, "cutoff", "Filter cutoff", 20.0, 20000.0, 2000.0, CLAP_PARAM_IS_AUTOMATABLE, UNIT_HERTZ, 632.456,
+        "log" },
+    { P_RELEASE, "release", "Release", 0.01, 2.0, 0.3, CLAP_PARAM_IS_AUTOMATABLE, UNIT_SECONDS, 0.141421, "log" },
     { P_WAVE, "wave", "Waveform", 0.0, 2.0, 0.0, CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_STEPPED, UNIT_WAVE },
 };
 static_assert (std::size (paramTable) == P_COUNT, "a row for each id in params.h");
@@ -806,7 +811,7 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //                 {type: "begin" | "end", id}     a drag starts or ends
 //                 {type: "change", id, value}
 //                 {type: "minimum size", width, height}  what the content fits, in points
-//   plugin -> UI  {type: "params", params: [{id, name, min, max, default, stepped, mid?}]}
+//   plugin -> UI  {type: "params", params: [{id, name, min, max, default, stepped, mid?, curve?}]}
 //                 {type: "values", values: [value per parameter id]}
 //                 {type: "meter", peaks: [left, right]}  the highest level since the last, 1 = 0 dBFS
 static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
@@ -823,6 +828,8 @@ static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
                 { "stepped", (param.flags & CLAP_PARAM_IS_STEPPED) != 0 } };
             if (!std::isnan (param.mid))
                 entry["mid"] = param.mid;
+            if (param.curve)
+                entry["curve"] = param.curve;
             params.push_back (std::move (entry));
         }
         plugin->gui.send (core::Value::Map { { "type", "params" }, { "params", params } });

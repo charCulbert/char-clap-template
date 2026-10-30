@@ -203,17 +203,27 @@ ui.knob (params, pan, { panText, "Pan", Ui::Fill::fromDefault });
 ```
 
 A range that wants more of the travel at one end (20 Hz to 20 kHz, 1 ms to
-10 s) gives its row in `paramTable` a `mid`: the value halfway along a knob's
-or slider's travel. The chardraw starters send it in the `params` message
-(another plugin adds `mid` to the parameter's entry there), and the controls
-follow an exponential curve through min, mid and max. It works from 0 and on
-negative ranges, and a mid at the geometric mean of min and max is the log
-law. Without a mid, or with one not inside the range, the travel is
-even. A control's `log` argument still overrides it. The host's own controls
-stay even: CLAP doesn't carry it.
+10 s) gives its row in `paramTable` a `curve`, a `mid`, or both. The chardraw
+starters send them in the `params` message (another plugin adds `curve` and
+`mid` to the parameter's entry there). The `mid` is the value halfway along a
+knob's or slider's travel. The `curve` is `"log"` or `"linear"`, and linear is
+the default:
+
+| Curve | Mid | Travel |
+| --- | --- | --- |
+| `"log"` | inside the range | `min * (max/min)^(u^shape)`, with the shape that puts the mid at u = 0.5 |
+| `"log"` | none, or not inside the range | plain log |
+| `"linear"` | inside the range | two straight lines that meet at the mid at u = 0.5 |
+| `"linear"` | none, or not inside the range | even |
+
+A log curve needs min above 0, and is linear otherwise. A mid at the square
+root of min times max is the plain log law. A stepped parameter's travel is
+always even. A control's `log` argument overrides the curve and mid. The
+host's own controls stay even: CLAP doesn't carry either.
 
 ```cpp
-{ P_RATE, "rate", "LFO rate", 0.01, 40.0, 0.5, CLAP_PARAM_IS_AUTOMATABLE, UNIT_HERTZ, 2.0 }, // 2 Hz at the middle
+{ P_CUTOFF, "cutoff", "Filter cutoff", 20.0, 20000.0, 2000.0, CLAP_PARAM_IS_AUTOMATABLE, UNIT_HERTZ, 1000.0, "log" }, // log, 1 kHz at the middle
+{ P_RATE, "rate", "LFO rate", 0.0, 40.0, 0.5, CLAP_PARAM_IS_AUTOMATABLE, UNIT_HERTZ, 2.0 }, // two lines, 2 Hz at the middle
 ```
 
 `ui.piano` returns its notes from the call that declares it. A tap shorter
