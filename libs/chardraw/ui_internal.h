@@ -1,5 +1,5 @@
 // What the ui*.cpp files share; only they include it (and ui_test, for the
-// knob law through a parameter's mid).
+// knob law).
 #pragma once
 #include "ui.h"
 #include <algorithm>
@@ -31,41 +31,61 @@ inline uint64_t accessId (const void* me)
     return uint64_t (reinterpret_cast<uintptr_t> (me));
 }
 
-// The travel of a parameter with a mid (gpu::Param): an exponential curve
-// through min, mid and max, value = min + (max - min) * expm1 (u ln r) / (r - 1)
-// at travel u, where r = ((1 - t) / t)^2 and t is mid's 0..1 place in the
-// range. Unlike a power curve, it has a slope at both ends (no dead stretch
-// at min), works from min 0 and on negative ranges, and with mid the geometric
-// mean of min and max is the log law. Returns ln r, or 0 for even travel: no
-// mid, one not inside (min, max), one at the middle, or a stepped parameter.
-inline double midCurve (const Param& p)
+// The law between a control's travel u (0..1) and a parameter's value, the
+// same as Compost's parameter-scale.js, by its curve and mid (gpu::Param):
+//
+//   log, min > 0      value = min * (max / min)^(u^shape); shape puts the mid at
+//                     u = 0.5, and is 1 (plain log) with no mid inside the range
+//   linear            two straight lines meeting at the mid at u = 0.5, with a
+//                     mid strictly inside the range; else even travel
+//
+// A log curve with min <= 0 is linear. A stepped parameter's travel is even.
+inline bool hasLogTravel (const Param& p)
 {
-    if (!p.mid || p.stepped || !(p.max > p.min))
-        return 0;
-    const double t = (*p.mid - p.min) / (p.max - p.min);
-    if (!(t > 0 && t < 1) || std::abs (t - 0.5) < 1e-9)
-        return 0;
-    // A mid within 1e-12 of an end is as steep as doubles keep finite (r 1e24).
-    const double inside = std::clamp (t, 1e-12, 1 - 1e-12);
-    return 2 * std::log ((1 - inside) / inside);
+    return p.curve == Param::Curve::log && !p.stepped && p.min > 0 && p.max > p.min;
 }
 
-// The curve's 0..1 place in the range at travel u, and back; k is midCurve's.
-// Worked from the curve's shallow end, so expm1 never nears -1 (k < 0: mid
-// past the middle, mirrored).
-inline double curveValue (double u, double k)
+inline bool hasTwoLines (const Param& p)
 {
-    if (k < 0)
-        return 1 - curveValue (1 - u, -k);
-    return std::expm1 (u * k) / std::expm1 (k);
+    return p.mid && !p.stepped && *p.mid > p.min && *p.mid < p.max;
 }
 
-inline double curveTravel (double n, double k)
+// shape = ln e / ln 0.5, where e is the mid's place between min and max on a
+// log scale. 1 for no mid, or one outside the range or within 1e-12 of an end.
+inline double logShape (const Param& p)
 {
-    n = std::clamp (n, 0.0, 1.0);
-    if (k < 0)
-        return 1 - curveTravel (1 - n, -k);
-    return std::log1p (n * std::expm1 (k)) / k;
+    if (!p.mid || !(*p.mid - p.min > 1e-12 && p.max - *p.mid > 1e-12))
+        return 1;
+    const double e = std::log (*p.mid / p.min) / std::log (p.max / p.min);
+    if (!(e > 0 && e < 1))
+        return 1;
+    return std::max (1e-12, std::log (e) / std::log (0.5));
+}
+
+inline double curveValue (const Param& p, double u)
+{
+    u = std::clamp (u, 0.0, 1.0);
+    if (hasLogTravel (p))
+        return p.min * std::pow (p.max / p.min, std::pow (u, logShape (p)));
+    if (hasTwoLines (p))
+        return u <= 0.5 ? p.min + (*p.mid - p.min) * (u / 0.5) : *p.mid + (p.max - *p.mid) * ((u - 0.5) / 0.5);
+    return p.min + (p.max - p.min) * u;
+}
+
+// A value outside the range counts as its nearest end, one not finite as min.
+// Needs max > min.
+inline double curveTravel (const Param& p, double v)
+{
+    v = std::isfinite (v) ? std::clamp (v, p.min, p.max) : p.min;
+    if (hasLogTravel (p))
+        return std::clamp (std::pow (std::log (v / p.min) / std::log (p.max / p.min), 1 / logShape (p)), 0.0, 1.0);
+    if (hasTwoLines (p))
+    {
+        const double u =
+            v <= *p.mid ? 0.5 * ((v - p.min) / (*p.mid - p.min)) : 0.5 + 0.5 * ((v - *p.mid) / (p.max - *p.mid));
+        return std::clamp (u, 0.0, 1.0);
+    }
+    return (v - p.min) / (p.max - p.min);
 }
 
 } // namespace gpu
