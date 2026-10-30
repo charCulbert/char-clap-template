@@ -564,7 +564,7 @@ private:
             cell (
                 "Knobs: drag, Shift fine, wheel, double-click resets, Tab + arrows, right-click or Menu key; Gain "
                 "filled from 0 dB; Cutoff labelled Freq, its value in Hz or kHz; Cutoff and Drive have a mid, the value at "
-                "half their travel (1 kHz, 2)",
+                "half their travel: Cutoff a log curve through 1 kHz, Drive two straight lines through 2",
                 [&] {
                     for (int i = 0; i < 4; ++i)
                     {

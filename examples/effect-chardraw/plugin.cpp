@@ -167,9 +167,12 @@ struct Param
     clap_param_info_flags flags;
     ParamUnit unit;
     // The value at the middle of a knob's or slider's travel in the interface,
-    // for a range that wants more of the travel at one end (20 Hz to 20 kHz:
-    // 632, as a log knob). NAN, or left out: even travel.
+    // and the curve through it, for a range that wants more of the travel at
+    // one end (20 Hz to 20 kHz: "log" with 632 is the plain log law). The curve
+    // is "log" (the mid sets its bend; no mid, plain log) or, when left out,
+    // linear (two straight lines meeting at the mid; no mid, even travel).
     double mid = NAN;
+    const char* curve = nullptr;
 };
 static constexpr Param paramTable[] = {
     { P_GAIN, "gain", "Gain", -60.0, 12.0, 0.0, CLAP_PARAM_IS_AUTOMATABLE, UNIT_DECIBELS },
@@ -718,7 +721,7 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //                 {type: "begin" | "end", id}     a drag starts or ends
 //                 {type: "change", id, value}
 //                 {type: "minimum size", width, height}  what the content fits, in points
-//   plugin -> UI  {type: "params", params: [{id, name, min, max, default, stepped, mid?}]}
+//   plugin -> UI  {type: "params", params: [{id, name, min, max, default, stepped, mid?, curve?}]}
 //                 {type: "values", values: [value per parameter id]}
 //                 {type: "meter", peaks: [left, right]}  the highest level since the last, 1 = 0 dBFS
 static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
@@ -735,6 +738,8 @@ static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
                 { "stepped", (param.flags & CLAP_PARAM_IS_STEPPED) != 0 } };
             if (!std::isnan (param.mid))
                 entry["mid"] = param.mid;
+            if (param.curve)
+                entry["curve"] = param.curve;
             params.push_back (std::move (entry));
         }
         plugin->gui.send (core::Value::Map { { "type", "params" }, { "params", params } });

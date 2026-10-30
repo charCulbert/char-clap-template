@@ -38,12 +38,13 @@ struct Setting
     const char* name;
     double min, max, defaultValue;
     const char* format;
-    double mid; // the value at the middle of a control's travel, or 0 for even travel
+    double mid;                  // the value at the middle of a control's travel, or 0 for none
+    const char* curve = nullptr; // "log", or left out for linear: two lines through a mid, else even
 };
 static const Setting settings[] = {
     { "Gain", -24, 24, 0, "%.1f dB", 0 },
     { "Mix", 0, 100, 100, "%.0f %%", 0 },
-    { "Cutoff", 20, 20000, 1000, "%.0f Hz", 1000 },
+    { "Cutoff", 20, 20000, 1000, "%.0f Hz", 1000, "log" },
     { "Drive", 0, 10, 2, "%.2f", 2 },
 };
 #define P_COUNT (4)
@@ -365,7 +366,7 @@ static const clap_plugin_timer_support_t extensionTimerSupport = {
 //                 {type: "begin" | "end", id}     a drag starts or ends
 //                 {type: "change", id, value}
 //                 {type: "edit", name, data}      a finished edit of the other state
-//   plugin -> UI  {type: "params", params: [{id, name, min, max, default, mid?}]}
+//   plugin -> UI  {type: "params", params: [{id, name, min, max, default, mid?, curve?}]}
 //                 {type: "values", values: [value per parameter id]}
 //                 {type: "data", data}            the other state, after a load or undo
 static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
@@ -380,6 +381,8 @@ static bool PluginReceiveMessage (MyPlugin* plugin, const core::Value& message)
                 { "max", settings[i].max }, { "default", settings[i].defaultValue } };
             if (settings[i].mid != 0)
                 entry["mid"] = settings[i].mid;
+            if (settings[i].curve)
+                entry["curve"] = settings[i].curve;
             list.push_back (entry);
         }
         plugin->gui.send (core::Value::Map { { "type", "params" }, { "params", list } });
