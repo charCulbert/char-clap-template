@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 #include "native.h"
+#include <dlfcn.h>
 
 namespace webview::platform
 {
@@ -7,8 +8,24 @@ namespace webview::platform
 const char* const windowApi = CLAP_WINDOW_API_COCOA;
 const bool needsTimer = false;
 
+// Once shown, the WebView can outlive the plugin: AppKit holds autoreleased
+// references to it in the host's pools, and when those drain after the host
+// unloads the binary, the WebView releases CHOC's delegate, whose class CHOC
+// disposed on unload. Keeping the binary loaded from the first attach on stops
+// that crash, at the cost of a rebuilt plugin reloading old code until the
+// host restarts.
+static void stayLoaded()
+{
+    static const bool pinned = [] {
+        Dl_info info;
+        return dladdr ((const void*) &stayLoaded, &info) && dlopen (info.dli_fname, RTLD_NOLOAD | RTLD_NODELETE);
+    }();
+    (void) pinned;
+}
+
 void* attach (void* view, const clap_window_t* parent)
 {
+    stayLoaded();
     NSView* child = (__bridge NSView*) view;
     NSView* host = (__bridge NSView*) parent->cocoa;
     if (!host)
