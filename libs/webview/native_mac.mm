@@ -12,10 +12,12 @@ const bool needsTimer = false;
 // references to it in the host's pools, and when those drain after the host
 // unloads the binary, the WebView releases CHOC's delegate, whose class CHOC
 // disposed on unload. Keeping the binary loaded from the first attach on stops
-// that crash, at the cost of a rebuilt plugin reloading old code until the
-// host restarts.
+// that crash. The cost: until the host restarts, a reload in the same process
+// runs the old code even after a rebuild, and finds its globals as the last
+// load left them.
 static void stayLoaded()
 {
+    // The handle is never closed; that is the point.
     static const bool pinned = [] {
         Dl_info info;
         return dladdr ((const void*) &stayLoaded, &info) && dlopen (info.dli_fname, RTLD_NOLOAD | RTLD_NODELETE);
@@ -25,11 +27,11 @@ static void stayLoaded()
 
 void* attach (void* view, const clap_window_t* parent)
 {
-    stayLoaded();
     NSView* child = (__bridge NSView*) view;
     NSView* host = (__bridge NSView*) parent->cocoa;
     if (!host)
         return nullptr;
+    stayLoaded();
     [child setFrame:[host bounds]];
     // clap.gui.set_size sizes the view; autoresizing would apply a host resize twice.
     [child setAutoresizingMask:NSViewNotSizable];
